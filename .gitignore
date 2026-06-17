@@ -1,0 +1,22 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Ephemeral local task files (durable knowledge lives in docs/domains/ + docs/architecture.md)
+docs/tasks/
+
+# Logs
+*.log
+
+# Dependencies / build / cache — add stack-specific entries here once the stack is chosen.

@@ -1,0 +1,32 @@
+---
+description: Spec-driven workflow rules for this repo. Always applies. Points to AGENTS.md as canonical source and to the three project skills.
+alwaysApply: true
+---
+
+# AI workflow
+
+Canonical instructions: [`AGENTS.md`](../../AGENTS.md). Read it before any code.
+
+## Workflow at a glance
+
+1. Classify the change Level 0–3 per [`docs/feature-workflow.md`](../../docs/feature-workflow.md#complexity-levels). Check [always-approval triggers](../../docs/feature-workflow.md#always-approval-triggers).
+2. For Level 2+, load durable context: `docs/architecture.md`, `docs/coding-conventions.md`, `docs/patterns.md`, relevant `docs/domains/*`.
+3. Plan via the `plan` skill — scaffolds a Draft task in `docs/tasks/` (gitignored). Approve flips Status to Approved.
+4. Build via the `implement` skill — refuses non-Approved tasks. Verifies, distills into `docs/domains/<domain>.md`, deletes the task file, commits.
+
+## Skills
+
+Available in `.cursor/skills/`:
+
+- `describe-project` — one-time docs bootstrap (README, architecture.md, AGENTS.md project block).
+- `plan` — plan/refine/approve. No code.
+- `implement` — execute Approved tasks or Level 0/1 fixes.
+
+Invoke by describing the task naturally (e.g. "plan this bug", "implement add_import_pipeline"); the agent matches against each skill's `description:` frontmatter.
+
+## Hard rules
+
+- Never silently hit an always-approval trigger.
+- Task files are gitignored scratch — never commit them.
+- Distill durable knowledge into `docs/domains/<domain>.md` on close-out; delete the task file.
+- Use Conventional Commits; one logical change per commit; never `--no-verify`.
