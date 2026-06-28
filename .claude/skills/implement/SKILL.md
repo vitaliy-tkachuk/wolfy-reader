@@ -1,18 +1,18 @@
 ---
 name: implement
-description: Use when the user asks to execute, build, code, or fix something — phrased as "implement X", "implement fix for Y", "build add_import_pipeline", "code the login fix", "apply the fix", or similar action-oriented requests that follow a prior plan step or describe a Level 0/1 fix. Loads task context, enforces the approval gate (tasks must be Approved), runs the implementation plan, verifies via lint/typecheck/tests/build, distills durable knowledge into docs/domains/<domain>.md, and deletes the local task file. For Level 2+ work without an existing task file, refuses and asks the user to run the plan skill first.
+description: Use when the user asks to execute, build, code, or fix something — phrased as "implement X", "implement fix for Y", "build T004", "code the login fix", "apply the fix", or similar action-oriented requests that follow a prior analyze step or describe a Level 0/1 fix. Loads task context, enforces the approval gate (tasks must be Approved), runs the implementation plan, verifies via lint/typecheck/tests/build, distills durable knowledge into docs/domains/<domain>.md, and deletes the local task file. For Level 2+ work without an existing task file, refuses and asks the user to run the analyze skill first.
 ---
 
 # Implement skill
 
-Execute work. Counterpart to the `plan` skill. Do not re-classify or re-scaffold — if the work needs a task file and none exists, stop and tell the user to run plan first.
+Execute work. Counterpart to the `analyze` skill. Do not re-classify or re-scaffold — if the work needs a task file and none exists, stop and tell the user to run analyze first.
 
-The user's most recent message is the work request. Parse it as either a task slug (matching a filename in `docs/tasks/`) or a free-form Level 0/1 description.
+The user's most recent message is the work request. Parse it as either a task ID (`T\d{3}`) or a free-form Level 0/1 description.
 
 ## Step 1 — Identify the target
 
-- If the request names a slug, locate the matching file in `docs/tasks/` (exact or prefix match). On multiple matches, list and ask which. If nothing matches, stop and report (it may have been completed-and-deleted, or never scaffolded — tell the user to run plan).
-- If the request is free-form text, treat it as a **Level 0 or Level 1 fix only**. If the work looks like Level 2+, stop and tell the user: `Run plan first to scaffold a task.`
+- If the request references `T\d{3}` (e.g. `T004`, `T012`), treat it as a task ID. Locate the file in `docs/tasks/`. If missing, stop and report (it may have been completed-and-deleted, or never scaffolded — tell the user to run analyze).
+- If the request is free-form text, treat it as a **Level 0 or Level 1 fix only**. If the work looks like Level 2+, stop and tell the user: `Run analyze first to scaffold a task.`
 - If no clear target: list the contents of `docs/tasks/` and ask which task to implement.
 
 ## Step 2 — Enforce the approval gate
@@ -20,7 +20,7 @@ The user's most recent message is the work request. Parse it as either a task sl
 For a task file: read its `## Status`.
 
 - If `Approved` → proceed.
-- If `Draft` → **stop.** Tell the user the task is not approved yet: `<slug> is Draft. Say "approve <slug>" (or describe a refinement) before implementing.` Do not implement. Refinement and approval ride with the `plan` skill.
+- If `Draft` → **stop.** Tell the user the task is not approved yet: `T<NNN> is Draft. Say "approve T<NNN>" (or "clarify T<NNN> ..." to refine — both via the analyze skill) before implementing.` Do not implement.
 
 Level 0/1 free-form fixes have no task and skip this gate.
 
@@ -46,7 +46,7 @@ If working a Level 0/1 free-form fix:
 
 ## Step 4 — Re-check conflicts
 
-If the task's plan now contradicts a newer recorded decision or current domain behavior, stop and report — do not silently diverge. Hand back to plan if the task needs revision.
+If the task's plan now contradicts a newer recorded decision or current domain behavior, stop and report — do not silently diverge. Hand back to analyze if the task needs revision.
 
 ## Step 5 — Execute
 
@@ -56,25 +56,11 @@ For a task file:
 - Tick each checkbox in the task file as you complete it (edit the file in place).
 - Honor `## Out of scope` — do not expand.
 - Honor `coding-conventions.md` and `patterns.md`.
-- If you discover the plan is wrong mid-flight, stop, explain, and ask whether to update the task (re-run plan to refine) or proceed with a deviation note.
+- If you discover the plan is wrong mid-flight, stop, explain, and ask whether to update the task (re-run analyze) or proceed with a deviation note.
 
 For a Level 0 fix: make the change directly. No task file, no doc update.
 
 For a Level 1 fix: make the change, then add a short note to the relevant `docs/domains/<domain>.md` (corrected gotcha, clarified invariant, updated implementation note).
-
-### Scaffold / setup tasks
-
-If the task's plan is a fresh-repo scaffold (created by `plan` after `describe-project`), this is the step where the project actually comes into existence. Following the plan literally means:
-
-- run the package manager (`npm init`, `pnpm init`, `cargo new`, `uv init`, `poetry init`, `go mod init`, etc. — whatever the chosen stack uses)
-- install declared dependencies at their latest stable version (per `docs/coding-conventions.md ## Dependencies`)
-- commit the lockfile alongside the manifest in the same change
-- write config files (`tsconfig.json`, `pyproject.toml`, `.eslintrc`, `.prettierrc`, `rustfmt.toml`, formatter/linter configs, etc.)
-- create the source tree the scaffold task declared (the directories that will land in `docs/architecture.md ## Main application areas`)
-- add stack-specific `.gitignore` entries (`node_modules/`, `__pycache__/`, `target/`, `dist/`, `.venv/`, etc.) — the template ships only OS/editor/env/log entries
-- create `.env.example` with placeholder values if the stack uses runtime env vars; never commit a real `.env`
-
-Honor the same gates as any other task: nothing outside `## Acceptance criteria` + `## Implementation plan`, and stop and ask if the plan is missing a decision the user did not make in `plan`.
 
 ## Step 6 — Verify
 
@@ -92,11 +78,33 @@ If any fail, fix the root cause. Do not disable checks, skip tests, or use `--no
 For an Approved Level 2+ task:
 
 1. Confirm every box in `## Implementation plan` and `## Verification` is ticked.
-2. Follow the ordered close-out in [`docs/feature-workflow.md` § Completing a task](../../../docs/feature-workflow.md#completing-a-task), then commit per Step 8 below.
+2. **Distill durable knowledge into `docs/domains/<domain>.md`** — the task's `## Domain`. Create the file from the shape in `docs/domains/README.md` if the domain is new. Capture: what was built/changed, domain-local decisions and why, gotchas, and any domain-local pattern. Distill — do not paste the task verbatim.
+3. If the work introduced or changed a **cross-cutting** choice → record it in `docs/architecture.md`, woven into the section it affects (stack, boundaries, constraints). **This includes replacing every `TBD`/`Unknown` row in `## Current stack` and every `TBD` bullet in `## Main application areas` with the real values established by this task.** A scaffold/setup task is not done until the rows it covers reflect reality (partial scaffolds may leave unrelated rows as `TBD`).
+4. If the work introduced a **cross-domain** reusable pattern (3rd use: 1st = solution, 2nd = coincidence, 3rd = pattern) → append it to `docs/patterns.md`. Domain-local patterns go in the domain doc (step 2), not here.
+5. If the task established repo-level commands (install, dev, build, ship) → update `README.md`. Insert or replace these sections between `## Stack` and `## Working with AI agents`:
+   - `## Getting Started` — clone-to-running setup (install deps, env, initial build).
+   - `## Running Locally` — dev/run commands (e.g. `npm run dev`, launch the app, run the CLI).
+   - `## Building & Releasing` — build + ship commands, framed for the project type: web → build + deploy; desktop → build the installer/package; CLI → build + publish the binary or registry release; library → build + publish to the package registry.
 
-For a Level 1 fix (free-form): add the relevant `docs/domains/<domain>.md` note, then commit (Step 8).
+   Rules:
+   - Only include sections with real, verified commands from this task. Omit sections without real content.
+   - If a section already exists, replace its body in place (idempotent). Do not duplicate headings.
+   - Commands must match what was actually run in Step 6 — do not invent.
+   - Omit a section that does not apply to the project type (e.g. a library has no "Running Locally" app command).
+   - `describe-project` re-renders `README.md` and will wipe these sections. After a stack pivot or re-describe, re-run implement on the relevant scaffold task to restore them.
+6. If the work formalized language/framework-specific coding rules → append them under `docs/coding-conventions.md ## Language & framework specifics`.
+7. **Delete the local task file** (`docs/tasks/T<NNN>_*.md`). It is gitignored scratch; the domain doc is now the record.
+8. Commit the change (see [Committing](#step-8--commit)).
 
-For a Level 0 fix: commit (Step 8). Nothing else to update.
+For a Level 1 fix (free-form):
+
+1. Confirm the relevant `docs/domains/<domain>.md` note is added.
+2. Commit the change (see [Committing](#step-8--commit)).
+
+For a Level 0 fix:
+
+- Nothing to update beyond the code itself.
+- Commit the change (see [Committing](#step-8--commit)).
 
 ## Step 8 — Commit
 
@@ -104,7 +112,7 @@ One commit per finished unit of work. Rules in [`docs/feature-workflow.md` § Co
 
 - Stage only files related to this work (code + updated domain/architecture/README docs). Task files are gitignored and never appear in the commit. Never `git add -A` / `.`.
 - If unrelated uncommitted changes exist, ask the user before staging.
-- Subject ≤72 chars, imperative. Conventional Commits prefix when it adds clarity.
+- Subject ≤72 chars, imperative. Conventional Commits prefix when it adds clarity. Reference the task ID for Level 2+ (e.g. `feat: T004 add oauth callback`).
 - Body explains *why* when not obvious. Skip for trivial fixes.
 - Never `--no-verify`, never bypass hooks, never amend pushed commits, never push unless asked.
 - If a pre-commit hook fails: fix root cause, create a new commit.
@@ -114,12 +122,12 @@ One commit per finished unit of work. Rules in [`docs/feature-workflow.md` § Co
 Short receipt:
 
 ```
-Implemented: add_import_pipeline
-Files changed: src/import/parser.ext, src/import/index.ext
+Implemented: T004 — add oauth callback
+Files changed: src/auth/callback.ts, src/auth/index.ts
 Verified: typecheck ✓ lint ✓ tests ✓ build ✓
-Distilled into: docs/domains/import.md
-Deleted task: docs/tasks/add_import_pipeline.md
-Committed: <short sha> feat: add import pipeline
+Distilled into: docs/domains/auth.md
+Deleted task: docs/tasks/T004_add_oauth_callback.md
+Committed: <short sha> feat: T004 add oauth callback
 ```
 
 ## Hard rules
@@ -130,5 +138,5 @@ Committed: <short sha> feat: add import pipeline
 - Never expand scope beyond the task's `## Acceptance criteria` + `## Out of scope`.
 - Never delete a task file before its knowledge is distilled into the domain doc.
 - Never commit a task file — it is gitignored scratch.
-- Never run implement on something that should be planned. When in doubt, hand back.
+- Never run implement on something that should be analyzed. When in doubt, hand back.
 - Never skip the commit step. One unit of work = one commit.

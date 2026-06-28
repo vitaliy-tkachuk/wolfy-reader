@@ -20,31 +20,17 @@ Provides a lightweight workflow for planning, tracking, and implementing changes
 ## 🚀 Quickstart
 
 1. 📥 Click **Use this template → Create a new repository** on the GitHub page to spin up a fresh repo with clean history. Or clone/copy locally and run `rm -rf .git && git init` to reset history.
-2. 📝 Run `/describe-project` — fills project-specific docs (no code, no dependencies, no config files). Asks for:
+2. 📝 In Claude Code, run `/describe-project` — fills project-specific docs (no code, no dependencies, no config files). Asks for:
    - project name, one-line description, purpose paragraph
-   - stack — free-form list of the tech choices that apply to this project (language, framework/runtime, data layer, identity, distribution, etc. — only what's relevant)
+   - project type (web / desktop / CLI / library / other) — drives which stack categories you're asked for
+   - stack — categories adapt to the type (e.g. web: framework/styling/database/auth/deployment; CLI: language/runtime/distribution)
    - main source directories
 
-   Then renders `README.template.md` → `README.md` (substituting `{{PROJECT_NAME}}`, `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_PURPOSE}}`; template kept in place as rendering reference), patches `docs/architecture.md`, and updates the `## Project-specific guidance` section of `AGENTS.md`.
-3. 🔍 Run `/plan <request>` — classifies the work (Level 0–3) and scaffolds a local task file (`Status: Draft`). For initial stack proposals or fresh-repo bootstrap, say e.g. `/plan propose a stack for this app` or `/plan scaffold the project`. The same skill also refines and approves existing tasks — `/plan tweak <slug> ...`, `/plan approve <slug>`. Decision points are surfaced as concrete option sets, not open-ended questions.
-4. 🛠️ Run `/implement <slug-or-fix>` — runs the plan (Approved tasks only), verifies, distills durable knowledge into `docs/domains/<domain>.md` (and `docs/architecture.md` for cross-cutting decisions), then deletes the local task file and commits. **This is where setup tasks actually install dependencies, write config files, and create the source tree** — the previous steps only plan and approve.
+   Then renders `README.template.md` → `README.md` (substituting `{{PROJECT_NAME}}`, `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_PURPOSE}}`; template kept in place as rendering reference), patches `docs/architecture.md`, appends stack-specific `.gitignore` entries, and updates the `## Project-specific guidance` section of `AGENTS.md`.
+3. 🔍 Run `/analyze <request>` — classifies the work (Level 0–3) and scaffolds a local task file (`Status: Draft`). For initial stack proposals, say e.g. `/analyze propose a stack for this app`. The same skill also answers questions about a Draft task, applies in-place refinements, and **approves** it (`/analyze approve T004`) to unlock implementation.
+4. 🛠️ Run `/implement <task-id-or-fix>` — runs the plan (Approved tasks only), verifies, distills durable knowledge into `docs/domains/<domain>.md` (and `docs/architecture.md` for cross-cutting decisions), then deletes the local task file.
 
-### 🧱 Bootstrapping a fresh project
-
-The template ships empty: no `package.json`, no `Cargo.toml`, no `tsconfig`, no source dirs. Steps 2–4 above form the bootstrap arc:
-
-| Step | What happens | What lands on disk |
-|---|---|---|
-| `/describe-project` | Records project identity + stack as **descriptive text** in `docs/architecture.md`, `README.md`, `AGENTS.md` | Markdown only. No code, no deps, no configs. |
-| `/plan 'scaffold the project'` | Proposes setup approach as concrete option bundles via `AskUserQuestion`, scaffolds a Draft setup task in `docs/tasks/` | Task file only (gitignored scratch). |
-| `/plan approve <slug>` | Flips Status → Approved | Status change in the task file. |
-| `/implement <slug>` | Executes the plan — runs the package manager, writes lockfile, creates config files, makes source dirs, distills into `docs/domains/`, commits | Real project files appear here. |
-
-Re-run `/describe-project` later only if identity/stack changes — it overwrites `README.md`, so re-run implement on the scaffold task afterward to restore stack-specific sections (Getting Started, Running Locally, etc.).
-
-🔌 The three skills ship for **Claude Code** (`.claude/skills/`) and **Cursor** (`.cursor/skills/`) out of the box, plus an always-apply Cursor rule at `.cursor/rules/workflow.mdc` that points the agent at `AGENTS.md`. The two skill folders are byte-for-byte mirrors — see [`.cursor/skills/README.md`](.cursor/skills/README.md) for the sync rule.
-
-Cursor invokes skills by description match or `@`-mention (no `/slash` UI as of 2026); Claude Code invokes by `/skill-name`. Other AI tools (Codex, Copilot, Aider) follow the same workflow by reading `AGENTS.md` — the workflow itself is tool-agnostic.
+🔌 Slash commands map to skills in `.claude/skills/` and currently ship for Claude Code only. Other AI tools follow the same workflow by reading `AGENTS.md` — the workflow itself is tool-agnostic. To get the same `/describe-project`, `/analyze`, `/implement` UX in another tool, copy the skill folders into that tool's skills directory. Example — Cursor (2.4+) uses the same `SKILL.md` format, so copying `.claude/skills/*` to `.cursor/skills/` works as a near drop-in.
 
 ## 📚 Key docs
 

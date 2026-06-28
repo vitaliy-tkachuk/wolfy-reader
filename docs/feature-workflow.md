@@ -19,34 +19,38 @@ There are no committed task records and no separate decisions folder. Finished w
 
 Three Claude Code skills drive feature work (`.claude/skills/`):
 
+- `/analyze <request>` — classifies work into Level 0–3 below and scaffolds a local task file (`Status: Draft`). Also answers questions about existing local tasks, applies in-place refinements, and **approves** a task (`Draft → Approved`). No code.
+- `/implement <task-id-or-fix>` — runs the plan (Approved tasks only), verifies, distills knowledge into the domain doc, deletes the task file.
 - `/describe-project` — one-time docs bootstrap (README, architecture.md, AGENTS.md).
-- `/plan <request-or-slug>` — plan side. Classifies new work into Level 0–3, scaffolds Draft task files, refines existing tasks in place, and flips Status from Draft to Approved on approval. Asks decision questions via `AskUserQuestion` with concrete options. No code.
-- `/implement <slug-or-fix>` — executor. Runs the plan for an Approved task (or a Level 0/1 fix), verifies, distills knowledge into the domain doc, deletes the task file, commits.
 
 Other AI tools follow the same workflow by reading `AGENTS.md` — workflow is tool-agnostic.
 
 ## Task lifecycle
 
 ```
-plan (scaffold → Draft) → plan (refine / approve → Approved) → implement → distill into domain doc → delete task file
+analyze (Draft) → review / clarify → approve (Approved) → implement → distill into domain doc → delete task file
 ```
 
 The approval gate is explicit: `implement` refuses to run a task that is not `Approved`. Level 0 fixes have no task file and skip the gate.
 
 ## Default process
 
-For Claude Code users, the three skills (`/describe-project`, `/plan`, `/implement`) encode the process. Other tools follow the same flow manually:
-
-1. Classify the work (Level 0–3, plus [Always-approval triggers](#always-approval-triggers)).
-2. Review durable context for Level 2+ (see [Context review](#context-review-level-2)).
-3. Get approval before implementing — Level 2+ task `Status: Approved`, or explicit user OK on always-approval triggers.
-4. Implement. Verify (lint, typecheck, tests, build — whichever apply).
-5. Distill into `docs/domains/<domain>.md` (create if new). Record cross-cutting choices in `docs/architecture.md`.
-6. Delete the local task file. Commit (see [Committing](#committing)).
+1. Understand the user request.
+2. Classify complexity using the lowest sufficient level.
+3. Review existing context for Level 2+ work.
+4. Detect contradictions or related prior work.
+5. Ask for approval if architecture, dependency, auth, payment, database, or deployment behavior changes.
+6. Create a local task file only when the work needs tracking (Level 2+).
+7. Get the task approved before implementing.
+8. Implement the change.
+9. Verify with available checks (lint, typecheck, tests, build).
+10. Distill durable knowledge into `docs/domains/<domain>.md` (create the domain doc if new); record any cross-cutting decision in `docs/architecture.md`.
+11. Delete the local task file.
+12. Commit the change (see [Committing](#committing)).
 
 ## Context review (Level 2+)
 
-Before coding, read:
+Before coding, the agent reads:
 
 - `docs/architecture.md`
 - `docs/coding-conventions.md`
@@ -54,7 +58,17 @@ Before coding, read:
 - `docs/domains/*` (the relevant domains)
 - `docs/tasks/*` (in-flight local tasks, if any)
 
-If a conflict with a recorded decision or documented domain behavior exists, stop and explain. Get approval before coding.
+The agent looks for:
+
+- existing architecture rules and recorded decisions
+- existing domain knowledge for the area being touched
+- in-flight tasks
+- contradictions
+- reusable patterns
+- likely files/modules to be touched
+- whether a domain doc needs creating or updating
+
+If a conflict exists, stop and explain. Get approval before coding.
 
 ## Complexity levels
 
@@ -66,8 +80,8 @@ Use for:
 
 - typo
 - broken import
-- obvious cosmetic bug
-- small type or syntax error
+- obvious CSS bug
+- small TypeScript error
 - lint fix
 - defect violating already-documented expected behavior
 
@@ -88,7 +102,7 @@ If the fix needs no durable-knowledge update, it is just a Level 0 fix.
 
 ### Level 2 — Small task
 
-Create one local task file `docs/tasks/<slug>.md`.
+Create one local task file `docs/tasks/T<NNN>_<slug>.md`.
 
 Use when:
 
@@ -98,7 +112,7 @@ Use when:
 - no architecture change
 - no new major dependency
 
-Example: `docs/tasks/add_export_progress_indicator.md`
+Example: `docs/tasks/T005_add_password_visibility_toggle.md`
 
 ### Level 3 — Planned feature
 
@@ -115,21 +129,22 @@ Use when:
 Example:
 
 ```
-docs/tasks/add_import_pipeline_core.md
-docs/tasks/add_import_entry_points_and_validation.md
-docs/tasks/finalize_import_error_handling_and_reporting.md
+docs/tasks/T001_install_and_configure_auth_backend.md
+docs/tasks/T002_add_authentication_ui_and_client_integration.md
+docs/tasks/T003_protect_app_routes_and_finalize_auth_behavior.md
 ```
 
-→ on completion, distilled into `docs/domains/import.md`, with any cross-cutting choice (e.g. parsing library, storage format) recorded in `docs/architecture.md`.
+→ on completion, distilled into `docs/domains/auth.md`, with the auth strategy recorded in `docs/architecture.md`.
 
 ## Always-approval triggers
 
 Regardless of level, **stop and require explicit approval before implementing** any change that:
 
-- changes the core stack, language, or runtime
-- changes the data persistence model
-- changes the security or identity model
-- changes the distribution, packaging, or release pipeline
+- changes stack
+- changes database / ORM
+- changes auth strategy
+- changes payment strategy
+- changes deployment strategy
 - replaces a major dependency
 - contradicts a recorded decision (in `docs/architecture.md` or a domain doc)
 
@@ -137,19 +152,19 @@ These are not a separate level — they are a hard gate that applies on top of L
 
 ## Recording decisions
 
-No decisions folder. Record where they will be read:
+There is no decisions folder. Record decisions where they will be read:
 
-- **Cross-cutting / architectural** (stack, persistence, identity, distribution, state model, testing strategy, etc.) → `docs/architecture.md`, woven into the section it affects. Date significant choices inline.
-- **Domain-local** (only matters inside one domain) → `## Key decisions` in `docs/domains/<domain>.md`.
+- **Cross-cutting / architectural** (stack, database, ORM, auth, deployment, state management, payments, API style, background jobs, testing strategy, UI strategy) → `docs/architecture.md`, woven into the section it affects (stack, boundaries, constraints). Date significant choices inline.
+- **Domain-local** (a pattern or trade-off that only matters inside one domain) → that domain's `## Key decisions` section in `docs/domains/<domain>.md`.
 
-Never record tiny local implementation details as decisions.
+Never record tiny, local implementation details as decisions.
 
 ## Task file shape
 
-Local task files use this skeleton (there is no committed template file — copy from here). `<slug>` = lowercase snake_case, ≤ 6 words, descriptive enough to read at a glance. Must not collide with an existing file in `docs/tasks/`; if it would, extend the slug until unique.
+Local task files use this skeleton (there is no committed template file — copy from here). Pick `<NNN>` = max existing T-number across `docs/tasks/*.md` + 1, zero-padded to 3 digits; if the folder is empty, start at `T001`. `<slug>` = lowercase snake_case, ≤ 6 words.
 
 ```md
-# Task Title
+# T<NNN> — Task Title
 
 ## Status
 Draft | Approved
@@ -197,30 +212,29 @@ See [`docs/domains/README.md`](domains/README.md) for the per-domain section str
 
 ## Completing a task
 
-Canonical close-out order for an Approved Level 2+ task:
-
-1. **Verify** — run whichever apply: typecheck, lint, tests, build. Detect from `package.json`, `pyproject.toml`, `Makefile`, etc. Fix root causes; never disable checks or use `--no-verify`.
-2. **Distill into `docs/domains/<domain>.md`** (the task's `## Domain`). Create from the shape in `docs/domains/README.md` if new. Capture what was built/changed, domain-local decisions and why, gotchas, domain-local patterns. Distill — do not paste the task verbatim.
-3. **Record cross-cutting choices in `docs/architecture.md`** — woven into the section affected (stack, boundaries, constraints). Includes replacing `TBD` placeholders in `## Current stack` with real bullets and in `## Main application areas` with real source directories, for every choice this task established. A scaffold/setup task is not done until the items it covers reflect reality (partial scaffolds may leave unrelated bullets as `TBD`).
-4. **Append cross-domain patterns to `docs/patterns.md`** — 3rd use only (1st = solution, 2nd = coincidence, 3rd = pattern). Domain-local patterns stay in the domain doc.
-5. **Update `README.md` if repo-level commands changed** — insert or replace stack-appropriate sections between `## Stack` and `## Working with AI agents`. Section names that fit the project shape: `## Getting Started` (clone-to-running; almost always applies), `## Running Locally` (dev/run commands; almost always applies), plus whatever the project actually produces — `## Building`, `## Packaging`, `## Releasing`, `## Going to Production`, `## Distribution`. Only add a section with real, verified commands from this task. Replace section body in place if it already exists (idempotent). `describe-project` re-renders `README.md` and will wipe these — re-run implement on the scaffold task to restore them.
-6. **Append language/framework rules to `docs/coding-conventions.md ## Language & framework specifics`** if the work formalized any.
-7. **Delete the local task file** (`docs/tasks/<slug>.md`). Gitignored scratch; the domain doc is now the record.
-8. **Commit** — see [§ Committing](#committing).
-
-For a Level 1 fix: add the short note to the relevant `docs/domains/<domain>.md`, then commit. For a Level 0 fix: just commit.
+1. Verify the feature works.
+2. Run lint, typecheck, tests, build (whichever are available).
+3. Distill durable knowledge into `docs/domains/<domain>.md` (create the file from the shape in `docs/domains/README.md` if the domain is new).
+4. If the work introduced or changed a cross-cutting choice → record it in `docs/architecture.md` (woven into the relevant section).
+5. If the work introduced a cross-domain reusable pattern → append it to `docs/patterns.md`. (Domain-local patterns go in the domain doc instead.)
+6. If the task established repo-level commands → update `README.md`.
+7. Delete the local task file.
+8. Commit the change (see [Committing](#committing)).
 
 ## Committing
 
-One commit per finished unit of work — Level 0 fix, Level 1 fix, Level 2/3 close-out. Do not batch unrelated work. Message format lives in [`docs/coding-conventions.md ## Commits`](coding-conventions.md#commits).
+Commit after every finished unit of work — Level 0 fix, Level 1 fix, Level 2/3 task close-out. One commit per unit; do not batch unrelated work.
 
-Ops rules:
+Rules:
 
-- Stage only files related to the change. Task files are gitignored — never appear in commits. Never `git add -A` / `git add .`.
-- If unrelated uncommitted changes exist, ask before staging.
-- Never `--no-verify`, `--no-gpg-sign`, or amend pushed commits.
-- Never push unless the user asks.
-- If a pre-commit hook fails: fix root cause, create a new commit. Do not amend or bypass.
+- Stage only files related to the change (code + updated domain/architecture docs). Task files are gitignored, so they never appear in a commit. Never use `git add -A` / `git add .`.
+- If unrelated uncommitted changes exist, ask the user before staging.
+- Subject line: imperative, ≤72 chars. Conventional Commits prefix (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`) when it adds clarity.
+- Body explains *why* when not obvious from the diff. Skip for trivial fixes.
+- Never use `--no-verify`, `--no-gpg-sign`, or `git commit --amend` on commits that are already pushed.
+- Never push to remote unless the user asks.
+
+If a pre-commit hook fails, fix the root cause and create a new commit. Do not amend or bypass.
 
 ## Anti-goals
 
@@ -229,5 +243,9 @@ Do not create:
 - huge generated specs per feature
 - a committed pile of task or decision files
 - separate research / plan / data-model / contracts folders
+- command-heavy workflow systems
+- too many templates
 - documentation for every tiny edit
+- recording tiny local choices as decisions
+- new tasks for every tiny bug
 - verbose process logs

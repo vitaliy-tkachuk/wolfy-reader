@@ -19,4 +19,5 @@ docs/tasks/
 # Logs
 *.log
 
-# Dependencies / build / cache — add stack-specific entries here once the stack is chosen.
+# Stack-specific dependency/build ignores are appended below by /describe-project
+# based on the chosen project type. Until then the base above stays lean.

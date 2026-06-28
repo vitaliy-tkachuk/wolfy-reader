@@ -55,4 +55,4 @@
 
 Stack-specific rules go here once the stack is chosen. Add a subsection per language or framework as conventions are decided.
 
-> No language-specific rules recorded yet. The first scaffolding task should add the conventions appropriate to the chosen stack.
+> No language-specific rules recorded yet. The first scaffolding task should add the conventions appropriate to the chosen stack (e.g. TypeScript typing rules, Python typing/lint rules, Go error-handling rules, React server/client boundaries).

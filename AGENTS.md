@@ -6,22 +6,22 @@ Your job is to implement user requests safely, consistently, and with minimal pr
 
 This file is the canonical instruction set for all AI coding agents working in this repo (Claude Code, Cursor, Codex, Copilot, Aider, etc.). Agent-specific overrides live in agent-native files (e.g., `CLAUDE.md`, `.cursor/rules/`, `.github/copilot-instructions.md`) and should `@`-import or reference this file rather than duplicate it.
 
-Skill packs ship for two agents today:
-
-- **Claude Code** — `.claude/skills/{describe-project,plan,implement}` (invoke as `/describe-project`, `/plan`, `/implement`).
-- **Cursor** — `.cursor/skills/{describe-project,plan,implement}` plus an always-apply rule at `.cursor/rules/workflow.mdc` (invoke by description match or `@`-mention).
-
-The two skill folders are byte-for-byte mirrors. If you edit a `SKILL.md` in one, mirror the change in the other — see [`.cursor/skills/README.md`](.cursor/skills/README.md). Other tools follow this workflow by reading this file.
-
 ## Complexity levels
 
-Every change is classified Level 0–3. Definitions, required artifacts, and always-approval triggers live in [`docs/feature-workflow.md`](docs/feature-workflow.md#complexity-levels). **Read it before writing any code** — classification drives whether you fix silently, update a domain doc, open a new task, or require approval.
+This repo classifies every change as Level 0–3. Definitions, triggers, and required artifacts for each level live in [`docs/feature-workflow.md`](docs/feature-workflow.md#complexity-levels). Some changes (stack/database/auth/payment/deployment, major dependency swaps, contradicting a recorded decision) are always-approval triggers — see the same doc.
 
-Durable knowledge lives in `docs/architecture.md` (cross-cutting decisions) and `docs/domains/<domain>.md` (per-domain implementation + local decisions). Task files in `docs/tasks/` are ephemeral, local-only, and gitignored — scratch deleted on completion after its knowledge is distilled into the domain doc. There is no committed task history and no decisions folder.
+**Read `docs/feature-workflow.md` before writing any code.** Classification drives whether you fix silently, update a domain doc, open a new task, or require approval.
+
+Durable knowledge lives in `docs/architecture.md` (cross-cutting decisions) and `docs/domains/<domain>.md` (per-domain implementation + local decisions). Task files in `docs/tasks/` are ephemeral, local-only, and gitignored — scratch that is deleted on completion after its knowledge is distilled into the domain doc. There is no committed task history and no decisions folder.
 
 ## Core rules
 
-1. Before any code, classify per [`docs/feature-workflow.md` § Complexity levels](docs/feature-workflow.md#complexity-levels). For Level 2+, load the durable context listed in [§ Context review](docs/feature-workflow.md#context-review-level-2).
+1. Before any code, review `docs/feature-workflow.md` and classify the work (Level 0–3, plus always-approval triggers). For Level 2+, also review:
+   - `docs/architecture.md`
+   - `docs/coding-conventions.md`
+   - `docs/patterns.md`
+   - `docs/domains/` (the domains the work touches)
+   - `docs/tasks/` (in-flight local tasks, if any)
 
 2. Detect contradictions before coding.
    If the user request conflicts with existing architecture, recorded decisions, or documented domain behavior, explain the conflict and ask for approval.
@@ -35,9 +35,15 @@ Durable knowledge lives in `docs/architecture.md` (cross-cutting decisions) and 
 5. Keep docs short and useful.
    Prefer updating existing docs over creating new ones. Distill — don't accumulate.
 
-6. After completing a Level 2+ task, follow [`docs/feature-workflow.md` § Completing a task](docs/feature-workflow.md#completing-a-task) and commit per [§ Committing](docs/feature-workflow.md#committing).
+6. After completing a Level 2+ task:
+   - verify functionality
+   - run lint/typecheck/tests/build when available
+   - distill durable knowledge into `docs/domains/<domain>.md` (create it if the domain is new)
+   - record any cross-cutting decision in `docs/architecture.md`
+   - delete the local task file (it is gitignored scratch)
+   - commit the change (one commit per finished unit of work — Level 0 fix, Level 1 fix, or Level 2+ task close-out). Stage only files related to the work; task files are gitignored and never committed. Never use `--no-verify` or skip hooks. If the user has uncommitted unrelated changes, ask before staging.
 
-7. Never silently make a change that hits the [always-approval trigger list](docs/feature-workflow.md#always-approval-triggers).
+7. Never silently introduce major dependencies, architecture changes, auth changes, payment changes, database changes, or deployment changes.
 
 8. Domain docs are the durable record; tasks are not kept.
    If a bug is found in behavior that should already work, the agent may:

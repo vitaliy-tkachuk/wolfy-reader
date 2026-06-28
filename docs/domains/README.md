@@ -1,6 +1,6 @@
 # Domains
 
-Durable, per-domain knowledge lives here — one file per domain, e.g. `import.md`, `search.md`, `settings.md`. A *domain* is a coherent slice of the product (a feature area, a subsystem), not a single task.
+Durable, per-domain knowledge lives here — one file per domain, e.g. `auth.md`, `billing.md`, `search.md`. A *domain* is a coherent slice of the product (a feature area, a subsystem), not a single task.
 
 This is the **permanent record** of work in the project. Task files (`docs/tasks/`) are ephemeral, local-only, and gitignored; when a task finishes, its durable knowledge is distilled into the relevant domain doc and the task file is deleted. Cross-cutting architectural decisions go in [`../architecture.md`](../architecture.md) instead; domain-local decisions stay here.
 
@@ -12,7 +12,7 @@ Create a domain doc the first time a domain gets real implementation. Keep it sh
 # <Domain> domain
 
 ## Overview
-What this domain is responsible for and where its code lives.
+What this domain is responsible for and where its code lives (`src/...`).
 
 ## Key decisions
 Domain-local choices and why. Date significant ones. For cross-cutting
