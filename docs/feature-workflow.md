@@ -19,8 +19,8 @@ There are no committed task records and no separate decisions folder. Finished w
 
 Three Claude Code skills drive feature work (`.claude/skills/`):
 
-- `/analyze <request>` — classifies work into Level 0–3 below and scaffolds a local task file (`Status: Draft`). Also answers questions about existing local tasks, applies in-place refinements, and **approves** a task (`Draft → Approved`). No code.
-- `/implement <task-id-or-fix>` — runs the plan (Approved tasks only), verifies, distills knowledge into the domain doc, deletes the task file.
+- `/analyze <request>` — classifies work into Level 0–3 below and scaffolds a local task file. Also answers questions about existing local tasks and applies in-place refinements. No code.
+- `/implement <task-id-or-fix>` — runs the plan, verifies, distills knowledge into the domain doc, deletes the task file.
 - `/describe-project` — one-time docs bootstrap (README, architecture.md, AGENTS.md).
 
 Other AI tools follow the same workflow by reading `AGENTS.md` — workflow is tool-agnostic.
@@ -28,10 +28,10 @@ Other AI tools follow the same workflow by reading `AGENTS.md` — workflow is t
 ## Task lifecycle
 
 ```
-analyze (Draft) → review / clarify → approve (Approved) → implement → distill into domain doc → delete task file
+analyze (scaffold) → review / clarify → implement → distill into domain doc → delete task file
 ```
 
-The approval gate is explicit: `implement` refuses to run a task that is not `Approved`. Level 0 fixes have no task file and skip the gate.
+Running `implement` is itself the go-ahead — there is no separate approval flag. After `analyze` scaffolds a task, review or refine it if you want, then run `implement` when it looks right. Level 0 fixes have no task file at all.
 
 ## Default process
 
@@ -41,12 +41,11 @@ The approval gate is explicit: `implement` refuses to run a task that is not `Ap
 4. Detect contradictions or related prior work.
 5. Ask for approval if architecture, dependency, auth, payment, database, or deployment behavior changes.
 6. Create a local task file only when the work needs tracking (Level 2+).
-7. Get the task approved before implementing.
-8. Implement the change.
-9. Verify with available checks (lint, typecheck, tests, build).
-10. Distill durable knowledge into `docs/domains/<domain>.md` (create the domain doc if new); record any cross-cutting decision in `docs/architecture.md`.
-11. Delete the local task file.
-12. Commit the change (see [Committing](#committing)).
+7. Implement the change.
+8. Verify with available checks (lint, typecheck, tests, build).
+9. Distill durable knowledge into `docs/domains/<domain>.md` (create the domain doc if new); record any cross-cutting decision in `docs/architecture.md`.
+10. Delete the local task file.
+11. Commit the change (see [Committing](#committing)).
 
 ## Context review (Level 2+)
 
@@ -165,9 +164,6 @@ Local task files use this skeleton (there is no committed template file — copy
 
 ```md
 # T<NNN> — Task Title
-
-## Status
-Draft | Approved
 
 ## Created
 YYYY-MM-DD

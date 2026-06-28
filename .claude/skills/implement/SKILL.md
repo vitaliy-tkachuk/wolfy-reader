@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Use when the user asks to execute, build, code, or fix something — phrased as "implement X", "implement fix for Y", "build T004", "code the login fix", "apply the fix", or similar action-oriented requests that follow a prior analyze step or describe a Level 0/1 fix. Loads task context, enforces the approval gate (tasks must be Approved), runs the implementation plan, verifies via lint/typecheck/tests/build, distills durable knowledge into docs/domains/<domain>.md, and deletes the local task file. For Level 2+ work without an existing task file, refuses and asks the user to run the analyze skill first.
+description: Use when the user asks to execute, build, code, or fix something — phrased as "implement X", "implement fix for Y", "build T004", "code the login fix", "apply the fix", or similar action-oriented requests that follow a prior analyze step or describe a Level 0/1 fix. Loads task context, runs the implementation plan, verifies via lint/typecheck/tests/build, distills durable knowledge into docs/domains/<domain>.md, and deletes the local task file. For Level 2+ work without an existing task file, refuses and asks the user to run the analyze skill first.
 ---
 
 # Implement skill
@@ -15,16 +15,7 @@ The user's most recent message is the work request. Parse it as either a task ID
 - If the request is free-form text, treat it as a **Level 0 or Level 1 fix only**. If the work looks like Level 2+, stop and tell the user: `Run analyze first to scaffold a task.`
 - If no clear target: list the contents of `docs/tasks/` and ask which task to implement.
 
-## Step 2 — Enforce the approval gate
-
-For a task file: read its `## Status`.
-
-- If `Approved` → proceed.
-- If `Draft` → **stop.** Tell the user the task is not approved yet: `T<NNN> is Draft. Say "approve T<NNN>" (or "clarify T<NNN> ..." to refine — both via the analyze skill) before implementing.` Do not implement.
-
-Level 0/1 free-form fixes have no task and skip this gate.
-
-## Step 3 — Load context
+## Step 2 — Load context
 
 Always read:
 
@@ -44,11 +35,11 @@ If working a Level 0/1 free-form fix:
 
 - Skim only files directly relevant to the fix, plus the relevant domain doc for Level 1.
 
-## Step 4 — Re-check conflicts
+## Step 3 — Re-check conflicts
 
 If the task's plan now contradicts a newer recorded decision or current domain behavior, stop and report — do not silently diverge. Hand back to analyze if the task needs revision.
 
-## Step 5 — Execute
+## Step 4 — Execute
 
 For a task file:
 
@@ -62,7 +53,7 @@ For a Level 0 fix: make the change directly. No task file, no doc update.
 
 For a Level 1 fix: make the change, then add a short note to the relevant `docs/domains/<domain>.md` (corrected gotcha, clarified invariant, updated implementation note).
 
-## Step 6 — Verify
+## Step 5 — Verify
 
 Run whichever of these the repo supports (detect from `package.json`, `pyproject.toml`, `Makefile`, etc.):
 
@@ -73,9 +64,9 @@ Run whichever of these the repo supports (detect from `package.json`, `pyproject
 
 If any fail, fix the root cause. Do not disable checks, skip tests, or use `--no-verify` shortcuts. If a failure is unrelated to your change, surface it and ask the user.
 
-## Step 7 — Close out
+## Step 6 — Close out
 
-For an Approved Level 2+ task:
+For a Level 2+ task:
 
 1. Confirm every box in `## Implementation plan` and `## Verification` is ticked.
 2. **Distill durable knowledge into `docs/domains/<domain>.md`** — the task's `## Domain`. Create the file from the shape in `docs/domains/README.md` if the domain is new. Capture: what was built/changed, domain-local decisions and why, gotchas, and any domain-local pattern. Distill — do not paste the task verbatim.
@@ -89,24 +80,24 @@ For an Approved Level 2+ task:
    Rules:
    - Only include sections with real, verified commands from this task. Omit sections without real content.
    - If a section already exists, replace its body in place (idempotent). Do not duplicate headings.
-   - Commands must match what was actually run in Step 6 — do not invent.
+   - Commands must match what was actually run in Step 5 — do not invent.
    - Omit a section that does not apply to the project type (e.g. a library has no "Running Locally" app command).
    - `describe-project` re-renders `README.md` and will wipe these sections. After a stack pivot or re-describe, re-run implement on the relevant scaffold task to restore them.
 6. If the work formalized language/framework-specific coding rules → append them under `docs/coding-conventions.md ## Language & framework specifics`.
 7. **Delete the local task file** (`docs/tasks/T<NNN>_*.md`). It is gitignored scratch; the domain doc is now the record.
-8. Commit the change (see [Committing](#step-8--commit)).
+8. Commit the change (see [Committing](#step-7--commit)).
 
 For a Level 1 fix (free-form):
 
 1. Confirm the relevant `docs/domains/<domain>.md` note is added.
-2. Commit the change (see [Committing](#step-8--commit)).
+2. Commit the change (see [Committing](#step-7--commit)).
 
 For a Level 0 fix:
 
 - Nothing to update beyond the code itself.
-- Commit the change (see [Committing](#step-8--commit)).
+- Commit the change (see [Committing](#step-7--commit)).
 
-## Step 8 — Commit
+## Step 7 — Commit
 
 One commit per finished unit of work. Rules in [`docs/feature-workflow.md` § Committing](../../../docs/feature-workflow.md#committing). Summary:
 
@@ -117,7 +108,7 @@ One commit per finished unit of work. Rules in [`docs/feature-workflow.md` § Co
 - Never `--no-verify`, never bypass hooks, never amend pushed commits, never push unless asked.
 - If a pre-commit hook fails: fix root cause, create a new commit.
 
-## Step 9 — Report
+## Step 8 — Report
 
 Short receipt:
 
@@ -132,7 +123,6 @@ Committed: <short sha> feat: T004 add oauth callback
 
 ## Hard rules
 
-- Never implement a task whose `## Status` is not `Approved`.
 - Never skip verification because "the change is small".
 - Never bypass hooks, signing, or test failures.
 - Never expand scope beyond the task's `## Acceptance criteria` + `## Out of scope`.

@@ -27,8 +27,8 @@ Provides a lightweight workflow for planning, tracking, and implementing changes
    - main source directories
 
    Then renders `README.template.md` → `README.md` (substituting `{{PROJECT_NAME}}`, `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_PURPOSE}}`; template kept in place as rendering reference), patches `docs/architecture.md`, appends stack-specific `.gitignore` entries, and updates the `## Project-specific guidance` section of `AGENTS.md`.
-3. 🔍 Run `/analyze <request>` — classifies the work (Level 0–3) and scaffolds a local task file (`Status: Draft`). For initial stack proposals, say e.g. `/analyze propose a stack for this app`. The same skill also answers questions about a Draft task, applies in-place refinements, and **approves** it (`/analyze approve T004`) to unlock implementation.
-4. 🛠️ Run `/implement <task-id-or-fix>` — runs the plan (Approved tasks only), verifies, distills durable knowledge into `docs/domains/<domain>.md` (and `docs/architecture.md` for cross-cutting decisions), then deletes the local task file.
+3. 🔍 Run `/analyze <request>` — classifies the work (Level 0–3) and scaffolds a local task file. For initial stack proposals, say e.g. `/analyze propose a stack for this app`. The same skill also answers questions about a task and applies in-place refinements (`/analyze clarify T004 ...`). There is no approval flag — running `/implement` is the go-ahead.
+4. 🛠️ Run `/implement <task-id-or-fix>` — runs the plan, verifies, distills durable knowledge into `docs/domains/<domain>.md` (and `docs/architecture.md` for cross-cutting decisions), then deletes the local task file.
 
 🔌 Slash commands map to skills in `.claude/skills/` and currently ship for Claude Code only. Other AI tools follow the same workflow by reading `AGENTS.md` — the workflow itself is tool-agnostic. To get the same `/describe-project`, `/analyze`, `/implement` UX in another tool, copy the skill folders into that tool's skills directory. Example — Cursor (2.4+) uses the same `SKILL.md` format, so copying `.claude/skills/*` to `.cursor/skills/` works as a near drop-in.
 
