@@ -69,7 +69,7 @@ If any fail, fix the root cause. Do not disable checks, skip tests, or use `--no
 For a Level 2+ task:
 
 1. Confirm every box in `## Implementation plan` and `## Verification` is ticked.
-2. **Distill durable knowledge into `docs/domains/<domain>.md`** — the task's `## Domain`. Create the file from the shape in `docs/domains/README.md` if the domain is new. Capture: what was built/changed, domain-local decisions and why, gotchas, and any domain-local pattern. Distill — do not paste the task verbatim.
+2. **Distill durable knowledge into `docs/domains/<domain>.md`** — the task's `## Domain`. Create the file from the shape in `docs/domains/README.md` if the domain is new. Capture: what was built/changed, domain-local decisions and why, gotchas, and any domain-local pattern. Distill — do not paste the task verbatim. **Write provenance-free: describe what and why, never cite the task ID (e.g. "added in T016", "removed in T020"). Task IDs are reused and the task file is deleted, so the reference is dead the moment you write it. The domain doc is the record; it stands on its own.** **Describe the current state, not the history of changes. If this task changed existing behavior, edit the affected lines to reflect the new reality and delete what is no longer true — do not append "was X, now Y" changelog narrative. Keep live rationale; turn any cautionary reversal into a present-tense gotcha.**
 3. If the work introduced or changed a **cross-cutting** choice → record it in `docs/architecture.md`, woven into the section it affects (stack, boundaries, constraints). **This includes replacing every `TBD`/`Unknown` row in `## Current stack` and every `TBD` bullet in `## Main application areas` with the real values established by this task.** A scaffold/setup task is not done until the rows it covers reflect reality (partial scaffolds may leave unrelated rows as `TBD`).
 4. If the work introduced a **cross-domain** reusable pattern (3rd use: 1st = solution, 2nd = coincidence, 3rd = pattern) → append it to `docs/patterns.md`. Domain-local patterns go in the domain doc (step 2), not here.
 5. If the task established repo-level commands (install, dev, build, ship) → update `README.md`. Insert or replace these sections between `## Stack` and `## Working with AI agents`:
@@ -103,7 +103,7 @@ One commit per finished unit of work. Rules in [`docs/feature-workflow.md` § Co
 
 - Stage only files related to this work (code + updated domain/architecture/README docs). Task files are gitignored and never appear in the commit. Never `git add -A` / `.`.
 - If unrelated uncommitted changes exist, ask the user before staging.
-- Subject ≤72 chars, imperative. Conventional Commits prefix when it adds clarity. Reference the task ID for Level 2+ (e.g. `feat: T004 add oauth callback`).
+- Subject ≤72 chars, imperative. Conventional Commits prefix when it adds clarity. Describe the change itself — **do not put the task ID in the subject or body** (e.g. `feat: add oauth callback`, not `feat: T004 add oauth callback`). Task IDs are ephemeral and reused; a permanent commit should not reference scratch that is about to be deleted.
 - Body explains *why* when not obvious. Skip for trivial fixes.
 - Never `--no-verify`, never bypass hooks, never amend pushed commits, never push unless asked.
 - If a pre-commit hook fails: fix root cause, create a new commit.
@@ -118,7 +118,7 @@ Files changed: src/auth/callback.ts, src/auth/index.ts
 Verified: typecheck ✓ lint ✓ tests ✓ build ✓
 Distilled into: docs/domains/auth.md
 Deleted task: docs/tasks/T004_add_oauth_callback.md
-Committed: <short sha> feat: T004 add oauth callback
+Committed: <short sha> feat: add oauth callback
 ```
 
 ## Hard rules

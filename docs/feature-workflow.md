@@ -15,6 +15,8 @@ This workflow keeps AI-driven development lightweight but safe.
 
 There are no committed task records and no separate decisions folder. Finished work lives as distilled domain knowledge, not as a pile of task/decision files.
 
+**Task IDs (`T<NNN>`) are ephemeral labels, not durable references.** They are reused (numbering resets as files are deleted) and the file they name is gone after completion. Never cite a task ID in a durable artifact — not in `docs/domains/*`, not in `docs/architecture.md`, not in commit messages. Distilled knowledge is provenance-free: describe *what* changed and *why*, never "added in T016, removed in T020". Task IDs belong only in the ephemeral task file and in-session chat.
+
 ## Skills
 
 Three Claude Code skills drive feature work (`.claude/skills/`):
@@ -245,3 +247,4 @@ Do not create:
 - recording tiny local choices as decisions
 - new tasks for every tiny bug
 - verbose process logs
+- citing task IDs (`T<NNN>`) in domain docs, architecture, or commit messages — they are reused and deleted, so the reference is misleading

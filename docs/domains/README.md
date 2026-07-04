@@ -8,6 +8,8 @@ This is the **permanent record** of work in the project. Task files (`docs/tasks
 
 Create a domain doc the first time a domain gets real implementation. Keep it short and current — prune what no longer holds. Use this section structure:
 
+**Describe the current state, not the history of changes.** A domain doc says what the system *is* and *why* — not how it got there. No changelog narrative: no "was X, then became Y", "an earlier iteration", "before that", "later moved", "reverses the earlier approach". When you change behavior, **edit the affected lines to describe the new reality and delete the old** — do not append a note about what changed. Keep *live* rationale ("we use X rather than Y because Z" — it stops the choice being re-litigated); if a past reversal carries a real caution, state it in the present tense as a Gotcha ("STT auto-detects language — do not gate it on the user's recorded preference"), not as a story about what was tried.
+
 ```md
 # <Domain> domain
 
