@@ -59,7 +59,19 @@ Then, day to day:
 
 - 🔎 `graphify query "<question>"` — cross-file answer; also `path`, `explain`, `affected`
 - ♻️ The **code** graph rebuilds itself on every commit (AST only, no LLM, no tokens). Run `graphify . --update` by hand only after doc/semantic-heavy work, then commit the regenerated `graphify-out/`.
-- 🧷 `graphify-out/` is committed so every clone gets the graph with no build step — except `graphify-out/cache/`, which is gitignored content-hashed scratch that regenerates on demand. The hooks are **not** committed either, so re-run `graphify hook install` per clone (and on CI, if CI should keep the graph fresh). `.gitattributes` registers the union merge driver that keeps `graph.json` from conflicting on every branch merge.
+- 🧷 The hooks are **not** committed, so re-run `graphify hook install` per clone (and on CI, if CI should keep the graph fresh). `.gitattributes` registers the union merge driver that keeps `graph.json` from conflicting on every branch merge.
+
+**What to commit from `graphify-out/`** — the rule is *commit what costs tokens to recreate, ignore what a CPU regenerates for free*:
+
+| Commit | Ignore (already in `.gitignore`) |
+|---|---|
+| `graph.json` — what agents query | `cache/ast/` — local AST extraction, purged on every version bump |
+| `GRAPH_REPORT.md` — human-readable summary | `cache/stat-index.json` — machine-local stat signatures |
+| `.graphify_labels.json` — LLM-named communities | `cost.json` — local token accounting |
+| `manifest.json` — content hashes | `.graphify_python`, `.graphify_root` — absolute paths of whoever built it |
+| `cache/semantic/` — LLM-derived per-file extractions | |
+
+`manifest.json` and `cache/semantic/` matter more than they look: a fresh clone has new mtimes for every file, so without them `graphify extract` treats the whole corpus as new and **re-bills semantic extraction**. `graph.html` is regenerable — commit it if you want the viz browsable from a clone, ignore it if you'd rather not carry the churn.
 
 ## 📚 Key docs
 

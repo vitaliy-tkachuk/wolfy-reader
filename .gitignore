@@ -16,9 +16,16 @@ Thumbs.db
 # Ephemeral local task files (durable knowledge lives in docs/domains/ + docs/architecture.md)
 docs/tasks/
 
-# Graphify: the graph itself is committed so every clone gets cheap context.
-# The AST cache is local scratch — regenerated on demand, and pure churn in diffs.
-graphify-out/cache/
+# Graphify: commit what costs tokens to recreate (graph.json, GRAPH_REPORT.md,
+# .graphify_labels.json, manifest.json, cache/semantic/) so a clone gets cheap
+# context without re-billing LLM extraction. Ignore the free-to-regenerate rest:
+# the AST cache (local CPU, purged on version bump), the stat index, local run
+# accounting, and the absolute paths of whoever happened to build the graph.
+graphify-out/cache/ast/
+graphify-out/cache/stat-index.json
+graphify-out/cost.json
+graphify-out/.graphify_python
+graphify-out/.graphify_root
 
 # Logs
 *.log
