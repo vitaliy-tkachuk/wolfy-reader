@@ -59,7 +59,7 @@ Then, day to day:
 
 - 🔎 `graphify query "<question>"` — cross-file answer; also `path`, `explain`, `affected`
 - ♻️ The **code** graph rebuilds itself on every commit (AST only, no LLM, no tokens). Run `graphify . --update` by hand only after doc/semantic-heavy work, then commit the regenerated `graphify-out/`.
-- 🧷 `graphify-out/` is committed so every clone gets the graph; the hooks are **not**, so re-run `graphify hook install` per clone (also on CI, if CI should keep the graph fresh). `.gitattributes` registers the union merge driver that keeps `graph.json` from conflicting on every branch merge.
+- 🧷 `graphify-out/` is committed so every clone gets the graph with no build step — except `graphify-out/cache/`, which is gitignored content-hashed scratch that regenerates on demand. The hooks are **not** committed either, so re-run `graphify hook install` per clone (and on CI, if CI should keep the graph fresh). `.gitattributes` registers the union merge driver that keeps `graph.json` from conflicting on every branch merge.
 
 ## 📚 Key docs
 
