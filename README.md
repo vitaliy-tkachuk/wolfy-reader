@@ -58,7 +58,7 @@ git add graphify-out && git commit -m "chore: add knowledge graph"
 Then, day to day:
 
 - 🔎 `graphify query "<question>"` — cross-file answer; also `path`, `explain`, `affected`
-- ♻️ The **code** graph rebuilds itself on every commit (AST only, no LLM, no tokens). Run `graphify . --update` by hand only after doc/semantic-heavy work, then commit the regenerated `graphify-out/`.
+- ♻️ The **code** graph rebuilds itself on every commit (AST only, no LLM, no tokens) — but you only *commit* that rebuild on a cadence: when files/modules were added, removed, renamed, or moved, when a new domain landed, after doc/semantic-heavy work (run `graphify . --update` first), or roughly weekly. Not for fixes inside existing files. So `graphify-out/` sits modified between refreshes — that's expected; commit it on its own (`chore: refresh knowledge graph`), and `git checkout -- graphify-out/` if a dirty graph ever blocks a branch switch.
 - 🧷 The hooks are **not** committed, so re-run `graphify hook install` per clone (and on CI, if CI should keep the graph fresh). `.gitattributes` registers the union merge driver that keeps `graph.json` from conflicting on every branch merge.
 
 **What to commit from `graphify-out/`** — the rule is *commit what costs tokens to recreate, ignore what a CPU regenerates for free*:
