@@ -17,7 +17,9 @@ The user's most recent message is the work request. Parse it as either a task ID
 
 ## Step 2 — Load context
 
-Always read:
+**Graph first.** If `graphify-out/graph.json` exists, run `graphify query "<what the work touches>"` before any broad search — it surfaces the modules, call sites, and neighbours to open, for a fraction of the tokens a `grep`/glob sweep costs (`graphify affected "<module>"` for blast radius). Read source files in full only for what it surfaces, plus what the task file names. If the graph is absent or graphify is unavailable, fall back to normal search — do not build a graph mid-implementation.
+
+Always read in full (the graph augments these, it does not replace them):
 
 - `docs/feature-workflow.md`
 - `docs/architecture.md`
@@ -84,8 +86,9 @@ For a Level 2+ task:
    - Omit a section that does not apply to the project type (e.g. a library has no "Running Locally" app command).
    - `describe-project` re-renders `README.md` and will wipe these sections. After a stack pivot or re-describe, re-run implement on the relevant scaffold task to restore them.
 6. If the work formalized language/framework-specific coding rules → append them under `docs/coding-conventions.md ## Language & framework specifics`.
-7. **Delete the local task file** (`docs/tasks/T<NNN>_*.md`). It is gitignored scratch; the domain doc is now the record.
-8. Commit the change (see [Committing](#step-7--commit)).
+7. **Knowledge graph** (skip if the repo has no `graphify-out/`): the **code** graph rebuilds itself — the local `post-commit` hook re-runs AST extraction after every commit (no LLM, no tokens), so do **not** trigger a manual rebuild for ordinary code changes. Run `graphify . --update` by hand **only** when the task was doc- or semantics-heavy, since the semantic layer and community labels are not auto-refreshed. Either way the regenerated `graphify-out/` files land in the working tree — commit them in a follow-up commit so the committed graph doesn't lag. If `graphify hook status` reports the hooks are missing, say so in the report rather than rebuilding by hand every time.
+8. **Delete the local task file** (`docs/tasks/T<NNN>_*.md`). It is gitignored scratch; the domain doc is now the record.
+9. Commit the change (see [Committing](#step-7--commit)).
 
 For a Level 1 fix (free-form):
 

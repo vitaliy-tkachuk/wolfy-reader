@@ -1,0 +1,9 @@
+# The graphify knowledge graph is committed so every clone gets cheap context.
+# It is machine-generated and regenerated on both sides of a branch, so a plain
+# textual merge always conflicts. Union-merge it instead via graphify's driver.
+# The driver is registered in local git config by `graphify hook install`;
+# without it git falls back to the normal merge and this line is inert.
+graphify-out/graph.json merge=graphify
+
+# Keep generated graph artifacts out of diffs and language stats.
+graphify-out/** linguist-generated=true

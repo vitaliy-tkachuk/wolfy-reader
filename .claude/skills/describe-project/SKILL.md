@@ -132,6 +132,8 @@ Stack: <comma-separated category: value pairs, or "TBD" for deferred fields>
 Next: review the diff (`git diff`), commit the docs changes. For scaffolding (install deps, create source tree, configure tooling), run analyze on a setup task.
 ```
 
+If the repo has no `graphify-out/` yet, add one line to the receipt: `Once source exists, build the knowledge graph (/graphify . then graphify hook install) so later analyze/implement runs get cheap context.` Do not build it here — this skill writes docs only, and there is nothing to index yet.
+
 ## Hard rules
 
 - Never scaffold code, install dependencies, or create source files. This skill writes Markdown docs and the managed `.gitignore` block only.

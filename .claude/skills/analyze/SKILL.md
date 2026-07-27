@@ -23,7 +23,9 @@ If the request is vague or empty, ask what they want done and stop.
 
 ## A1 — Load durable context
 
-Read these files before doing anything else:
+**Graph first.** If `graphify-out/graph.json` exists, run `graphify query "<the request, phrased as a question>"` before touching the file tree — it locates the relevant modules and their relationships for a fraction of the tokens a `grep`/glob sweep costs. Use `graphify affected "<module>"` to size the blast radius and `graphify path "A" "B"` to trace how two areas connect. Read source files in full only for what the query surfaces. If the graph is absent (repo still in template state, or graphify not installed), fall back to normal search — never build a graph mid-analysis; suggest it to the user instead.
+
+Then read these files in full before doing anything else — the graph augments them, it does not replace them:
 
 - `docs/feature-workflow.md` (authoritative source for Level 0–3 and always-approval triggers)
 - `docs/architecture.md`
@@ -131,6 +133,8 @@ For the target task:
 - Read every file listed in the task's `## Context reviewed` and `## Existing logic touched` that actually exists.
 
 Do not skim. The whole point of this branch is grounded answers — partial reads produce wrong answers.
+
+Use `graphify query` (when `graphify-out/graph.json` exists) to answer *where does this live / what else touches it* questions and to find files the task file failed to list. It supplements the full reads above; it does not replace them.
 
 ## B3 — Classify the request
 

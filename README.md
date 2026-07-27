@@ -29,8 +29,37 @@ Provides a lightweight workflow for planning, tracking, and implementing changes
    Then renders `README.template.md` → `README.md` (substituting `{{PROJECT_NAME}}`, `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_PURPOSE}}`; template kept in place as rendering reference), patches `docs/architecture.md`, appends stack-specific `.gitignore` entries, and updates the `## Project-specific guidance` section of `AGENTS.md`.
 3. 🔍 Run `/analyze <request>` — classifies the work (Level 0–3) and scaffolds a local task file. For initial stack proposals, say e.g. `/analyze propose a stack for this app`. The same skill also answers questions about a task and applies in-place refinements (`/analyze clarify T004 ...`). There is no approval flag — running `/implement` is the go-ahead.
 4. 🛠️ Run `/implement <task-id-or-fix>` — runs the plan, verifies, distills durable knowledge into `docs/domains/<domain>.md` (and `docs/architecture.md` for cross-cutting decisions), then deletes the local task file.
+5. 🕸️ Once real source exists, set up the [knowledge graph](#-knowledge-graph-optional) — agents query it instead of sweeping files, which makes every later step cheaper.
 
 🔌 Slash commands map to skills in `.claude/skills/` and currently ship for Claude Code only. Other AI tools follow the same workflow by reading `AGENTS.md` — the workflow itself is tool-agnostic. To get the same `/describe-project`, `/analyze`, `/implement` UX in another tool, copy the skill folders into that tool's skills directory. Example — Cursor (2.4+) uses the same `SKILL.md` format, so copying `.claude/skills/*` to `.cursor/skills/` works as a near drop-in.
+
+## 🕸️ Knowledge graph (optional)
+
+Agents burn most of their tokens *finding* code. [graphify](https://github.com/safishamsi/graphify) turns the repo into a queryable knowledge graph so they can ask instead of sweep — `AGENTS.md` tells them to query it first and read in full only what the query surfaces. Everything below is optional; without a graph the workflow falls back to plain file reads.
+
+Install once per machine:
+
+```bash
+uv tool install graphifyy       # or: pipx install graphifyy / pip install graphifyy
+graphify install                # copy the /graphify skill into your agent's config dir
+```
+
+Then once per repo, from inside it, as soon as there is real source to index:
+
+```bash
+/graphify .                     # in Claude Code; CLI equivalent: graphify extract .
+                                # → builds graphify-out/ (graph.json, GRAPH_REPORT.md, graph.html)
+graphify hook install           # post-commit/post-checkout auto-rebuild + graph.json merge driver
+git add graphify-out && git commit -m "chore: add knowledge graph"
+```
+
+`graphify hook install` writes to `.git/hooks/` and local git config, so **every clone needs it re-run** — it is not carried by the commit. The AST layer needs no API key; only the semantic layer and community labels do (e.g. `GEMINI_API_KEY`).
+
+Then, day to day:
+
+- 🔎 `graphify query "<question>"` — cross-file answer; also `path`, `explain`, `affected`
+- ♻️ The **code** graph rebuilds itself on every commit (AST only, no LLM, no tokens). Run `graphify . --update` by hand only after doc/semantic-heavy work, then commit the regenerated `graphify-out/`.
+- 🧷 `graphify-out/` is committed so every clone gets the graph; the hooks are **not**, so re-run `graphify hook install` per clone (also on CI, if CI should keep the graph fresh). `.gitattributes` registers the union merge driver that keeps `graph.json` from conflicting on every branch merge.
 
 ## 📚 Key docs
 

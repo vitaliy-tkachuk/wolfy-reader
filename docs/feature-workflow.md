@@ -25,6 +25,8 @@ Three Claude Code skills drive feature work (`.claude/skills/`):
 - `/implement <task-id-or-fix>` — runs the plan, verifies, distills knowledge into the domain doc, deletes the task file.
 - `/describe-project` — one-time docs bootstrap (README, architecture.md, AGENTS.md).
 
+A fourth, optional skill sits alongside them: `/graphify` builds the committed knowledge graph that `analyze` and `implement` query for cheap context. It is not part of the task lifecycle — see [Context review](#context-review-level-2) and [`README.md`](../README.md) for setup.
+
 Other AI tools follow the same workflow by reading `AGENTS.md` — workflow is tool-agnostic.
 
 ## Task lifecycle
@@ -39,7 +41,7 @@ Running `implement` is itself the go-ahead — there is no separate approval fla
 
 1. Understand the user request.
 2. Classify complexity using the lowest sufficient level.
-3. Review existing context for Level 2+ work.
+3. Review existing context for Level 2+ work (graph-first — see [Context review](#context-review-level-2)).
 4. Detect contradictions or related prior work.
 5. Ask for approval if architecture, dependency, auth, payment, database, or deployment behavior changes.
 6. Create a local task file only when the work needs tracking (Level 2+).
@@ -51,7 +53,9 @@ Running `implement` is itself the go-ahead — there is no separate approval fla
 
 ## Context review (Level 2+)
 
-Before coding, the agent reads:
+**Query the knowledge graph first.** If this repo has a committed graphify graph at `graphify-out/graph.json`, use `graphify query "<question>"` (and `graphify path` / `graphify explain` / `graphify affected`) to locate the relevant code, trace data flow, and find which modules the change touches — this replaces broad file reads and `grep`/glob sweeps and costs a fraction of the tokens. Read files in full only for the specific ones the query surfaces. See [`AGENTS.md`](../AGENTS.md#knowledge-graph--query-it-first-to-save-tokens) for the full policy. If the graph is absent or the tool is unavailable, fall back to reading files directly — it is an optimization, never a gate.
+
+Then read the short authoritative docs in full (the graph augments these, it does not replace them):
 
 - `docs/architecture.md`
 - `docs/coding-conventions.md`
@@ -216,8 +220,9 @@ See [`docs/domains/README.md`](domains/README.md) for the per-domain section str
 4. If the work introduced or changed a cross-cutting choice → record it in `docs/architecture.md` (woven into the relevant section).
 5. If the work introduced a cross-domain reusable pattern → append it to `docs/patterns.md`. (Domain-local patterns go in the domain doc instead.)
 6. If the task established repo-level commands → update `README.md`.
-7. Delete the local task file.
-8. Commit the change (see [Committing](#committing)).
+7. The **code** graph refreshes itself — a local `post-commit` hook auto-rebuilds it (AST only, no LLM, no tokens) after every commit, so do **not** run a manual rebuild for ordinary code changes. Run `graphify . --update` by hand **only** after doc/semantic-heavy work (the semantic layer and community labels are not auto-refreshed). Either way, the regenerated `graphify-out/` artifacts land in the working tree — sweep them into a follow-up commit so the committed graph doesn't lag. Skip this step entirely if the repo has no `graphify-out/`.
+8. Delete the local task file.
+9. Commit the change (see [Committing](#committing)).
 
 ## Committing
 

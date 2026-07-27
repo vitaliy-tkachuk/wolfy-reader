@@ -6,6 +6,18 @@ Your job is to implement user requests safely, consistently, and with minimal pr
 
 This file is the canonical instruction set for all AI coding agents working in this repo (Claude Code, Cursor, Codex, Copilot, Aider, etc.). Agent-specific overrides live in agent-native files (e.g., `CLAUDE.md`, `.cursor/rules/`, `.github/copilot-instructions.md`) and should `@`-import or reference this file rather than duplicate it.
 
+## Knowledge graph — query it first to save tokens
+
+This repo can ship a committed [graphify](https://github.com/safishamsi/graphify) knowledge graph at `graphify-out/graph.json`. It maps every module, doc, and their relationships across the whole corpus. When it exists, treat it as the **first** context tool: a single `graphify query` returns a focused, cross-file answer for a fraction of the tokens that reading files or running broad `grep`/glob sweeps would cost.
+
+- **Locating code, tracing data flow, "how does X work / what calls Y" → query the graph first.** Run `graphify query "<question>"` (fast path — it reads the existing graph, it does not rebuild). Then read in full only the specific files the query surfaces; don't sweep the tree to discover them.
+- **`graphify path "A" "B"`** to see how two concepts connect; **`graphify explain "<node>"`** for a plain-language summary of one module; **`graphify affected "X"`** to find what a change to `X` impacts.
+- **Still read the short authoritative docs in full** — `docs/architecture.md`, `docs/coding-conventions.md`, `docs/patterns.md`, and the relevant `docs/domains/<domain>.md`. These are canonical decisions and rules; the graph augments them, it does not replace them.
+- **Staying fresh is automatic for code.** A local `post-commit` hook (and a `post-checkout` hook on branch switch) rebuilds the code graph in the background after every commit — AST only, no LLM, no tokens. Don't run a manual rebuild for ordinary code changes; it's already handled. Run `graphify . --update` by hand **only** after doc/semantic-heavy work, since the semantic layer and community labels are not auto-refreshed. The regenerated `graphify-out/` artifacts appear in the working tree — sweep them into a follow-up commit so the committed graph doesn't lag.
+- **The hooks are local-only.** They live in `.git/hooks/` (untracked), so they exist only where someone ran `graphify hook install`. A fresh clone, CI, or another machine won't auto-rebuild until the hook is installed there. See [`README.md`](README.md) for the one-time setup.
+
+If `graphify-out/graph.json` is absent (repo still in template state with no source to index, fresh clone that hasn't pulled it, or the tool is unavailable), fall back to reading docs and files directly — the graph is an optimization, never a gate. Do not build one mid-task; suggest it to the user instead.
+
 ## Complexity levels
 
 This repo classifies every change as Level 0–3. Definitions, triggers, and required artifacts for each level live in [`docs/feature-workflow.md`](docs/feature-workflow.md#complexity-levels). Some changes (stack/database/auth/payment/deployment, major dependency swaps, contradicting a recorded decision) are always-approval triggers — see the same doc.
@@ -16,7 +28,7 @@ Durable knowledge lives in `docs/architecture.md` (cross-cutting decisions) and 
 
 ## Core rules
 
-1. Before any code, review `docs/feature-workflow.md` and classify the work (Level 0–3, plus always-approval triggers). For Level 2+, also review:
+1. Before any code, review `docs/feature-workflow.md` and classify the work (Level 0–3, plus always-approval triggers). For Level 2+, gather context graph-first (see [Knowledge graph](#knowledge-graph--query-it-first-to-save-tokens)): `graphify query` to locate the code and trace relationships, then read in full:
    - `docs/architecture.md`
    - `docs/coding-conventions.md`
    - `docs/patterns.md`
