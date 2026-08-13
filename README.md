@@ -1,10 +1,10 @@
 <div align="center">
     <h1>🪶 ai-spec-template</h1>
-    <h3><em>Plan, scaffold, ship — with AI agents.</em></h3>
+    <h3><em>Plan, scaffold, ship — with AI agents. Any stack.</em></h3>
 </div>
 
 <p align="center">
-    <strong>A lightweight spec-driven workflow template that lets AI coding agents plan and implement changes through ephemeral, complexity-tiered tasks that distill into durable per-domain knowledge.</strong>
+    <strong>A lightweight, stack-agnostic spec-driven workflow template that lets AI coding agents plan and implement changes through ephemeral, complexity-tiered tasks that distill into durable per-domain knowledge.</strong>
 </p>
 
 <p align="center">
@@ -16,6 +16,8 @@
 ## 📖 Overview
 
 Provides a lightweight workflow for planning, tracking, and implementing changes alongside AI agents (Claude Code, Cursor, Codex, Copilot, Aider, etc.).
+
+It is deliberately **generic**: the template ships no source code, no dependencies, and no build configuration — only Markdown docs and agent skills. Nothing in it assumes a language, framework, or runtime, so the same workflow drives a web app, a backend service, a desktop app, a CLI, a library, embedded firmware, or anything else. `/describe-project` asks for your project type up front and adapts the stack questions, docs, and `.gitignore` to it; the coding conventions leave a dedicated section for your language's rules; and verification runs whatever checks your toolchain actually provides. Bring your own stack — the process stays the same.
 
 ## 🚀 Quickstart
 
