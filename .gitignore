@@ -26,6 +26,9 @@ graphify-out/cache/stat-index.json
 graphify-out/cost.json
 graphify-out/.graphify_python
 graphify-out/.graphify_root
+graphify-out/cache/last_query_stamp
+# Dated per-run snapshot dirs (full-graph duplicates, regenerable)
+graphify-out/20*/
 
 # Logs
 *.log
