@@ -32,14 +32,11 @@ The source tree exists as scaffolding; decoders, paginator and view fill the dir
 
 ## Important boundaries
 
-Document architectural rules here as they are decided.
-
-Examples (pick what fits the project type):
-
-- Core logic stays free of I/O and side effects; I/O lives at the edges.
-- External access (DB, network, filesystem) goes through one approved layer, not scattered across modules.
-- Platform- or OS-specific code is isolated behind an abstraction, kept out of core logic.
-- The public API surface stays separate from internal implementation details.
+- **`src/core` is the stability promise** (2026-08-24). The `Book` model — optional metadata (`title`, `author`, `language`, `cover`), a `TocItem` tree, sections in reading order, a resource map — and, once it lands, the `Position` format are the semver contract; everything else may churn. Names in `src/core` are frozen as if they can never be renamed.
+- **The model is format-neutral by rule** (2026-08-24): sections are id-addressed lazy byte payloads with a media type, not file paths; TOC entries target `sectionId` + optional `fragment`, never an href; the cover is data (`Resource`: media type + lazy bytes), never a container path. This is what lets single-XML-file FB2, file-less TXT, and PalmDB-record MOBI share one model with EPUB. See `docs/domains/core.md` for the per-shape rationale.
+- **No format is baked into core.** `open(input, { formats })` takes an explicit format list; a format is a `BookFormat` (sniffer + decoder over a normalized `ByteSource`), and third-party formats register through exactly the same public seam as built-ins. Sniffers run in registration order; the first claim wins.
+- **Bytes in, `Book` out.** Input is `ArrayBuffer | Blob | File | RangeReader` (an object `{ size, read(offset, length) }` — size is required so tail-anchored containers like ZIP can locate their end structures), normalized once into `ByteSource`. The library never fetches and never persists; the optional `StorageAdapter` is host-implemented and only ever *called* by the library, via the decoder's `FormatContext`.
+- **Failures are typed.** Every library error extends `BookError` (`UnrecognizedFormatError`, `CorruptContainerError`, `EncryptedContentError`); `open()` wraps any untyped decode failure in `CorruptContainerError` with `cause`, so hosts always catch by class.
 
 ## Known constraints
 
