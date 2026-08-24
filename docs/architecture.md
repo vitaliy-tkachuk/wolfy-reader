@@ -27,7 +27,7 @@ The source tree exists as scaffolding; decoders, paginator and view fill the dir
 - `src/react` — React bindings as a separate subpath export (reserved; whether it ships in v1 is an open decision, so the directory is not created yet)
 - `test/fixtures` — small, license-clean book fixtures (committed)
 - `test/corpus` — Project Gutenberg / Standard Ebooks corpus (gitignored, downloaded by `scripts/fetch-corpus.mjs`)
-- `demo/index.html` — framework-free reference viewer; the primary development surface
+- `demo/index.html` — framework-free decoder proof and the primary development surface: opens a book through the public API and shows metadata, cover, TOC and section bytes. It renders section content as escaped text, never as live markup — the hardened sandboxed-iframe host belongs to `src/view`
 - `docs` — architecture, domain docs, workflow
 
 ## Important boundaries

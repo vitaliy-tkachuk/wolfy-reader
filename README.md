@@ -33,7 +33,9 @@ npm run fetch-corpus
 npm run demo
 ```
 
-This starts a dependency-free dev server (Node built-ins only) and prints the URL — `http://localhost:8080/` by default, or the next free port if 8080 is busy. It serves exactly two directories: `demo/` (at `/`, so `/` opens the demo) and `src/` (at `/src/`, so the demo can import library modules); no other repo path is reachable. The demo is the primary development surface: a plain file picker plus a rendering div, framework-free by rule. Opening `demo/index.html` as a `file://` URL does not work — browsers block ES module loading over `file://`.
+This starts a dependency-free dev server (Node built-ins only) and prints the URL — `http://localhost:8080/` by default, or the next free port if 8080 is busy. It serves exactly two directories: `demo/` (at `/`, so `/` opens the demo) and `src/` (at `/src/`, so the demo can import library modules); no other repo path is reachable. `.ts` files are served with type annotations stripped (`node:module`'s `stripTypeScriptTypes`), so the browser runs the TypeScript sources directly — no bundler, no build step.
+
+The demo is the primary development surface: pick an EPUB and it opens the book through the public API and shows what the decoder produced — metadata and cover, the nested table of contents, the reading order, and any section's content loaded on click (displayed as escaped source text, never rendered as live HTML). Decode failures surface as the library's typed errors by class name. It stays framework-free by rule. Opening `demo/index.html` as a `file://` URL does not work — browsers block ES module loading over `file://`.
 
 ## Working with AI agents
 

@@ -5,20 +5,318 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>wolfyReader demo</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
-  #reader { min-height: 20rem; margin-top: 1rem; border: 1px solid #ccc; }
+  :root {
+    --border: #d0d0d0;
+    --muted: #666;
+    --accent: #1a5fb4;
+    --error: #a51d2d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 1.5rem auto;
+    max-width: 72rem;
+    padding: 0 1rem;
+    color: #1a1a1a;
+    background: #fafafa;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 0.25rem; }
+  .tagline { color: var(--muted); margin: 0 0 1rem; font-size: 0.9rem; }
+  #error {
+    display: none;
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--error);
+    border-radius: 4px;
+    background: #fbe5e7;
+    color: var(--error);
+  }
+  #error strong { font-family: ui-monospace, monospace; }
+  #book { display: none; margin-top: 1rem; }
+  .meta-card {
+    display: flex;
+    gap: 1.25rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+  }
+  #cover {
+    display: none;
+    max-height: 12rem;
+    max-width: 8rem;
+    border: 1px solid var(--border);
+    align-self: flex-start;
+  }
+  .meta-fields { min-width: 0; }
+  #book-title { font-size: 1.2rem; font-weight: 600; margin: 0 0 0.25rem; }
+  .meta-fields dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.15rem 0.75rem;
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+  }
+  .meta-fields dt { color: var(--muted); }
+  .meta-fields dd { margin: 0; }
+  #badges { margin-top: 0.5rem; }
+  .badge {
+    display: inline-block;
+    margin-right: 0.4rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    background: #e4ecf7;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .badge.warn { background: #fdf1e0; color: #9a5b00; border-color: #9a5b00; }
+  .columns { display: flex; gap: 1rem; margin-top: 1rem; align-items: flex-start; }
+  nav.side {
+    flex: 0 0 20rem;
+    max-height: 34rem;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    padding: 0.75rem;
+    font-size: 0.85rem;
+  }
+  nav.side h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0.75rem 0 0.35rem; }
+  nav.side h2:first-child { margin-top: 0; }
+  nav.side ul { list-style: none; margin: 0; padding-left: 0; }
+  nav.side ul ul { padding-left: 1rem; border-left: 1px dotted var(--border); }
+  nav.side button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 0.2rem 0.3rem;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    border-radius: 3px;
+    overflow-wrap: anywhere;
+  }
+  nav.side button:hover { background: #eef3fa; }
+  nav.side button.active { background: #e4ecf7; font-weight: 600; }
+  .section-note { color: var(--muted); font-size: 0.75rem; }
+  .empty-note { color: var(--muted); font-style: italic; }
+  main.pane { flex: 1; min-width: 0; }
+  #reader-label { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.35rem; font-family: ui-monospace, monospace; }
+  #reader {
+    height: 34rem;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    padding: 1rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
 </style>
 </head>
 <body>
 <h1>wolfyReader demo</h1>
-<input type="file" id="book-input" accept=".epub,.fb2,.txt,application/epub+zip,text/plain">
-<div id="reader"></div>
+<p class="tagline">Decoder proof: pick a book, see exactly what the library produced. Section content is shown as escaped source text, not rendered markup.</p>
+<input type="file" id="book-input">
+<div id="error"></div>
+<div id="book">
+  <div class="meta-card">
+    <img id="cover" alt="Book cover">
+    <div class="meta-fields">
+      <p id="book-title"></p>
+      <dl>
+        <dt>Author</dt><dd id="book-author"></dd>
+        <dt>Language</dt><dd id="book-language"></dd>
+        <dt>Sections</dt><dd id="book-sections"></dd>
+      </dl>
+      <div id="badges"></div>
+    </div>
+  </div>
+  <div class="columns">
+    <nav class="side">
+      <h2>Table of contents</h2>
+      <div id="toc"></div>
+      <h2>Reading order</h2>
+      <div id="reading-order"></div>
+    </nav>
+    <main class="pane">
+      <p id="reader-label"></p>
+      <div id="reader"></div>
+    </main>
+  </div>
+</div>
 <script type="module">
-  const input = document.querySelector('#book-input')
-  input.addEventListener('change', () => {
-    const file = input.files?.[0]
-    if (file) console.log('picked file:', file.name, file.type, file.size, file)
-  })
+  import { open } from '/src/core/index.ts';
+  import { epub } from '/src/formats/index.ts';
+
+  const input = document.querySelector('#book-input');
+  const errorEl = document.querySelector('#error');
+  const bookEl = document.querySelector('#book');
+  const coverEl = document.querySelector('#cover');
+  const titleEl = document.querySelector('#book-title');
+  const authorEl = document.querySelector('#book-author');
+  const languageEl = document.querySelector('#book-language');
+  const sectionsEl = document.querySelector('#book-sections');
+  const badgesEl = document.querySelector('#badges');
+  const tocEl = document.querySelector('#toc');
+  const orderEl = document.querySelector('#reading-order');
+  const readerLabelEl = document.querySelector('#reader-label');
+  const readerEl = document.querySelector('#reader');
+
+  let book = null;
+  let coverUrl = null;
+  let generation = 0;
+
+  function showError(err) {
+    errorEl.replaceChildren();
+    const name = document.createElement('strong');
+    name.textContent = err instanceof Error ? err.name : 'Error';
+    errorEl.append(name, document.createTextNode(` — ${err instanceof Error ? err.message : String(err)}`));
+    errorEl.style.display = 'block';
+  }
+
+  function resetUi() {
+    errorEl.style.display = 'none';
+    bookEl.style.display = 'none';
+    if (coverUrl !== null) {
+      URL.revokeObjectURL(coverUrl);
+      coverUrl = null;
+    }
+    coverEl.removeAttribute('src');
+    coverEl.style.display = 'none';
+    badgesEl.replaceChildren();
+    tocEl.replaceChildren();
+    orderEl.replaceChildren();
+    readerEl.replaceChildren();
+    readerLabelEl.textContent = '';
+  }
+
+  function addBadge(text, warn) {
+    const badge = document.createElement('span');
+    badge.className = warn ? 'badge warn' : 'badge';
+    badge.textContent = text;
+    badgesEl.append(badge);
+  }
+
+  function markActive(button) {
+    for (const active of document.querySelectorAll('nav.side button.active')) {
+      active.classList.remove('active');
+    }
+    button.classList.add('active');
+  }
+
+  async function loadSection(sectionId, fragment, button) {
+    const current = generation;
+    const section = book.section(sectionId);
+    if (section === undefined) {
+      showError(new Error(`no section with id "${sectionId}"`));
+      return;
+    }
+    try {
+      const bytes = await section.load();
+      if (current !== generation) return;
+      const text = new TextDecoder().decode(bytes);
+      readerLabelEl.textContent =
+        `section "${section.id}" (${section.mediaType}, ${bytes.byteLength} bytes)` +
+        (fragment !== undefined ? ` — target fragment #${fragment}` : '');
+      readerEl.textContent = text;
+      readerEl.scrollTop = 0;
+      markActive(button);
+    } catch (err) {
+      if (current !== generation) return;
+      showError(err);
+    }
+  }
+
+  function buildTocList(items) {
+    const list = document.createElement('ul');
+    for (const item of items) {
+      const entry = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = item.label;
+      button.addEventListener('click', () => loadSection(item.sectionId, item.fragment, button));
+      entry.append(button);
+      if (item.children.length > 0) entry.append(buildTocList(item.children));
+      list.append(entry);
+    }
+    return list;
+  }
+
+  function buildReadingOrder(sections) {
+    const list = document.createElement('ul');
+    sections.forEach((section, index) => {
+      const entry = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `${index + 1}. ${section.id}`;
+      const note = document.createElement('span');
+      note.className = 'section-note';
+      note.textContent = ` ${section.mediaType}${section.scripted === true ? ' · scripted' : ''}`;
+      button.append(note);
+      button.addEventListener('click', () => loadSection(section.id, undefined, button));
+      entry.append(button);
+      list.append(entry);
+    });
+    return list;
+  }
+
+  function emptyNote(text) {
+    const note = document.createElement('p');
+    note.className = 'empty-note';
+    note.textContent = text;
+    return note;
+  }
+
+  async function showBook(loaded) {
+    book = loaded;
+    titleEl.textContent = book.metadata.title ?? '(no title)';
+    authorEl.textContent = book.metadata.author ?? '—';
+    languageEl.textContent = book.metadata.language ?? '—';
+    sectionsEl.textContent = String(book.sections.length);
+    if (book.direction !== undefined) addBadge(`direction: ${book.direction}`, false);
+    if (book.fixedLayout === true) addBadge('fixed layout detected — not rendered', true);
+    if (book.fixedLayout === false) addBadge('reflowable', false);
+    tocEl.append(book.toc.length > 0 ? buildTocList(book.toc) : emptyNote('no table of contents'));
+    orderEl.append(
+      book.sections.length > 0 ? buildReadingOrder(book.sections) : emptyNote('no sections'),
+    );
+    readerLabelEl.textContent = 'pick a chapter to load its bytes';
+    bookEl.style.display = 'block';
+    if (book.metadata.cover !== undefined) {
+      const current = generation;
+      try {
+        const bytes = await book.metadata.cover.load();
+        if (current !== generation) return;
+        coverUrl = URL.createObjectURL(new Blob([bytes], { type: book.metadata.cover.mediaType }));
+        coverEl.src = coverUrl;
+        coverEl.style.display = 'block';
+      } catch (err) {
+        if (current === generation) showError(err);
+      }
+    }
+  }
+
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (file === undefined) return;
+    generation += 1;
+    const current = generation;
+    resetUi();
+    book = null;
+    try {
+      const loaded = await open(file, { formats: [epub] });
+      if (current !== generation) return;
+      await showBook(loaded);
+    } catch (err) {
+      if (current === generation) showError(err);
+    }
+  });
 </script>
 </body>
 </html>
