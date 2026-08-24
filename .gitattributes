@@ -1,3 +1,8 @@
+# Normalize line endings: LF in the repository and in every checkout, so a
+# published package and a contributor's diff never carry CRLF from a Windows
+# working copy.
+* text=auto eol=lf
+
 # The graphify knowledge graph is committed so every clone gets cheap context.
 # It is machine-generated and regenerated on both sides of a branch, so a plain
 # textual merge always conflicts. Union-merge it instead via graphify's driver.
