@@ -12,6 +12,45 @@ function gutenberg(id, slug) {
   ]
 }
 
+// W3C EPUB 3.3 test suite (w3c/epub-tests) — built books published on the test
+// site. A decoder-relevant, deliberately hostile subset: container/URL edge
+// cases, foreign media with fallbacks, hostile XML, direction and layout flags.
+const W3C_TESTS = [
+  'cnt-svg-support',
+  'cnt-xhtml-support',
+  'lay-fxl-layout-pre-paginated',
+  'lay-pp-layout-default',
+  'nav-non-text_img',
+  'nav-spine_in-spine',
+  'nav-spine_not-in-spine',
+  'ocf-font_obfuscation',
+  'ocf-metainf-inc',
+  'ocf-package_arbitrary',
+  'ocf-package_multiple',
+  'ocf-url_manifest',
+  'ocf-url_parse-path-absolute',
+  'ocf-url_relative',
+  'ocf-zip-comp',
+  'ocf-zip-mult',
+  'pkg-manifest-unlisted-resource',
+  'pkg-meta-whitespace',
+  'pkg-spine-duplicate-item-rendering',
+  'pkg-spine-order',
+  'pkg-spine-progression-default',
+  'pkg-spine-progression_ltr',
+  'pkg-spine-progression_rtl',
+  'pkg-title-order',
+  'pkg-unique-id_duplicate',
+  'pkg-version-backward',
+  'pub-foreign_bad-fallback',
+  'pub-foreign_image',
+  'pub-foreign_xml-spine',
+  'pub-xml-external-id',
+  'pub-xml-non-validating_comment',
+  'pub-xml-non-validating_unclosed',
+  'scr-support-fallback',
+]
+
 const downloads = [
   ...gutenberg(84, 'frankenstein'),
   ...gutenberg(1342, 'pride-and-prejudice'),
@@ -21,6 +60,10 @@ const downloads = [
     url: 'https://standardebooks.org/ebooks/mary-shelley/frankenstein/downloads/mary-shelley_frankenstein.epub?source=download',
     file: 'standardebooks-frankenstein.epub',
   },
+  ...W3C_TESTS.map((id) => ({
+    url: `https://w3c.github.io/epub-tests/tests/${id}.epub`,
+    file: join('epub-testsuite', `${id}.epub`),
+  })),
 ]
 
 async function exists(path) {
@@ -48,6 +91,7 @@ for (const { url, file } of downloads) {
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const bytes = new Uint8Array(await res.arrayBuffer())
+    await mkdir(dirname(dest), { recursive: true })
     await writeFile(dest, bytes)
     console.log(`fetched ${file} (${bytes.length} bytes)`)
   } catch (err) {

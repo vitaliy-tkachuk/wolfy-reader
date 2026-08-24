@@ -1,4 +1,4 @@
-export type { Book, BookMetadata, Resource, Section, TocItem } from './book.ts';
+export type { Book, BookMetadata, ReadingDirection, Resource, Section, TocItem } from './book.ts';
 export {
   BookError,
   CorruptContainerError,

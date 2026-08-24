@@ -3,6 +3,8 @@ export interface XmlElement {
   readonly localName: string;
   readonly attributes: ReadonlyMap<string, string>;
   readonly children: readonly XmlElement[];
+  /** Child elements and text chunks in document order. */
+  readonly content: readonly (XmlElement | string)[];
   /** Concatenated direct text content, entity-decoded, CDATA included. */
   readonly text: string;
 }
@@ -12,6 +14,7 @@ interface MutableElement {
   localName: string;
   attributes: Map<string, string>;
   children: MutableElement[];
+  content: (MutableElement | string)[];
   text: string;
 }
 
@@ -44,6 +47,15 @@ export function childrenNamed(element: XmlElement, localName: string): readonly 
 
 export function firstChildNamed(element: XmlElement, localName: string): XmlElement | undefined {
   return element.children.find((child) => child.localName === localName);
+}
+
+/** All text within the element in document order, entity-decoded. */
+export function deepText(element: XmlElement): string {
+  let out = '';
+  for (const node of element.content) {
+    out += typeof node === 'string' ? node : deepText(node);
+  }
+  return out;
 }
 
 export function descendantsNamed(element: XmlElement, localName: string): readonly XmlElement[] {
@@ -134,7 +146,7 @@ export function parseXml(input: string): XmlElement {
     if (lt === -1) break;
     if (lt > pos) {
       const parent = stack[stack.length - 1];
-      if (parent !== undefined) parent.text += decodeEntities(input.slice(pos, lt));
+      if (parent !== undefined) appendText(parent, decodeEntities(input.slice(pos, lt)));
     }
     pos = lt;
     if (input.startsWith('<?', pos)) {
@@ -148,7 +160,7 @@ export function parseXml(input: string): XmlElement {
       const end = input.indexOf(']]>', pos);
       if (end === -1) fail('unterminated CDATA section');
       const parent = stack[stack.length - 1];
-      if (parent !== undefined) parent.text += input.slice(pos, end);
+      if (parent !== undefined) appendText(parent, input.slice(pos, end));
       pos = end + 3;
     } else if (input.startsWith('<!', pos)) {
       pos += 2;
@@ -170,12 +182,15 @@ export function parseXml(input: string): XmlElement {
         localName: localNameOf(name),
         attributes: new Map(),
         children: [],
+        content: [],
         text: '',
       };
       const selfClosing = readAttributes(element);
       const parent = stack[stack.length - 1];
-      if (parent !== undefined) parent.children.push(element);
-      else if (root === undefined) root = element;
+      if (parent !== undefined) {
+        parent.children.push(element);
+        parent.content.push(element);
+      } else if (root === undefined) root = element;
       else fail(`second root element <${name}>`);
       if (!selfClosing) stack.push(element);
     }
@@ -187,16 +202,25 @@ export function parseXml(input: string): XmlElement {
   return root;
 }
 
+function appendText(parent: MutableElement, text: string): void {
+  parent.text += text;
+  const last = parent.content[parent.content.length - 1];
+  if (typeof last === 'string') parent.content[parent.content.length - 1] = last + text;
+  else parent.content.push(text);
+}
+
 function isWhitespace(ch: string | undefined): boolean {
   return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
 }
 
+// nbsp is the one HTML entity that shows up in real nav-document labels.
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',
   lt: '<',
   gt: '>',
   quot: '"',
   apos: "'",
+  nbsp: ' ',
 };
 
 function decodeEntities(text: string): string {

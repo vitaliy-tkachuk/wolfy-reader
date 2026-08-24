@@ -46,7 +46,12 @@ test('EPUB2 fixture decodes with metadata, spine order, and meta-name cover', as
   const text = new TextDecoder().decode(await chapter.load());
   assert.ok(text.includes('The harbour charts were wrong'));
 
-  assert.deepEqual(book.toc, []);
+  assert.deepEqual(book.toc, [
+    { label: 'Soundings', sectionId: 'chapter-1', children: [] },
+    { label: 'Dead Reckoning', sectionId: 'chapter-2', children: [] },
+  ]);
+  assert.equal(book.direction, undefined);
+  assert.equal(book.fixedLayout, undefined);
   assert.equal(book.section('nope'), undefined);
 });
 
@@ -78,6 +83,129 @@ test('EPUB3 fixture decodes with DC terms, spine order, and cover-image property
 
   const nav = book.resources.get('nav');
   assert.ok(nav, 'the nav document is a resource, not a section');
+
+  assert.deepEqual(book.toc, [
+    { label: 'The Brine Ledger', sectionId: 'c1', children: [] },
+    { label: 'Forty Degrees of Longing', sectionId: 'c2', children: [] },
+    { label: 'The Meridian Keeper', sectionId: 'c3', children: [] },
+  ]);
+});
+
+test('EPUB3 nav document TOC keeps nesting, fragments, and inline label markup', async () => {
+  const book = await openFixture('toc-nav.epub');
+  assert.deepEqual(book.toc, [
+    {
+      label: 'Landfall',
+      sectionId: 'p1',
+      children: [
+        { label: 'Tide Tables', sectionId: 'p1', fragment: 'tide-tables', children: [] },
+        { label: 'The Inner Passage', sectionId: 'p2', children: [] },
+      ],
+    },
+    {
+      label: 'Appendices',
+      sectionId: 'p3',
+      children: [{ label: 'Gazetteer', sectionId: 'p3', fragment: 'gazetteer', children: [] }],
+    },
+  ]);
+});
+
+test('EPUB2 NCX navMap TOC keeps nesting and fragments', async () => {
+  const book = await openFixture('toc-ncx.epub');
+  assert.deepEqual(book.toc, [
+    {
+      label: 'Landfall',
+      sectionId: 'p1',
+      children: [{ label: 'Moorings', sectionId: 'p1', fragment: 'moorings', children: [] }],
+    },
+    { label: 'Interior', sectionId: 'p2', children: [] },
+    { label: 'Departure', sectionId: 'p3', children: [] },
+  ]);
+});
+
+test('when both nav document and NCX exist the nav document wins', async () => {
+  const book = await openFixture('toc-both.epub');
+  assert.equal(book.toc[0]?.label, 'Landfall');
+  assert.ok(
+    !JSON.stringify(book.toc).includes('NCX '),
+    'no NCX label leaks into the TOC when a nav document exists',
+  );
+});
+
+test('OPF in a subdirectory resolves manifest, spine, TOC, and cover hrefs', async () => {
+  const book = await openFixture('opf-subdir.epub');
+
+  assert.deepEqual(
+    book.sections.map((s) => s.id),
+    ['intro', 'middle'],
+  );
+  const intro = book.section('intro');
+  assert.ok(intro);
+  const introText = new TextDecoder().decode(await intro.load());
+  assert.ok(introText.includes('The glassworks woke'), 'percent-encoded href resolves to the real entry');
+
+  const cover = book.metadata.cover;
+  assert.ok(cover, './images/../images/cover.png normalizes and resolves');
+  assert.deepEqual((await cover.load()).slice(0, 8), PNG_MAGIC);
+
+  const style = book.resources.get('style');
+  assert.ok(style);
+  assert.ok(new TextDecoder().decode(await style.load()).includes('font-family'));
+
+  assert.deepEqual(book.toc, [
+    { label: 'First Light', sectionId: 'intro', children: [] },
+    { label: 'Midway', sectionId: 'middle', fragment: 'anchor', children: [] },
+  ]);
+});
+
+test('an unsupported spine item follows its manifest fallback chain to usable content', async () => {
+  const book = await openFixture('fallback.epub');
+  const section = book.section('exotic');
+  assert.ok(section, 'the spine item keeps its own id');
+  assert.equal(section.mediaType, 'application/xhtml+xml');
+  const text = new TextDecoder().decode(await section.load());
+  assert.ok(text.includes('Every room was let twice'), 'the chain lands on the xhtml fallback');
+});
+
+test('a circular manifest fallback chain raises CorruptContainerError, not a hang', async () => {
+  await assert.rejects(
+    openFixture('fallback-circular.epub'),
+    (error: unknown) => error instanceof CorruptContainerError && error instanceof BookError,
+  );
+});
+
+test('manifest properties drive nav discovery, cover discovery, and the scripted flag', async () => {
+  const book = await openFixture('properties.epub');
+
+  const cover = book.metadata.cover;
+  assert.ok(cover, 'properties="cover-image" finds the cover');
+  assert.deepEqual((await cover.load()).slice(0, 8), PNG_MAGIC);
+
+  assert.deepEqual(book.toc, [
+    { label: 'The Fixed Stars', sectionId: 'static', children: [] },
+    { label: 'The Moving Parts', sectionId: 'interactive', children: [] },
+  ]);
+
+  assert.equal(book.section('static')?.scripted, undefined);
+  assert.equal(book.section('interactive')?.scripted, true);
+});
+
+test('page-progression-direction="rtl" surfaces as book.direction', async () => {
+  const book = await openFixture('rtl.epub');
+  assert.equal(book.direction, 'rtl');
+  assert.equal(book.fixedLayout, undefined);
+});
+
+test('rendition:layout pre-paginated surfaces as book.fixedLayout and nothing else', async () => {
+  const book = await openFixture('fixed-layout.epub');
+  assert.equal(book.fixedLayout, true);
+  assert.equal(book.direction, undefined);
+  assert.deepEqual(
+    book.sections.map((s) => s.id),
+    ['p1'],
+  );
+  const text = new TextDecoder().decode(await book.sections[0]!.load());
+  assert.ok(text.includes('fixed plate'));
 });
 
 test('a trailing newline in the mimetype entry is tolerated', async () => {

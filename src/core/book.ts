@@ -27,8 +27,13 @@ export interface Section {
   /** Unique within the book. */
   readonly id: string;
   readonly mediaType: string;
+  /** True when the content declares executable script; omitted when unknown. */
+  readonly scripted?: boolean;
   load(): Promise<Uint8Array>;
 }
+
+/** Reading order of the pages: left-to-right or right-to-left. */
+export type ReadingDirection = 'ltr' | 'rtl';
 
 export interface Book {
   readonly metadata: BookMetadata;
@@ -38,4 +43,8 @@ export interface Book {
   section(id: string): Section | undefined;
   /** Non-section payloads (images, stylesheets) keyed by format-defined id. */
   readonly resources: ReadonlyMap<string, Resource>;
+  /** Declared reading direction; omitted when the book does not declare one. */
+  readonly direction?: ReadingDirection;
+  /** True when the book declares fixed-size pages. Detection only — rendering stays reflowable. */
+  readonly fixedLayout?: boolean;
 }

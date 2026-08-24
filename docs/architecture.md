@@ -32,7 +32,7 @@ The source tree exists as scaffolding; decoders, paginator and view fill the dir
 
 ## Important boundaries
 
-- **`src/core` is the stability promise** (2026-08-24). The `Book` model — optional metadata (`title`, `author`, `language`, `cover`), a `TocItem` tree, sections in reading order, a resource map — and, once it lands, the `Position` format are the semver contract; everything else may churn. Names in `src/core` are frozen as if they can never be renamed.
+- **`src/core` is the stability promise** (2026-08-24). The `Book` model — optional metadata (`title`, `author`, `language`, `cover`), a `TocItem` tree, sections in reading order, a resource map, and optional presentation flags (`direction`, `fixedLayout`, and `scripted` per section) — and, once it lands, the `Position` format are the semver contract; everything else may churn. Names in `src/core` are frozen as if they can never be renamed, and carry no format's vocabulary.
 - **The model is format-neutral by rule** (2026-08-24): sections are id-addressed lazy byte payloads with a media type, not file paths; TOC entries target `sectionId` + optional `fragment`, never an href; the cover is data (`Resource`: media type + lazy bytes), never a container path. This is what lets single-XML-file FB2, file-less TXT, and PalmDB-record MOBI share one model with EPUB. See `docs/domains/core.md` for the per-shape rationale.
 - **No format is baked into core.** `open(input, { formats })` takes an explicit format list; a format is a `BookFormat` (sniffer + decoder over a normalized `ByteSource`), and third-party formats register through exactly the same public seam as built-ins. Sniffers run in registration order; the first claim wins.
 - **Bytes in, `Book` out.** Input is `ArrayBuffer | Blob | File | RangeReader` (an object `{ size, read(offset, length) }` — size is required so tail-anchored containers like ZIP can locate their end structures), normalized once into `ByteSource`. The library never fetches and never persists; the optional `StorageAdapter` is host-implemented and only ever *called* by the library, via the decoder's `FormatContext`.
@@ -40,4 +40,5 @@ The source tree exists as scaffolding; decoders, paginator and view fill the dir
 
 ## Known constraints
 
-- None recorded yet.
+- **Fixed layout is detected, never rendered** (2026-08-24). `Book.fixedLayout` records that a book declares fixed-size pages so a host can refuse it or hand it elsewhere; rendering stays reflow-only, permanently. There is no partial fixed-layout path and none is planned.
+- **Range-reader inputs must supply their total size.** Tail-anchored containers (ZIP's end-of-central-directory) cannot be located otherwise.

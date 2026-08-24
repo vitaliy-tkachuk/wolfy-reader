@@ -342,6 +342,336 @@ writeFileSync(
   ]),
 );
 
+// --- TOC fixtures ----------------------------------------------------------
+
+const tocChapters = [
+  { name: 'part-1.xhtml', data: xhtml('Landfall', 'The island kept its own hours.') },
+  { name: 'part-2.xhtml', data: xhtml('Interior', 'Past the mangroves the map went quiet.') },
+  { name: 'part-3.xhtml', data: xhtml('Departure', 'No one watched the boat leave twice.') },
+];
+
+const tocManifestItems = (extra) => `
+    ${extra}
+    <item id="p1" href="part-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="p2" href="part-2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="p3" href="part-3.xhtml" media-type="application/xhtml+xml"/>`;
+
+const tocOpf = (version, manifestExtra, spineAttrs) => `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="${version}" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:11111111-2222-3333-4444-555555555555</dc:identifier>
+    <dc:title>Tidal Atlas</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>${tocManifestItems(manifestExtra)}
+  </manifest>
+  <spine${spineAttrs}>
+    <itemref idref="p1"/>
+    <itemref idref="p2"/>
+    <itemref idref="p3"/>
+  </spine>
+</package>
+`;
+
+const tocNavDoc = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Tidal Atlas</title></head>
+<body>
+<nav epub:type="landmarks"><ol><li><a epub:type="bodymatter" href="part-1.xhtml">Start</a></li></ol></nav>
+<nav epub:type="toc">
+<h1>Contents</h1>
+<ol>
+<li><a href="part-1.xhtml">Landfall</a>
+<ol>
+<li><a href="part-1.xhtml#tide-tables">Tide&nbsp;Tables</a></li>
+<li><a href="part-2.xhtml">The <i>Inner</i> Passage</a></li>
+</ol>
+</li>
+<li><span>Appendices</span>
+<ol>
+<li><a href="part-3.xhtml#gazetteer">Gazetteer</a></li>
+</ol>
+</li>
+</ol>
+</nav>
+</body>
+</html>
+`;
+
+const tocNcx = (labelPrefix) => `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head><meta name="dtb:uid" content="urn:uuid:11111111-2222-3333-4444-555555555555"/></head>
+  <docTitle><text>Tidal Atlas</text></docTitle>
+  <navMap>
+    <navPoint id="n1" playOrder="1"><navLabel><text>${labelPrefix}Landfall</text></navLabel><content src="part-1.xhtml"/>
+      <navPoint id="n1a" playOrder="2"><navLabel><text>${labelPrefix}Moorings</text></navLabel><content src="part-1.xhtml#moorings"/></navPoint>
+    </navPoint>
+    <navPoint id="n2" playOrder="3"><navLabel><text>${labelPrefix}Interior</text></navLabel><content src="part-2.xhtml"/></navPoint>
+    <navPoint id="n3" playOrder="4"><navLabel><text>${labelPrefix}Departure</text></navLabel><content src="part-3.xhtml"/></navPoint>
+  </navMap>
+</ncx>
+`;
+
+writeFileSync(
+  join(outDir, 'toc-nav.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    {
+      name: 'content.opf',
+      data: tocOpf('3.0', '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>', ''),
+    },
+    { name: 'nav.xhtml', data: tocNavDoc },
+    ...tocChapters,
+  ]),
+);
+
+writeFileSync(
+  join(outDir, 'toc-ncx.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    {
+      name: 'content.opf',
+      data: tocOpf('2.0', '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>', ' toc="ncx"'),
+    },
+    { name: 'toc.ncx', data: tocNcx('') },
+    ...tocChapters,
+  ]),
+);
+
+writeFileSync(
+  join(outDir, 'toc-both.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    {
+      name: 'content.opf',
+      data: tocOpf(
+        '3.0',
+        '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
+        ' toc="ncx"',
+      ),
+    },
+    { name: 'nav.xhtml', data: tocNavDoc },
+    { name: 'toc.ncx', data: tocNcx('NCX ') },
+    ...tocChapters,
+  ]),
+);
+
+// --- OPF in a subdirectory, ../ and percent-encoded hrefs ------------------
+
+const subdirOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:66666666-7777-8888-9999-000000000000</dc:identifier>
+    <dc:title>Harbour of Glass</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="cover-image" href="./images/../images/cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="intro" href="text/first%20light.xhtml" media-type="application/xhtml+xml"/>
+    <item id="middle" href="text/middle.xhtml" media-type="application/xhtml+xml"/>
+    <item id="style" href="styles/main.css" media-type="text/css"/>
+  </manifest>
+  <spine>
+    <itemref idref="intro"/>
+    <itemref idref="middle"/>
+  </spine>
+</package>
+`;
+
+const subdirNav = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Harbour of Glass</title></head>
+<body>
+<nav epub:type="toc">
+<ol>
+<li><a href="text/first%20light.xhtml">First Light</a></li>
+<li><a href="text/middle.xhtml#anchor">Midway</a></li>
+</ol>
+</nav>
+</body>
+</html>
+`;
+
+writeFileSync(
+  join(outDir, 'opf-subdir.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('OEBPS/content.opf') },
+    { name: 'OEBPS/content.opf', data: subdirOpf },
+    { name: 'OEBPS/nav.xhtml', data: subdirNav },
+    { name: 'OEBPS/images/cover.png', data: makePng(10, 90, 70), method: 0 },
+    { name: 'OEBPS/text/first light.xhtml', data: xhtml('First Light', 'The glassworks woke before the gulls did.') },
+    { name: 'OEBPS/text/middle.xhtml', data: xhtml('Midway', 'Halfway across, the ferry lost its shadow.') },
+    { name: 'OEBPS/styles/main.css', data: styleCss },
+  ]),
+);
+
+// --- manifest fallback chains ----------------------------------------------
+
+const fallbackOpf = (chain) => `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</dc:identifier>
+    <dc:title>Ledger of Rooms</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+${chain}
+    <item id="plain" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="exotic"/>
+    <itemref idref="plain"/>
+  </spine>
+</package>
+`;
+
+writeFileSync(
+  join(outDir, 'fallback.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    {
+      name: 'content.opf',
+      data: fallbackOpf(`    <item id="exotic" href="rooms.slate" media-type="application/x-slate" fallback="less-exotic"/>
+    <item id="less-exotic" href="rooms.tiles" media-type="application/x-tiles" fallback="usable"/>
+    <item id="usable" href="rooms.xhtml" media-type="application/xhtml+xml"/>`),
+    },
+    { name: 'rooms.slate', data: 'not renderable\n' },
+    { name: 'rooms.tiles', data: 'still not renderable\n' },
+    { name: 'rooms.xhtml', data: xhtml('Ledger of Rooms', 'Every room was let twice: once to a lodger, once to a rumour.') },
+    { name: 'chapter.xhtml', data: xhtml('Ordinary Chapter', 'The rent was due on the rumour too.') },
+  ]),
+);
+
+writeFileSync(
+  join(outDir, 'fallback-circular.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    {
+      name: 'content.opf',
+      data: fallbackOpf(`    <item id="exotic" href="rooms.slate" media-type="application/x-slate" fallback="less-exotic"/>
+    <item id="less-exotic" href="rooms.tiles" media-type="application/x-tiles" fallback="exotic"/>`),
+    },
+    { name: 'rooms.slate', data: 'not renderable\n' },
+    { name: 'rooms.tiles', data: 'still not renderable\n' },
+    { name: 'chapter.xhtml', data: xhtml('Ordinary Chapter', 'Unreachable behind the circular chain.') },
+  ]),
+);
+
+// --- manifest properties: nav / cover-image / scripted ---------------------
+
+const propertiesOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:12121212-3434-5656-7878-909090909090</dc:identifier>
+    <dc:title>The Annotated Orrery</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="cover-image" href="cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="static" href="static.xhtml" media-type="application/xhtml+xml"/>
+    <item id="interactive" href="interactive.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
+  </manifest>
+  <spine>
+    <itemref idref="static"/>
+    <itemref idref="interactive"/>
+  </spine>
+</package>
+`;
+
+const propertiesNav = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>The Annotated Orrery</title></head>
+<body>
+<nav epub:type="toc">
+<ol>
+<li><a href="static.xhtml">The Fixed Stars</a></li>
+<li><a href="interactive.xhtml">The Moving Parts</a></li>
+</ol>
+</nav>
+</body>
+</html>
+`;
+
+writeFileSync(
+  join(outDir, 'properties.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    { name: 'content.opf', data: propertiesOpf },
+    { name: 'nav.xhtml', data: propertiesNav },
+    { name: 'cover.png', data: makePng(200, 170, 40), method: 0 },
+    { name: 'static.xhtml', data: xhtml('The Fixed Stars', 'The brass planets never argued about precedence.') },
+    { name: 'interactive.xhtml', data: xhtml('The Moving Parts', 'Turn the crank and the year comes loose.') },
+  ]),
+);
+
+// --- RTL spine and fixed-layout metadata -----------------------------------
+
+const rtlOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:abababab-cdcd-efef-0101-232323232323</dc:identifier>
+    <dc:title>مرايا الميناء</dc:title>
+    <dc:language>ar</dc:language>
+  </metadata>
+  <manifest>
+    <item id="c1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c2" href="chapter-2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine page-progression-direction="rtl">
+    <itemref idref="c1"/>
+    <itemref idref="c2"/>
+  </spine>
+</package>
+`;
+
+writeFileSync(
+  join(outDir, 'rtl.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    { name: 'content.opf', data: rtlOpf },
+    { name: 'chapter-1.xhtml', data: xhtml('One', 'First invented chapter.') },
+    { name: 'chapter-2.xhtml', data: xhtml('Two', 'Second invented chapter.') },
+  ]),
+);
+
+const fixedLayoutOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" prefix="rendition: http://www.idpf.org/vocab/rendition/#">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:45454545-6767-8989-0a0a-bcbcbcbcbcbc</dc:identifier>
+    <dc:title>Plates of the Deep</dc:title>
+    <dc:language>en</dc:language>
+    <meta property="rendition:layout">pre-paginated</meta>
+    <meta property="rendition:orientation">landscape</meta>
+  </metadata>
+  <manifest>
+    <item id="p1" href="plate-1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="p1"/>
+  </spine>
+</package>
+`;
+
+writeFileSync(
+  join(outDir, 'fixed-layout.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    { name: 'content.opf', data: fixedLayoutOpf },
+    { name: 'plate-1.xhtml', data: xhtml('Plate I', 'A single fixed plate of invented sea life.') },
+  ]),
+);
+
 // --- non-EPUB inputs -------------------------------------------------------
 
 writeFileSync(

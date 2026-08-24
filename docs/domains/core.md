@@ -11,6 +11,7 @@
   - **`TocItem` targets `sectionId` + optional `fragment`, never an href.** MOBI TOCs come from `filepos` byte offsets, FB2 from element ids, TXT from synthesized headings; a decoder resolves whatever it has to a section id up front.
   - **The cover is a `Resource` (media type + lazy bytes), never a container path.** FB2 inlines it as base64, MOBI stores it in an EXTH record; a path-shaped cover would be EPUB-only.
   - **All metadata fields are optional and omitted when unknown** — a bare Gutenberg TXT has no author, language, or cover.
+  - **Presentation traits are optional, format-neutral flags.** `Book.direction?: ReadingDirection` (`'ltr' | 'rtl'`) is the declared page-progression direction — a general ebook concept (EPUB spells it `page-progression-direction`, MOBI locales imply it), omitted when the book declares none. `Book.fixedLayout?: boolean` records that the book declares fixed-size pages (EPUB's `rendition:layout`, but KF8 has the same notion) — detection only, rendering stays reflowable permanently. `Section.scripted?: boolean` marks content that declares executable script. No EPUB spelling (`rendition:*`, OPF attribute names) appears in core.
 - **`RangeReader` is an object `{ size, read }`, not a bare callback.** The read signature is exactly `(offset, length) => Promise<Uint8Array>`, but container formats need the total size to locate tail-anchored structures (ZIP's end-of-central-directory); a bare function cannot supply it.
 - **The format seam is fully public.** `BookFormat` (`name`, `sniff(source)`, `decode(source, context)`) is the same interface built-in and third-party formats implement; `open(input, { formats })` takes an explicit list and bakes nothing in. Sniffers run in registration order; the first claim wins; a claim followed by a decode failure does not fall through to later formats.
 - **Errors are a typed hierarchy under `BookError`:** `UnrecognizedFormatError` (no sniffer claimed the input), `CorruptContainerError` (damaged structure), `EncryptedContentError` (DRM-free only — encountering encryption is a typed refusal, not a crash). Decoders throw these directly; `open()` wraps any non-`BookError` decode failure in `CorruptContainerError` with the original as `cause`, so hosts can always catch by class.
@@ -25,7 +26,7 @@
 
 ## Gotchas
 
-- `exactOptionalPropertyTypes` is on: `{ cover?: Resource }` rejects an explicit `undefined`. Decoders must *omit* unknown optional fields — build metadata and `TocItem.fragment` with conditional spreads, never `field: maybeUndefined`.
+- `exactOptionalPropertyTypes` is on: `{ cover?: Resource }` rejects an explicit `undefined`. Decoders must *omit* unknown optional fields — build metadata, `TocItem.fragment`, `direction`, `fixedLayout`, and `scripted` with conditional spreads, never `field: maybeUndefined`.
 - `TocItem.children` is always present (possibly empty), so consumers traverse without null checks; decoders must supply `[]`.
 - Section ids must be unique within a book — `Book.section(id)` and `TocItem.sectionId` depend on it.
 - Internal imports carry `.ts` extensions (`./book.ts`); a `.js` extension typechecks but throws under Node's type stripping at test time.

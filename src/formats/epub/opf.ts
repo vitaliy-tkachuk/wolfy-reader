@@ -12,6 +12,8 @@ export interface ManifestItem {
   readonly href: string;
   readonly mediaType: string;
   readonly properties: readonly string[];
+  /** Manifest id of the item to use when this one's media type is unsupported. */
+  readonly fallback?: string;
 }
 
 export interface GuideReference {
@@ -32,6 +34,10 @@ export interface OpfPackage {
   readonly itemById: ReadonlyMap<string, ManifestItem>;
   /** Spine itemref idrefs in reading order. */
   readonly spine: readonly string[];
+  /** Manifest id of the NCX named by the spine's toc attribute. */
+  readonly ncxId?: string;
+  readonly direction?: 'ltr' | 'rtl';
+  readonly fixedLayout?: boolean;
   readonly guide: readonly GuideReference[];
 }
 
@@ -65,7 +71,14 @@ export function parseOpf(xml: string, path: string): OpfPackage {
     if (id === undefined || href === undefined) continue;
     const mediaType = attribute(item, 'media-type') ?? 'application/octet-stream';
     const properties = (attribute(item, 'properties') ?? '').split(/\s+/).filter((p) => p !== '');
-    manifest.push({ id, href, mediaType, properties });
+    const fallback = attribute(item, 'fallback');
+    manifest.push({
+      id,
+      href,
+      mediaType,
+      properties,
+      ...(fallback === undefined || fallback === '' ? {} : { fallback }),
+    });
   }
   const itemById = new Map(manifest.map((item) => [item.id, item]));
 
@@ -74,12 +87,16 @@ export function parseOpf(xml: string, path: string): OpfPackage {
     const idref = attribute(itemref, 'idref');
     if (idref !== undefined) spine.push(idref);
   }
+  const ncxId = attribute(spineElement, 'toc');
+  const progression = attribute(spineElement, 'page-progression-direction');
+  const direction = progression === 'ltr' || progression === 'rtl' ? progression : undefined;
 
   const metadataElement = firstChildNamed(root, 'metadata');
   const title = metadataElement === undefined ? undefined : dcText(metadataElement, 'title');
   const author = metadataElement === undefined ? undefined : dcText(metadataElement, 'creator');
   const language = metadataElement === undefined ? undefined : dcText(metadataElement, 'language');
   const coverItem = findCoverItem(metadataElement, manifest, itemById);
+  const fixedLayout = metadataElement === undefined ? undefined : renditionLayout(metadataElement);
 
   const guide: GuideReference[] = [];
   const guideElement = firstChildNamed(root, 'guide');
@@ -103,8 +120,21 @@ export function parseOpf(xml: string, path: string): OpfPackage {
     manifest,
     itemById,
     spine,
+    ...(ncxId === undefined || ncxId === '' ? {} : { ncxId }),
+    ...(direction === undefined ? {} : { direction }),
+    ...(fixedLayout === undefined ? {} : { fixedLayout }),
     guide,
   };
+}
+
+function renditionLayout(metadata: XmlElement): boolean | undefined {
+  for (const meta of descendantsNamed(metadata, 'meta')) {
+    if (attribute(meta, 'property') !== 'rendition:layout') continue;
+    const value = meta.text.trim();
+    if (value === 'pre-paginated') return true;
+    if (value === 'reflowable') return false;
+  }
+  return undefined;
 }
 
 function dcText(metadata: XmlElement, localName: string): string | undefined {
