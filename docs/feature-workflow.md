@@ -234,6 +234,7 @@ Rules:
 - If unrelated uncommitted changes exist, ask the user before staging.
 - Subject line: imperative, ≤72 chars. Conventional Commits prefix (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`) when it adds clarity.
 - Body explains *why* when not obvious from the diff. Skip for trivial fixes.
+- Never add AI attribution trailers to a commit message — no `Co-Authored-By: Claude …`, no `Generated with [Claude Code]`, no equivalent generated-by line. The message describes the change, not what produced it.
 - Never use `--no-verify`, `--no-gpg-sign`, or `git commit --amend` on commits that are already pushed.
 - Never push to remote unless the user asks.
 
