@@ -7,12 +7,12 @@
   "type": "module",
   "sideEffects": false,
   "scripts": {
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "fetch-corpus": "node scripts/fetch-corpus.mjs"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "typescript": "^7.0.2"
   }
 }

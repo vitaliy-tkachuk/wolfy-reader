@@ -57,7 +57,7 @@
 
 - Strict mode is non-negotiable: `strict` plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, `verbatimModuleSyntax`. Fix the type instead of weakening a compiler option.
 - ESM only. No CJS anywhere — no `require`, no CJS build, `"type": "module"` stays.
-- Relative imports write the emitted path with an explicit `.js` extension (enforced by `moduleResolution: nodenext`).
+- Relative imports carry an explicit `.ts` extension. `rewriteRelativeImportExtensions` turns them into `.js` on emit, so published output stays plain ESM while Node runs the sources directly under type stripping — no build step between writing a test and running it.
 - Type-only imports use `import type` (enforced by `verbatimModuleSyntax`).
 - Platform primitives over dependencies: `DecompressionStream`, `DOMParser`, `TextDecoder`, `Intl.Segmenter`, CSS multi-column, `node:test` — never a package that reimplements what the platform ships. `dependencies` in `package.json` stays `{}` permanently.
-- Tests run under `node:test` with `node:assert/strict`; decoder tests stay headless (no browser).
+- Tests are TypeScript (`test/**/*.test.ts`), run under `node:test` with `node:assert/strict`, and import source through its real path (`../src/zip/index.ts`). Decoder tests stay headless — no browser.
