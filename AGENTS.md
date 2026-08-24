@@ -104,7 +104,7 @@ Standing rules for this project:
 - **Zero runtime dependencies, permanently.** `dependencies` in `package.json` stays empty. Dev dependencies (TypeScript, Playwright) are allowed; the claim is phrased as "zero *runtime* dependencies".
 - **Built from scratch.** No epub.js, foliate-js, Readium, PDF.js, or JSZip. Other projects may be read for format understanding; no code or dependency is taken from them.
 - **No knowledge of any consuming application.** The library never fetches and never persists — bytes in, `Book` out. It holds no vocabulary from any downstream app.
-- **Untrusted book content always renders in a hardened sandboxed iframe** (no `allow-same-origin`, strict CSP, `blob:` resources, `postMessage` coordination).
+- **Untrusted book content always renders in a hardened sandboxed iframe** (no `allow-same-origin`, strict CSP, allowlist sanitization, `data:` resources, `postMessage` coordination). Resources are `data:`, not `blob:`, and this is not a preference: a blob URL belongs to the origin that created it, and the frame's origin is opaque, so the frame is refused the host's blob URLs outright — measured, see [`docs/domains/view.md`](docs/domains/view.md). Do not "restore" `blob:` here.
 - **The `Book` model and the `Position` format are the stability promise.** Everything else may churn.
 - **DRM is permanently out of scope** — DRM-free books only.
 - **Learn formats from specifications** (W3C EPUB, the MobileRead format wiki, the PalmDB spec), never from GPL source.
