@@ -471,6 +471,8 @@ const subdirOpf = `<?xml version="1.0" encoding="UTF-8"?>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="cover-image" href="./images/../images/cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="plate" href="images/sea%20glass.png" media-type="image/png"/>
+    <item id="ghost" href="images/absent.png" media-type="image/png"/>
     <item id="intro" href="text/first%20light.xhtml" media-type="application/xhtml+xml"/>
     <item id="middle" href="text/middle.xhtml" media-type="application/xhtml+xml"/>
     <item id="style" href="styles/main.css" media-type="text/css"/>
@@ -496,6 +498,23 @@ const subdirNav = `<?xml version="1.0" encoding="UTF-8"?>
 </html>
 `;
 
+// The chapter sits two directories away from the OPF and reaches everything
+// through ../, so section-relative resolution is what this document tests.
+// images/absent.png is declared in the manifest but deliberately never written.
+const subdirMiddle = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Midway</title><link rel="stylesheet" type="text/css" href="../styles/main.css"/></head>
+<body>
+<h1 id="anchor">Midway</h1>
+<p>Halfway across, the ferry lost its shadow.</p>
+<img src="../images/sea%20glass.png" alt="A shard of sea glass"/>
+<img src="../images/absent.png" alt="M"/>
+<img src="https://example.invalid/elsewhere.png" alt="Elsewhere"/>
+<p><a href="../text/first%20light.xhtml">Back to first light</a> — <a href="#anchor">top</a></p>
+</body>
+</html>
+`;
+
 writeFileSync(
   join(outDir, 'opf-subdir.epub'),
   buildZip([
@@ -504,8 +523,9 @@ writeFileSync(
     { name: 'OEBPS/content.opf', data: subdirOpf },
     { name: 'OEBPS/nav.xhtml', data: subdirNav },
     { name: 'OEBPS/images/cover.png', data: makePng(10, 90, 70), method: 0 },
+    { name: 'OEBPS/images/sea glass.png', data: makePng(60, 130, 120), method: 0 },
     { name: 'OEBPS/text/first light.xhtml', data: xhtml('First Light', 'The glassworks woke before the gulls did.') },
-    { name: 'OEBPS/text/middle.xhtml', data: xhtml('Midway', 'Halfway across, the ferry lost its shadow.') },
+    { name: 'OEBPS/text/middle.xhtml', data: subdirMiddle },
     { name: 'OEBPS/styles/main.css', data: styleCss },
   ]),
 );

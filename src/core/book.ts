@@ -30,6 +30,13 @@ export interface Section {
   /** True when the content declares executable script; omitted when unknown. */
   readonly scripted?: boolean;
   load(): Promise<Uint8Array>;
+  /**
+   * Resolves a reference appearing inside this section's content — in whatever
+   * form the format uses — to the resource it names. Returns undefined when the
+   * reference names nothing this book can supply. Omitted by formats that
+   * cannot resolve references.
+   */
+  resolve?(reference: string): Resource | undefined;
 }
 
 /** Reading order of the pages: left-to-right or right-to-left. */

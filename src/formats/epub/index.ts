@@ -98,6 +98,23 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
   const baseDir = directoryOf(pkg.path);
   const entryPath = (item: ManifestItem): string => resolveHref(baseDir, item.href)?.path ?? item.href;
 
+  // Content references resolve against the document that carries them, and the
+  // manifest is the only statement of a media type — so a reference is
+  // resolvable only when it names a manifest item that is really in the
+  // archive. Absent entries are rejected here rather than deferred to load(),
+  // because a consumer building a URL must know before it builds one.
+  const present = new Set(zip.entries.map((entry) => entry.name));
+  const resourceByPath = new Map<string, Resource>();
+  for (const item of pkg.manifest) {
+    const path = entryPath(item);
+    if (!present.has(path) || resourceByPath.has(path)) continue;
+    resourceByPath.set(path, { mediaType: item.mediaType, load: () => readEntry(zip, path) });
+  }
+  const resolveFrom = (fromDir: string, reference: string): Resource | undefined => {
+    const target = resolveHref(fromDir, reference);
+    return target === undefined ? undefined : resourceByPath.get(target.path);
+  };
+
   const sections: Section[] = [];
   const sectionByPath = new Map<string, string>();
   const spineIds = new Set<string>();
@@ -108,11 +125,16 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
     const content = resolveFallback(item, pkg.itemById);
     const path = entryPath(content);
     const scripted = item.properties.includes('scripted') || content.properties.includes('scripted');
+    // The section's own directory, not the OPF's: a chapter in OEBPS/text/
+    // reaches its images through ../images/, which the OPF's base would
+    // resolve one level too high.
+    const contentDir = directoryOf(path);
     sections.push({
       id: item.id,
       mediaType: content.mediaType,
       ...(scripted ? { scripted } : {}),
       load: () => readEntry(zip, path),
+      resolve: (reference) => resolveFrom(contentDir, reference),
     });
     // TOCs point at the spine item's own href even when a fallback supplies
     // the content, so both paths map to the section.

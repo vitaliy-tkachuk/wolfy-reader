@@ -158,6 +158,98 @@ test('OPF in a subdirectory resolves manifest, spine, TOC, and cover hrefs', asy
   ]);
 });
 
+test('Section.resolve resolves against the section directory, not the OPF directory', async () => {
+  const book = await openFixture('opf-subdir.epub');
+  const middle = book.section('middle');
+  assert.ok(middle?.resolve, 'the EPUB decoder supplies the resolver on every section');
+
+  // OEBPS/text/middle.xhtml + ../styles/main.css → OEBPS/styles/main.css.
+  // Resolved against the OPF's OEBPS/ instead, this would miss entirely.
+  const style = middle.resolve('../styles/main.css');
+  assert.ok(style, '../ from the section directory reaches OEBPS/styles/');
+  assert.equal(style.mediaType, 'text/css');
+  assert.equal(
+    new TextDecoder().decode(await style.load()),
+    'body { font-family: serif; margin: 1em; }\n',
+  );
+
+  assert.equal(
+    middle.resolve('styles/main.css'),
+    undefined,
+    'the OPF-relative form of the same href does not resolve from a section two levels down',
+  );
+});
+
+test('Section.resolve returns a Resource whose bytes are the referenced entry', async () => {
+  const book = await openFixture('opf-subdir.epub');
+  const middle = book.section('middle');
+  assert.ok(middle?.resolve);
+
+  const plate = middle.resolve('../images/sea%20glass.png');
+  assert.ok(plate, 'a percent-encoded reference decodes to the real entry name');
+  assert.equal(plate.mediaType, 'image/png');
+  const plateBytes = await plate.load();
+  assert.deepEqual(plateBytes.slice(0, 8), PNG_MAGIC);
+
+  const cover = book.metadata.cover;
+  assert.ok(cover);
+  assert.notDeepEqual(
+    plateBytes,
+    await cover.load(),
+    'the reference lands on its own image, not merely on some image',
+  );
+});
+
+test('Section.resolve falls through to spine-listed documents, which are not in resources', async () => {
+  const book = await openFixture('opf-subdir.epub');
+  const middle = book.section('middle');
+  const intro = book.section('intro');
+  assert.ok(middle?.resolve);
+  assert.ok(intro);
+  assert.equal(book.resources.get('intro'), undefined, 'spine items are excluded from resources');
+
+  const target = middle.resolve('../text/first%20light.xhtml');
+  assert.ok(target, 'a reference at a spine document resolves like any other manifest item');
+  assert.equal(target.mediaType, 'application/xhtml+xml');
+  assert.deepEqual(await target.load(), await intro.load());
+});
+
+test('Section.resolve returns undefined for references it cannot serve, and never throws', async () => {
+  const book = await openFixture('opf-subdir.epub');
+  const middle = book.section('middle');
+  assert.ok(middle?.resolve);
+
+  for (const [reference, reason] of [
+    ['https://example.invalid/elsewhere.png', 'an absolute URL'],
+    ['//example.invalid/elsewhere.png', 'a protocol-relative URL'],
+    ['data:image/png;base64,iVBORw0KGgo=', 'a data URI'],
+    ['mailto:reader@example.invalid', 'a scheme-carrying link'],
+    ['#anchor', 'a fragment-only reference'],
+    ['', 'an empty reference'],
+    ['../images/absent.png', 'a manifest item whose zip entry is missing'],
+    ['../images/undeclared.png', 'a file the manifest never declares'],
+  ] as const) {
+    assert.equal(middle.resolve(reference), undefined, `${reason} resolves to undefined`);
+  }
+});
+
+test('Section.resolve works from a section that sits beside the OPF', async () => {
+  const book = await openFixture('epub2.epub');
+  const chapter = book.section('chapter-1');
+  assert.ok(chapter?.resolve);
+
+  const style = chapter.resolve('style.css');
+  assert.ok(style);
+  assert.equal(style.mediaType, 'text/css');
+  const declared = book.resources.get('style');
+  assert.ok(declared);
+  assert.deepEqual(await style.load(), await declared.load());
+
+  const cover = chapter.resolve('./cover.png');
+  assert.ok(cover, 'a ./-prefixed reference normalizes');
+  assert.deepEqual((await cover.load()).slice(0, 8), PNG_MAGIC);
+});
+
 test('an unsupported spine item follows its manifest fallback chain to usable content', async () => {
   const book = await openFixture('fallback.epub');
   const section = book.section('exotic');

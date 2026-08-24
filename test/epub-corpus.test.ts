@@ -65,6 +65,66 @@ test('corpus books decode with metadata, spine, TOC, and loadable sections', { s
   }
 });
 
+const REFERENCE = /(?:src|href)\s*=\s*"([^"]*)"/g;
+
+function referencesIn(markup: string): string[] {
+  return [...markup.matchAll(REFERENCE)].map((match) => (match[1] ?? '').replaceAll('&amp;', '&'));
+}
+
+function isInternal(reference: string): boolean {
+  return (
+    reference !== '' && !reference.startsWith('#') && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(reference) && !reference.startsWith('//')
+  );
+}
+
+test('corpus sections resolve their own references to loadable resources', { skip: corpusEpubs.length === 0 && 'corpus not downloaded (npm run fetch-corpus)' }, async () => {
+  for (const name of corpusEpubs) {
+    const bytes = await readFile(new URL(name, corpusDir));
+    const book = await open(new Uint8Array(bytes).buffer, { formats: [epub] });
+
+    let internal = 0;
+    let resolved = 0;
+    const unresolved: string[] = [];
+    for (const section of book.sections) {
+      const resolve = section.resolve;
+      assert.ok(resolve, `${name}: section ${section.id} exposes a resolver`);
+      assert.equal(
+        resolve('https://example.invalid/x.png'),
+        undefined,
+        `${name}: an absolute URL never resolves`,
+      );
+      const markup = new TextDecoder().decode(await section.load());
+      for (const reference of new Set(referencesIn(markup))) {
+        if (!isInternal(reference)) {
+          assert.equal(resolve(reference), undefined, `${name}: "${reference}" is not resolvable`);
+          continue;
+        }
+        internal += 1;
+        const resource = resolve(reference);
+        if (resource === undefined) {
+          unresolved.push(reference);
+          continue;
+        }
+        resolved += 1;
+        assert.ok(resource.mediaType, `${name}: resolved "${reference}" carries a media type`);
+        const payload = await resource.load();
+        assert.ok(payload.length > 0, `${name}: resolved "${reference}" loads real bytes`);
+        if (reference.split('#')[0]?.endsWith('.css') === true) {
+          assert.match(resource.mediaType, /css/, `${name}: "${reference}" resolves to a stylesheet`);
+        }
+      }
+    }
+
+    if (internal > 0) {
+      assert.ok(resolved > 0, `${name}: at least one in-book reference resolves`);
+    }
+    console.log(
+      `${fileURLToPath(new URL(name, corpusDir))}: ${resolved}/${internal} in-book references resolved` +
+        (unresolved.length === 0 ? '' : ` — unresolved: ${[...new Set(unresolved)].slice(0, 5).join(', ')}`),
+    );
+  }
+});
+
 test('W3C epub-testsuite books never crash: every one yields a Book or a typed BookError', { skip: testsuiteEpubs.length === 0 && 'testsuite not downloaded (npm run fetch-corpus)' }, async () => {
   let decoded = 0;
   let refused = 0;
