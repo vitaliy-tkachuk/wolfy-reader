@@ -1,0 +1,19 @@
+{
+  "entries": {
+    "alpha.txt": {
+      "start": 0,
+      "end": 146
+    },
+    "pad.bin": {
+      "start": 146,
+      "end": 4279
+    },
+    "lorem.txt": {
+      "start": 4279,
+      "end": 4548
+    }
+  },
+  "cdOffset": 4548,
+  "cdSize": 163,
+  "size": 4733
+}

@@ -12,3 +12,9 @@ graphify-out/graph.json merge=graphify
 
 # Keep generated graph artifacts out of diffs and language stats.
 graphify-out/** linguist-generated=true
+
+# Test fixtures are byte-exact by definition: pin them binary so the repo-wide
+# text=auto heuristic can never rewrite a zip or a payload on checkout.
+*.zip binary
+*.bin binary
+*.epub binary
