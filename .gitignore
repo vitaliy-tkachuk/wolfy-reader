@@ -35,3 +35,13 @@ graphify-out/20*/
 
 # Stack-specific dependency/build ignores are appended below by /describe-project
 # based on the chosen project type. Until then the base above stays lean.
+
+# Implementation plan — local scratch that feeds the analyze skill, like docs/tasks/
+PLAN.md
+
+# --- stack-specific (managed by describe-project) ---
+node_modules/
+dist/
+build/
+coverage/
+# --- end stack-specific ---

@@ -95,4 +95,16 @@ For Level 0 work, just fix without docs.
 
 ## Project-specific guidance
 
-TBD — fill in once the tech stack is established. See `docs/architecture.md`.
+**wolfyReader** — a from-scratch, zero-runtime-dependency ebook reading and display library for the browser.
+
+See [`docs/architecture.md`](docs/architecture.md) for stack and main application areas.
+
+Standing rules for this project:
+
+- **Zero runtime dependencies, permanently.** `dependencies` in `package.json` stays empty. Dev dependencies (TypeScript, Playwright) are allowed; the claim is phrased as "zero *runtime* dependencies".
+- **Built from scratch.** No epub.js, foliate-js, Readium, PDF.js, or JSZip. Other projects may be read for format understanding; no code or dependency is taken from them.
+- **No knowledge of any consuming application.** The library never fetches and never persists — bytes in, `Book` out. It holds no vocabulary from any downstream app.
+- **Untrusted book content always renders in a hardened sandboxed iframe** (no `allow-same-origin`, strict CSP, `blob:` resources, `postMessage` coordination).
+- **The `Book` model and the `Position` format are the stability promise.** Everything else may churn.
+- **DRM is permanently out of scope** — DRM-free books only.
+- **Learn formats from specifications** (W3C EPUB, the MobileRead format wiki, the PalmDB spec), never from GPL source.
