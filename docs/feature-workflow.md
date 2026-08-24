@@ -47,9 +47,10 @@ Running `implement` is itself the go-ahead — there is no separate approval fla
 6. Create a local task file only when the work needs tracking (Level 2+).
 7. Implement the change.
 8. Verify with available checks (lint, typecheck, tests, build).
-9. Distill durable knowledge into `docs/domains/<domain>.md` (create the domain doc if new); record any cross-cutting decision in `docs/architecture.md`.
-10. Delete the local task file.
-11. Commit the change (see [Committing](#committing)).
+9. Make the change visible: update `/demo` for user-facing capability, or record why nothing there changed.
+10. Distill durable knowledge into `docs/domains/<domain>.md` (create the domain doc if new); record any cross-cutting decision in `docs/architecture.md`.
+11. Delete the local task file.
+12. Commit the change (see [Committing](#committing)).
 
 ## Context review (Level 2+)
 
@@ -204,6 +205,11 @@ What should be true after this task is done?
 - [ ] Acceptance criterion 1 → verified by ...
 - [ ] Manual check: ...
 
+## Demonstration
+How a human sees this working. Required — every task answers it.
+- [ ] Demo surface: what `/demo` shows after this lands, or why it shows nothing new.
+- [ ] Test tier: headless `node:test`, or browser (say what makes a browser load-bearing).
+
 ## Notes
 Gotchas, deviations, anything worth distilling into the domain doc.
 ```
@@ -216,13 +222,14 @@ See [`docs/domains/README.md`](domains/README.md) for the per-domain section str
 
 1. Verify the feature works.
 2. Run lint, typecheck, tests, build (whichever are available).
-3. Distill durable knowledge into `docs/domains/<domain>.md` (create the file from the shape in `docs/domains/README.md` if the domain is new).
-4. If the work introduced or changed a cross-cutting choice → record it in `docs/architecture.md` (woven into the relevant section).
-5. If the work introduced a cross-domain reusable pattern → append it to `docs/patterns.md`. (Domain-local patterns go in the domain doc instead.)
-6. If the task established repo-level commands → update `README.md`.
-7. Decide whether the knowledge graph needs a **committed** refresh (skip entirely if the repo has no `graphify-out/`). The local `post-commit` hook already rebuilt it for free, so this is only about what lands in git: commit the refresh when this task changed the repo's *shape* — added, removed, renamed, or moved files/modules, or opened a new domain — or when it was doc/semantic-heavy (then run `graphify . --update` first; the semantic layer and community labels are not auto-refreshed). For a fix inside existing files, leave it; the graph locates code and the agent reads the real files anyway. When you do refresh, commit `graphify-out/` **separately** (`chore: refresh knowledge graph`) — never staged together with the task's own commit. See [`AGENTS.md`](../AGENTS.md#knowledge-graph--query-it-first-to-save-tokens) for the full cadence.
-8. Delete the local task file.
-9. Commit the change (see [Committing](#committing)).
+3. Satisfy the task's `## Demonstration` section — update `/demo` so the new capability is visible, or record why nothing there changed.
+4. Distill durable knowledge into `docs/domains/<domain>.md` (create the file from the shape in `docs/domains/README.md` if the domain is new).
+5. If the work introduced or changed a cross-cutting choice → record it in `docs/architecture.md` (woven into the relevant section).
+6. If the work introduced a cross-domain reusable pattern → append it to `docs/patterns.md`. (Domain-local patterns go in the domain doc instead.)
+7. If the task established repo-level commands → update `README.md`.
+8. Decide whether the knowledge graph needs a **committed** refresh (skip entirely if the repo has no `graphify-out/`). The local `post-commit` hook already rebuilt it for free, so this is only about what lands in git: commit the refresh when this task changed the repo's *shape* — added, removed, renamed, or moved files/modules, or opened a new domain — or when it was doc/semantic-heavy (then run `graphify . --update` first; the semantic layer and community labels are not auto-refreshed). For a fix inside existing files, leave it; the graph locates code and the agent reads the real files anyway. When you do refresh, commit `graphify-out/` **separately** (`chore: refresh knowledge graph`) — never staged together with the task's own commit. See [`AGENTS.md`](../AGENTS.md#knowledge-graph--query-it-first-to-save-tokens) for the full cadence.
+9. Delete the local task file.
+10. Commit the change (see [Committing](#committing)).
 
 ## Committing
 

@@ -13,6 +13,16 @@
 - Add tests for meaningful business logic.
 - Add regression tests for fixed bugs when practical.
 - Do not write low-value tests only to satisfy process.
+- **Headless `node:test` is the default tier.** Decoders, parsers, and model logic are tested without a browser. Reach for a browser only when a browser is genuinely load-bearing — layout, rendering, input, the sandboxed frame — and say in the task what makes it so.
+- **Fixtures are committed; the corpus is not.** Small, license-clean, hand-authored fixtures live in `test/fixtures/` and pin exact behavior. Real books in `test/corpus/` are downloaded and gitignored, so every corpus test skips gracefully when the directory is absent — it must never fail for a missing download.
+- **Generate format fixtures with more than one writer.** Real-world files vary in ways a single tool cannot show; a fixture set produced by one writer proves only that the code reads that writer's output.
+- **Assert the payload, not just the shape.** A decoder that returns a well-formed object whose content cannot be loaded still passes a structural test. Where a test can compare real bytes, compare them.
+
+## Demonstrating
+
+- **Every user-facing capability lands with a way to see it work.** `/demo` is the primary development surface, not an afterthought — if a feature changes what the library can do, the demo shows it in the same unit of work.
+- A task with nothing to demonstrate says so explicitly. "Headless-only, nothing user-facing" is a valid answer; silence is not.
+- `/demo` stays a harness with a UI, framework-free by rule. It must not grow into a polished reading app — that is a different product.
 
 ## Documentation
 
