@@ -1,6 +1,6 @@
 # wolfyReader
 
-A from-scratch, zero-runtime-dependency ebook reading and display library for the browser.
+Read ebooks in the browser — with pages that turn, text you can search, and typography you can change without losing your place.
 
 ## Overview
 

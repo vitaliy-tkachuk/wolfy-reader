@@ -4,7 +4,7 @@
 
 ## Purpose
 
-A from-scratch, zero-runtime-dependency ebook reading and display library for the browser.
+Read ebooks in the browser — with pages that turn, text you can search, and typography you can change without losing your place.
 
 wolfyReader renders ebooks in the browser — EPUB, FB2 and plain text today, MOBI/AZW3 later — with paginated and scrolled reading, chapter and TOC navigation, in-book search, and live appearance controls for font, theme and margins. It is built from scratch on platform primitives, carries zero runtime dependencies, and treats its API as a promise rather than a moving target: the `Book` model and the `Position` format are covered by semver. Reading position survives font-size and layout changes, and untrusted book content renders inside a hardened sandboxed iframe. It targets developers who want a reader that is small, pleasant to use, and safe with untrusted files — not a spec-conformance or DRM reading system.
 
