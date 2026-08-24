@@ -21,13 +21,28 @@ npm test             # node:test suite, headless
 npm run test:browser # Playwright suites for the sandboxed frame
 npm run typecheck    # tsc --noEmit
 npm run check:core   # fail if src/core reaches src/layout or src/view
+npm run bench        # pagination benchmark (needs the corpus)
 ```
 
-To download real books for testing (Project Gutenberg + Standard Ebooks, into gitignored `test/corpus/`):
+### Setup on a new machine
+
+A clone gives you the source, the docs, the committed fixtures and the knowledge graph. Four things are deliberately not in the repo and are set up per machine:
 
 ```bash
-npm run fetch-corpus
+npm install                      # 1. required
+npx playwright install chromium  # 2. required for `npm run test:browser` (~115 MB)
+npm run fetch-corpus             # 3. optional — real books, ~30 MB, gitignored
+graphify hook install            # 4. optional — per-clone, see Knowledge graph below
 ```
+
+1. **`npm install`** — `dependencies` is permanently empty; this installs the dev toolchain only.
+2. **`npx playwright install chromium`** — the `playwright` package has no postinstall step, so `npm install` alone leaves you with no browser and `npm run test:browser` fails. Browser suites launch full Chromium (`channel: 'chromium'`), not the headless shell.
+3. **`npm run fetch-corpus`** — downloads Project Gutenberg + Standard Ebooks titles into gitignored `test/corpus/`. Skipping it is safe: corpus-backed tests skip gracefully by rule and `npm test` stays green. Without it, `npm run bench` skips and the benchmark fixtures cannot be generated.
+4. **`graphify hook install`** — the git hooks that rebuild the knowledge graph are local-only; a fresh clone has none until you install them.
+
+Everything above is regenerable. The one file that is not in the repo and cannot be rebuilt is the local `PLAN.md` implementation plan — copy it across by hand if you are moving machines mid-project.
+
+> Benchmark timings recorded in [`docs/domains/layout.md`](docs/domains/layout.md) are machine-specific. On different hardware, re-baseline with `npm run bench` and compare the chunked-vs-naive *ratios* (3–7x, far above machine variance) rather than the absolute milliseconds.
 
 ## Running Locally
 
