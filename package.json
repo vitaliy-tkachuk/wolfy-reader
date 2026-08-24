@@ -8,6 +8,7 @@
   "sideEffects": false,
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
+    "test:browser": "node --test \"test/browser/*.browser.mjs\"",
     "typecheck": "tsc --noEmit",
     "check:core": "node scripts/check-core-purity.mjs",
     "fetch-corpus": "node scripts/fetch-corpus.mjs",

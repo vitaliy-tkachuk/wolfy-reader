@@ -107,21 +107,60 @@
   #reader-label { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.35rem; font-family: ui-monospace, monospace; }
   #reader {
     height: 34rem;
-    overflow: auto;
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: #fff;
-    padding: 1rem;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    font-size: 0.85rem;
-    line-height: 1.4;
   }
+  #reader:empty::after {
+    content: "pick a chapter";
+    display: block;
+    padding: 1rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+  #report {
+    display: none;
+    margin-top: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+  }
+  #report h2 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 0 0 0.5rem;
+  }
+  #report dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.75rem;
+    margin: 0;
+  }
+  #report dt { color: var(--muted); }
+  #report dd { margin: 0; overflow-wrap: anywhere; }
+  .chip {
+    display: inline-block;
+    margin: 0 0.3rem 0.3rem 0;
+    padding: 0.05rem 0.4rem;
+    border-radius: 3px;
+    background: #f0f0f0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.75rem;
+  }
+  .chip.gone { background: #fbe5e7; color: var(--error); }
+  .chip.kept { background: #e6f4ea; color: #14682c; }
+  .chip.blocked { background: #fdf1e0; color: #9a5b00; }
+  .none { color: var(--muted); font-style: italic; }
 </style>
 </head>
 <body>
 <h1>wolfyReader demo</h1>
-<p class="tagline">Decoder proof: pick a book, see exactly what the library produced. Section content is shown as escaped source text, not rendered markup.</p>
+<p class="tagline">Decoder proof: pick a book, see exactly what the library produced. Chapters render as live markup inside the hardened sandboxed frame, with a report of everything the sanitizer took out.</p>
 <input type="file" id="book-input">
 <div id="error"></div>
 <div id="book">
@@ -147,12 +186,25 @@
     <main class="pane">
       <p id="reader-label"></p>
       <div id="reader"></div>
+      <section id="report">
+        <h2>What the host did to this section</h2>
+        <dl>
+          <dt>Parsed as</dt><dd id="report-parse"></dd>
+          <dt>Removed</dt><dd id="report-removed"></dd>
+          <dt>Unwrapped</dt><dd id="report-unwrapped"></dd>
+          <dt>Attributes</dt><dd id="report-attributes"></dd>
+          <dt>Resources</dt><dd id="report-resources"></dd>
+          <dt>Not served</dt><dd id="report-refused"></dd>
+          <dt>CSP blocked</dt><dd id="report-violations"></dd>
+        </dl>
+      </section>
     </main>
   </div>
 </div>
 <script type="module">
   import { open } from '/src/core/index.ts';
   import { epub } from '/src/formats/index.ts';
+  import { ContentHost } from '/src/view/index.ts';
 
   const input = document.querySelector('#book-input');
   const errorEl = document.querySelector('#error');
@@ -167,10 +219,23 @@
   const orderEl = document.querySelector('#reading-order');
   const readerLabelEl = document.querySelector('#reader-label');
   const readerEl = document.querySelector('#reader');
+  const reportEl = document.querySelector('#report');
+  const reportFields = {
+    parse: document.querySelector('#report-parse'),
+    removed: document.querySelector('#report-removed'),
+    unwrapped: document.querySelector('#report-unwrapped'),
+    attributes: document.querySelector('#report-attributes'),
+    resources: document.querySelector('#report-resources'),
+    refused: document.querySelector('#report-refused'),
+    violations: document.querySelector('#report-violations'),
+  };
 
   let book = null;
   let coverUrl = null;
   let generation = 0;
+  let host = null;
+  let queue = Promise.resolve();
+  const violations = [];
 
   function showError(err) {
     errorEl.replaceChildren();
@@ -192,8 +257,60 @@
     badgesEl.replaceChildren();
     tocEl.replaceChildren();
     orderEl.replaceChildren();
+    if (host !== null) {
+      host.destroy();
+      host = null;
+    }
     readerEl.replaceChildren();
     readerLabelEl.textContent = '';
+    reportEl.style.display = 'none';
+    violations.length = 0;
+  }
+
+  function chips(target, entries, kind) {
+    target.replaceChildren();
+    if (entries.length === 0) {
+      const none = document.createElement('span');
+      none.className = 'none';
+      none.textContent = 'nothing';
+      target.append(none);
+      return;
+    }
+    for (const entry of entries) {
+      const chip = document.createElement('span');
+      chip.className = `chip ${kind}`;
+      chip.textContent = typeof entry === 'string' ? entry : `${entry.name} × ${entry.count}`;
+      target.append(chip);
+    }
+  }
+
+  function showViolations() {
+    chips(
+      reportFields.violations,
+      violations.map((violation) => `${violation.directive} — ${violation.blockedUri || '(inline)'}`),
+      'blocked',
+    );
+  }
+
+  function showReport(report) {
+    const { sanitization, resources } = report;
+    reportFields.parse.textContent =
+      sanitization.parsedAs + (sanitization.parseFallback ? ' (XML parse failed — HTML fallback)' : '');
+    chips(reportFields.removed, sanitization.elementsRemoved, 'gone');
+    chips(reportFields.unwrapped, sanitization.elementsUnwrapped, 'gone');
+    chips(reportFields.attributes, sanitization.attributesRemoved, 'gone');
+    chips(
+      reportFields.resources,
+      [
+        `${resources.dataUrls} data URLs`,
+        `${resources.resolved.length} resolved`,
+        `${resources.altSubstituted} images replaced by alt text`,
+      ],
+      'kept',
+    );
+    chips(reportFields.refused, [...resources.unresolved, ...resources.refused], 'gone');
+    showViolations();
+    reportEl.style.display = 'block';
   }
 
   function addBadge(text, warn) {
@@ -210,7 +327,13 @@
     button.classList.add('active');
   }
 
-  async function loadSection(sectionId, fragment, button) {
+  function loadSection(sectionId, fragment, button) {
+    // Renders are serialized: the host refuses a render that a later one has
+    // already superseded, and clicking through a TOC is exactly that case.
+    queue = queue.then(() => renderSection(sectionId, fragment, button)).catch(() => {});
+  }
+
+  async function renderSection(sectionId, fragment, button) {
     const current = generation;
     const section = book.section(sectionId);
     if (section === undefined) {
@@ -218,14 +341,23 @@
       return;
     }
     try {
-      const bytes = await section.load();
+      if (host === null) {
+        host = new ContentHost(readerEl, {
+          onViolation: (violation) => {
+            violations.push(violation);
+            showViolations();
+          },
+          onError: (message) => showError(new Error(`inside the frame: ${message}`)),
+        });
+      }
+      violations.length = 0;
+      const report = await host.render(section);
       if (current !== generation) return;
-      const text = new TextDecoder().decode(bytes);
       readerLabelEl.textContent =
-        `section "${section.id}" (${section.mediaType}, ${bytes.byteLength} bytes)` +
-        (fragment !== undefined ? ` — target fragment #${fragment}` : '');
-      readerEl.textContent = text;
-      readerEl.scrollTop = 0;
+        `section "${section.id}" (${section.mediaType})` +
+        (fragment !== undefined ? ` — target fragment #${fragment}` : '') +
+        (report.declaredScripted ? ' — declares scripted content' : '');
+      showReport(report);
       markActive(button);
     } catch (err) {
       if (current !== generation) return;
@@ -286,7 +418,7 @@
     orderEl.append(
       book.sections.length > 0 ? buildReadingOrder(book.sections) : emptyNote('no sections'),
     );
-    readerLabelEl.textContent = 'pick a chapter to load its bytes';
+    readerLabelEl.textContent = 'pick a chapter to render it in the sandboxed frame';
     bookEl.style.display = 'block';
     if (book.metadata.cover !== undefined) {
       const current = generation;

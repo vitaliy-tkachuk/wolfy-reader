@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>wolfyReader view harness</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  #stage { width: 800px; height: 600px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module">
+  import { open } from '/src/core/index.ts';
+  import { epub } from '/src/formats/index.ts';
+  import { ContentHost } from '/src/view/index.ts';
+
+  // The host must mint no object URLs at all: an opaque-origin frame cannot
+  // read the creating origin's blob store, so any that appeared would be both
+  // useless and unrevoked. Counting them is how the test proves it.
+  let objectUrlsCreated = 0;
+  let objectUrlsRevoked = 0;
+  const createObjectURL = URL.createObjectURL.bind(URL);
+  const revokeObjectURL = URL.revokeObjectURL.bind(URL);
+  URL.createObjectURL = (blob) => {
+    objectUrlsCreated += 1;
+    return createObjectURL(blob);
+  };
+  URL.revokeObjectURL = (url) => {
+    objectUrlsRevoked += 1;
+    revokeObjectURL(url);
+  };
+
+  const stage = document.querySelector('#stage');
+  const violations = [];
+  const errors = [];
+  const fromFrame = [];
+  let host = null;
+  let book = null;
+
+  window.addEventListener('message', (event) => {
+    if (host !== null && event.source === host.frame.contentWindow) fromFrame.push(event.data);
+  });
+
+  function decodeBase64(text) {
+    return Uint8Array.from(atob(text), (character) => character.charCodeAt(0));
+  }
+
+  function syntheticSection(spec) {
+    const entries = spec.resources ?? {};
+    return {
+      id: spec.id ?? 'synthetic',
+      mediaType: spec.mediaType ?? 'application/xhtml+xml',
+      ...(spec.scripted === true ? { scripted: true } : {}),
+      load: async () => new TextEncoder().encode(spec.source),
+      resolve: (reference) => {
+        const entry = entries[reference];
+        if (entry === undefined) return undefined;
+        return {
+          mediaType: entry.mediaType,
+          load: async () =>
+            entry.base64 === undefined ? new TextEncoder().encode(entry.text) : decodeBase64(entry.base64),
+        };
+      },
+    };
+  }
+
+  window.harness = {
+    async openBook(url) {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      book = await open(await response.arrayBuffer(), { formats: [epub] });
+      return book.sections.map((section) => ({
+        id: section.id,
+        mediaType: section.mediaType,
+        scripted: section.scripted === true,
+      }));
+    },
+
+    async sectionSource(sectionId) {
+      return new TextDecoder().decode(await book.section(sectionId).load());
+    },
+
+    createHost() {
+      if (host !== null) host.destroy();
+      violations.length = 0;
+      errors.length = 0;
+      fromFrame.length = 0;
+      objectUrlsCreated = 0;
+      objectUrlsRevoked = 0;
+      host = new ContentHost(stage, {
+        onViolation: (report) => violations.push(report),
+        onError: (message) => errors.push(message),
+        timeoutMs: 8000,
+      });
+      return this.isolation();
+    },
+
+    render(sectionId) {
+      return host.render(book.section(sectionId));
+    },
+
+    renderSource(spec) {
+      return host.render(syntheticSection(spec));
+    },
+
+    measure() {
+      return host.measure();
+    },
+
+    async ping() {
+      await host.ping();
+      return true;
+    },
+
+    /** Everything the host page can observe about the frame from outside it. */
+    isolation() {
+      const frame = host.frame;
+      const attribute = frame.getAttribute('sandbox');
+      let contentDocument;
+      try {
+        contentDocument = String(frame.contentDocument);
+      } catch (error) {
+        contentDocument = `throws:${error.name}`;
+      }
+      let contentWindowDocument;
+      try {
+        void frame.contentWindow.document;
+        contentWindowDocument = 'readable';
+      } catch (error) {
+        contentWindowDocument = `throws:${error.name}`;
+      }
+      return {
+        sandbox: attribute,
+        tokens: attribute === null ? [] : attribute.split(/\s+/).filter(Boolean),
+        contentDocument,
+        contentWindowDocument,
+      };
+    },
+
+    observed() {
+      return {
+        violations: violations.map((report) => ({ ...report })),
+        errors: [...errors],
+        fromFrame: fromFrame.map((message) => JSON.parse(JSON.stringify(message))),
+        objectUrlsCreated,
+        objectUrlsRevoked,
+      };
+    },
+
+    /** A well-formed frame message from the wrong source must not be dispatched. */
+    spoofFromTopWindow(id) {
+      window.postMessage({ v: 1, type: 'measured', id, width: 1, height: 1 }, '*');
+    },
+
+    /**
+     * A sibling frame reaching the content frame's window and speaking the
+     * protocol at it. The content frame must ignore it: only its parent counts.
+     */
+    spoofFromSibling(id) {
+      return new Promise((done) => {
+        const sibling = document.createElement('iframe');
+        sibling.setAttribute('sandbox', 'allow-scripts');
+        sibling.style.display = 'none';
+        document.body.append(sibling);
+        sibling.srcdoc = `<script>parent.frames[0].postMessage({ v: 1, type: 'measure', id: ${id} }, '*');<\/script>`;
+        // Removed again so the content frame stays the page's only child frame.
+        setTimeout(() => {
+          sibling.remove();
+          done();
+        }, 400);
+      });
+    },
+
+    destroy() {
+      host.destroy();
+      host = null;
+    },
+  };
+
+  window.harnessReady = true;
+</script>
+</body>
+</html>

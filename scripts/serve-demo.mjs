@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
 import { dirname, extname, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // stripTypeScriptTypes emits an ExperimentalWarning on first use; swallow only
 // that one and keep printing everything else, so real warnings stay visible.
@@ -17,12 +17,17 @@ process.on('warning', (warning) => {
   console.error(warning.stack ?? String(warning));
 });
 
-// Only demo/ and src/ are on the wire — the demo page plus the library modules
-// it imports. Serving the repo root would expose .git/, the downloaded corpus,
-// and local scratch to any browser tab that can reach localhost.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const demoRoot = resolve(repoRoot, 'demo');
-const srcRoot = resolve(repoRoot, 'src');
+
+// Only demo/ and src/ are on the wire by default — the demo page plus the
+// library modules it imports. Serving the repo root would expose .git/, the
+// downloaded corpus, and local scratch to any browser tab that can reach
+// localhost. The browser test harness adds its own mounts explicitly; nothing
+// widens this set implicitly.
+export const demoMounts = [
+  { prefix: '/src', dir: resolve(repoRoot, 'src') },
+  { prefix: '/', dir: resolve(repoRoot, 'demo') },
+];
 
 const defaultPort = 8080;
 const portAttempts = 10;
@@ -32,6 +37,7 @@ const portAttempts = 10;
 // bytes hit the wire (see handle), so the browser receives plain JavaScript.
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
+  '.epub': 'application/epub+zip',
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
@@ -48,51 +54,59 @@ function notFound(res) {
   res.end('Not found');
 }
 
-async function handle(req, res) {
-  let pathname;
-  try {
-    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-  } catch {
-    notFound(res);
-    return;
-  }
-  const inSrc = pathname === '/src' || pathname.startsWith('/src/');
-  const mountRoot = inSrc ? srcRoot : demoRoot;
-  let relative;
-  if (inSrc) {
-    relative = pathname.slice('/src/'.length);
-  } else {
-    relative = pathname === '/' ? 'index.html' : pathname.slice(1);
-  }
-  const filePath = resolve(mountRoot, relative);
-  if (filePath !== mountRoot && !filePath.startsWith(mountRoot + sep)) {
-    notFound(res);
-    return;
-  }
-  let body;
-  try {
-    body = await readFile(filePath);
-  } catch {
-    notFound(res);
-    return;
-  }
-  const extension = extname(filePath).toLowerCase();
-  if (extension === '.ts') {
-    // mode: 'strip' blanks type syntax in place, preserving line and column
-    // numbers so browser stack traces point at the real source location. The
-    // stripped output keeps its relative './x.ts' specifiers; the browser
-    // requests those and each one is stripped here in turn.
+function makeHandler(mounts) {
+  // Longest prefix first, so a '/' mount never shadows '/fixtures'.
+  const ordered = [...mounts].sort((a, b) => b.prefix.length - a.prefix.length);
+  return async function handle(req, res) {
+    let pathname;
     try {
-      body = stripTypeScriptTypes(body.toString('utf8'), { mode: 'strip' });
-    } catch (err) {
-      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end(`Type stripping failed for ${pathname}: ${err.message}`);
+      pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    } catch {
+      notFound(res);
       return;
     }
-  }
-  const type = contentTypes[extension] ?? 'application/octet-stream';
-  res.writeHead(200, { 'content-type': type });
-  res.end(body);
+    const mount = ordered.find(
+      ({ prefix }) => prefix === '/' || pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
+    if (mount === undefined) {
+      notFound(res);
+      return;
+    }
+    let relative =
+      mount.prefix === '/' ? pathname.slice(1) : pathname.slice(mount.prefix.length + 1);
+    if (relative === '') relative = 'index.html';
+    const filePath = resolve(mount.dir, relative);
+    if (filePath !== mount.dir && !filePath.startsWith(mount.dir + sep)) {
+      notFound(res);
+      return;
+    }
+    let body;
+    try {
+      body = await readFile(filePath);
+    } catch {
+      notFound(res);
+      return;
+    }
+    const extension = extname(filePath).toLowerCase();
+    if (extension === '.ts') {
+      // mode: 'strip' blanks type syntax in place, preserving line and column
+      // numbers so browser stack traces point at the real source location. The
+      // stripped output keeps its relative './x.ts' specifiers; the browser
+      // requests those and each one is stripped here in turn.
+      try {
+        body = stripTypeScriptTypes(body.toString('utf8'), { mode: 'strip' });
+      } catch (err) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end(`Type stripping failed for ${pathname}: ${err.message}`);
+        return;
+      }
+    }
+    res.writeHead(200, {
+      'content-type': contentTypes[extension] ?? 'application/octet-stream',
+      'cache-control': 'no-store',
+    });
+    res.end(body);
+  };
 }
 
 function listen(server, port) {
@@ -105,21 +119,38 @@ function listen(server, port) {
   });
 }
 
-const server = createServer(handle);
-let boundPort = null;
-for (let port = defaultPort; port < defaultPort + portAttempts; port += 1) {
-  try {
-    await listen(server, port);
-    boundPort = port;
-    break;
-  } catch (err) {
-    if (err.code !== 'EADDRINUSE') throw err;
+/**
+ * Serves the given mounts, walking up from `port` until one is free. Pass
+ * `port: 0` for an ephemeral port, which is what the test harness wants.
+ */
+export async function startServer({ mounts = demoMounts, port = defaultPort, attempts = portAttempts } = {}) {
+  const server = createServer(makeHandler(mounts));
+  const last = port === 0 ? 0 : port + attempts - 1;
+  for (let candidate = port; candidate <= last; candidate += 1) {
+    try {
+      await listen(server, candidate);
+      const bound = server.address().port;
+      return {
+        port: bound,
+        origin: `http://localhost:${bound}`,
+        close: () => new Promise((done) => server.close(done)),
+      };
+    } catch (err) {
+      if (err.code !== 'EADDRINUSE') throw err;
+    }
   }
+  throw new Error(`no free port between ${port} and ${last}`);
 }
 
-if (boundPort === null) {
-  console.error(`no free port between ${defaultPort} and ${defaultPort + portAttempts - 1}`);
-  process.exitCode = 1;
-} else {
-  console.log(`wolfyReader demo at http://localhost:${boundPort}/`);
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  try {
+    const { origin } = await startServer();
+    console.log(`wolfyReader demo at ${origin}/`);
+  } catch (err) {
+    console.error(err.message);
+    process.exitCode = 1;
+  }
 }
