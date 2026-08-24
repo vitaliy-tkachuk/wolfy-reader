@@ -45,3 +45,6 @@ dist/
 build/
 coverage/
 # --- end stack-specific ---
+
+# Book corpus — downloaded by scripts/fetch-corpus.mjs, never committed
+test/corpus/

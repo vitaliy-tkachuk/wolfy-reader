@@ -17,17 +17,17 @@ wolfyReader renders ebooks in the browser — EPUB, FB2 and plain text today, MO
 
 ## Main application areas
 
-Planned layout (decided in the implementation plan; the directories do not exist yet):
+The source tree exists as scaffolding; decoders, paginator and view fill the directories milestone by milestone:
 
 - `src/core` — the stable contract: `Book` model, `Position`, `TocItem`, typed errors, the `open()` entry point and format-registry seam
 - `src/zip` — from-scratch ZIP container reader built on `DecompressionStream('deflate-raw')`
 - `src/formats` — per-format decoders (`epub`, `fb2`, `text`; `mobi` later), each producing a `Book`
 - `src/layout` — the paginator: chunked, virtualized CSS multi-column
 - `src/view` — the renderer and hardened sandboxed-iframe host
-- `src/react` — React bindings, shipped as a separate subpath export
+- `src/react` — React bindings as a separate subpath export (reserved; whether it ships in v1 is an open decision, so the directory is not created yet)
 - `test/fixtures` — small, license-clean book fixtures (committed)
-- `test/corpus` — Project Gutenberg / Standard Ebooks corpus (gitignored, downloaded by script)
-- `demo` — framework-free reference viewer; the primary development surface
+- `test/corpus` — Project Gutenberg / Standard Ebooks corpus (gitignored, downloaded by `scripts/fetch-corpus.mjs`)
+- `demo/index.html` — framework-free reference viewer; the primary development surface
 - `docs` — architecture, domain docs, workflow
 
 ## Important boundaries

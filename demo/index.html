@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wolfyReader demo</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
+  #reader { min-height: 20rem; margin-top: 1rem; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>wolfyReader demo</h1>
+<input type="file" id="book-input" accept=".epub,.fb2,.txt,application/epub+zip,text/plain">
+<div id="reader"></div>
+<script type="module">
+  const input = document.querySelector('#book-input')
+  input.addEventListener('change', () => {
+    const file = input.files?.[0]
+    if (file) console.log('picked file:', file.name, file.type, file.size, file)
+  })
+</script>
+</body>
+</html>

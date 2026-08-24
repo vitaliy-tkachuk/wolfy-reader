@@ -13,6 +13,24 @@ wolfyReader renders ebooks in the browser — EPUB, FB2 and plain text today, MO
 - Package registry: npm — `wolfyreader` (unscoped; availability confirmed)
 - Target platforms / runtimes: Browsers with `DecompressionStream` — Chrome 80+, Safari 16.4+, Firefox 113+
 
+## Getting Started
+
+```bash
+npm install
+npm test             # node:test suite, headless
+npm run typecheck    # tsc --noEmit
+```
+
+To download real books for testing (Project Gutenberg + Standard Ebooks, into gitignored `test/corpus/`):
+
+```bash
+npm run fetch-corpus
+```
+
+## Running Locally
+
+Open `demo/index.html` directly in a browser — no server, no build step. The demo is the primary development surface: a plain file picker plus a rendering div, framework-free by rule.
+
 ## Working with AI agents
 
 This repo uses a [lightweight spec-driven workflow](https://github.com/vitaliy-tkachuk/ai-spec-template). AI agents (Claude Code, Cursor, Codex, Copilot, Aider, etc.) follow the rules in [`AGENTS.md`](AGENTS.md).

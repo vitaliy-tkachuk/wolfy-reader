@@ -1,0 +1,18 @@
+{
+  "name": "wolfyreader",
+  "version": "0.0.0",
+  "description": "Read ebooks in the browser — pages that turn, text you can search, and typography you can change without losing your place.",
+  "license": "MIT",
+  "author": "Vitaliy Tkachuk",
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "typecheck": "tsc --noEmit",
+    "fetch-corpus": "node scripts/fetch-corpus.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

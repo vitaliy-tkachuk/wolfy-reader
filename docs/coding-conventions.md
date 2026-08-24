@@ -53,6 +53,11 @@
 
 ## Language & framework specifics
 
-Stack-specific rules go here once the stack is chosen. Add a subsection per language or framework as conventions are decided.
+### TypeScript / ESM
 
-> No language-specific rules recorded yet. The first scaffolding task should add the conventions appropriate to the chosen stack (e.g. TypeScript typing rules, Python typing/lint rules, Go error-handling rules, React server/client boundaries).
+- Strict mode is non-negotiable: `strict` plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, `verbatimModuleSyntax`. Fix the type instead of weakening a compiler option.
+- ESM only. No CJS anywhere — no `require`, no CJS build, `"type": "module"` stays.
+- Relative imports write the emitted path with an explicit `.js` extension (enforced by `moduleResolution: nodenext`).
+- Type-only imports use `import type` (enforced by `verbatimModuleSyntax`).
+- Platform primitives over dependencies: `DecompressionStream`, `DOMParser`, `TextDecoder`, `Intl.Segmenter`, CSS multi-column, `node:test` — never a package that reimplements what the platform ships. `dependencies` in `package.json` stays `{}` permanently.
+- Tests run under `node:test` with `node:assert/strict`; decoder tests stay headless (no browser).
