@@ -37,6 +37,19 @@ export interface Position {
   readonly anchor: TextAnchor;
 }
 
+/**
+ * Where a `Position` resolved to in a piece of target text. Offsets are grapheme
+ * indices into that text, matching `TextAnchor.offset`. A resolution *miss* is not
+ * this type — it is `undefined`, returned by `resolvePosition`.
+ */
+export interface ResolvedPosition {
+  readonly sectionId: string;
+  /** Grapheme index where the matched quote starts in the target text. */
+  readonly offset: number;
+  /** Length of the matched quote in graphemes. */
+  readonly length: number;
+}
+
 export interface CapturePositionOptions {
   /**
    * Locale for `Intl.Segmenter` word snapping. Defaults to the runtime default
@@ -151,6 +164,95 @@ export function parsePosition(serialized: string): Position {
     offset: payload.o,
   };
   return { sectionId: payload.s, progress: payload.p, anchor, serialized };
+}
+
+/**
+ * Resolves a `Position` against a piece of section text — which may have changed
+ * since capture — returning where its anchor now lands, or `undefined` when the
+ * quote is gone. A miss is a value, never a throw: matching live content is an
+ * expected outcome the caller degrades on (skip the restore, drop the decoration),
+ * mirroring `Section.resolve()` returning `undefined`.
+ *
+ * The match is by content. Every occurrence of the exact quote is found, then
+ * scored by how much of the stored prefix/suffix context still surrounds it; the
+ * best-scoring occurrence wins. The stored offset breaks a tie only when context
+ * cannot — it never selects a location the content contradicts.
+ */
+export function resolvePosition(
+  position: Position,
+  text: string,
+): ResolvedPosition | undefined {
+  const { anchor, sectionId } = position;
+  const graphemes = segmentGraphemes(text);
+
+  if (anchor.exact === '') {
+    const offset = Math.min(anchor.offset, graphemes.length);
+    return { sectionId, offset, length: 0 };
+  }
+
+  const occurrences = findGraphemeOccurrences(graphemes, anchor.exact);
+  if (occurrences.length === 0) return undefined;
+
+  const quoteLength = segmentGraphemes(anchor.exact).length;
+  let best: { offset: number; score: number } | undefined;
+  for (const offset of occurrences) {
+    const score = contextScore(graphemes, offset, quoteLength, anchor);
+    if (
+      best === undefined ||
+      score > best.score ||
+      (score === best.score &&
+        Math.abs(offset - anchor.offset) < Math.abs(best.offset - anchor.offset))
+    ) {
+      best = { offset, score };
+    }
+  }
+
+  return { sectionId, offset: best!.offset, length: quoteLength };
+}
+
+/** Grapheme start indices at which `quote` occurs in `graphemes`. */
+function findGraphemeOccurrences(graphemes: Grapheme[], quote: string): number[] {
+  const quoteGraphemes = segmentGraphemes(quote).map((g) => g.segment);
+  const hits: number[] = [];
+  if (quoteGraphemes.length === 0) return hits;
+  const last = graphemes.length - quoteGraphemes.length;
+  for (let start = 0; start <= last; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < quoteGraphemes.length; offset += 1) {
+      if (graphemes[start + offset]!.segment !== quoteGraphemes[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) hits.push(start);
+  }
+  return hits;
+}
+
+/** Count of trailing prefix graphemes + leading suffix graphemes that still match. */
+function contextScore(
+  graphemes: Grapheme[],
+  quoteStart: number,
+  quoteLength: number,
+  anchor: TextAnchor,
+): number {
+  const prefix = segmentGraphemes(anchor.prefix).map((g) => g.segment);
+  const suffix = segmentGraphemes(anchor.suffix).map((g) => g.segment);
+
+  let score = 0;
+  for (let back = 1; back <= prefix.length; back += 1) {
+    const here = graphemes[quoteStart - back];
+    const want = prefix[prefix.length - back];
+    if (here === undefined || here.segment !== want) break;
+    score += 1;
+  }
+  const afterStart = quoteStart + quoteLength;
+  for (let ahead = 0; ahead < suffix.length; ahead += 1) {
+    const here = graphemes[afterStart + ahead];
+    if (here === undefined || here.segment !== suffix[ahead]) break;
+    score += 1;
+  }
+  return score;
 }
 
 function serializeParts(sectionId: string, progress: number, anchor: TextAnchor): string {

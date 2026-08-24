@@ -3,14 +3,15 @@
 ## Overview
 
 `src/core/position.ts` owns reading positions: capturing a point in a section as a
-`Position`, and serializing it to and from an opaque, versioned string a host
-persists. A `Position` is content-addressed — backed by a Hypothesis-style
-`TextAnchor` (exact quote + prefix/suffix context) so it survives reflow,
-font-size, and layout changes. The public surface (`Position`, `TextAnchor`,
-`capturePosition`, `serializePosition`, `parsePosition`, `CapturePositionOptions`)
-re-exports through `src/core/index.ts` and is part of the semver stability
-promise. Core stays headless: capture consumes caller-supplied plain text and a
-UTF-16 offset — no DOM, HTML, or Range.
+`Position`, serializing it to and from an opaque versioned string a host persists,
+and resolving a `Position` back against (possibly changed) section text. A
+`Position` is content-addressed — backed by a Hypothesis-style `TextAnchor` (exact
+quote + prefix/suffix context) so it survives reflow, font-size, and layout
+changes. The public surface (`Position`, `TextAnchor`, `ResolvedPosition`,
+`capturePosition`, `serializePosition`, `parsePosition`, `resolvePosition`,
+`CapturePositionOptions`) re-exports through `src/core/index.ts` and is part of the
+semver stability promise. Core stays headless: capture and resolution consume
+caller-supplied plain text and UTF-16 offsets — no DOM, HTML, or Range.
 
 ## Key decisions
 
@@ -36,6 +37,13 @@ UTF-16 offset — no DOM, HTML, or Range.
   to the start of the word it lands in (word granularity); every window edge is a
   grapheme-cluster boundary. An anchor therefore never splits a surrogate pair,
   combining sequence, emoji ZWJ cluster, or flag sequence.
+- **A resolution miss is a value, not an error.** `resolvePosition` returns
+  `undefined` when the quote is gone from the target text — it never throws and
+  never logs. This does not contradict the typed-`BookError` convention: a miss is
+  an *expected outcome* (the content genuinely changed), so the caller degrades
+  softly (skip the restore, drop the decoration), exactly as `Section.resolve()`
+  returns `undefined`. Only a structural fault — a malformed or unknown-version
+  serialized string in `parsePosition` — is a thrown `BookError`.
 
 ## Implementation notes
 
@@ -52,6 +60,21 @@ UTF-16 offset — no DOM, HTML, or Range.
 - `serializePosition` / `parsePosition` are exact inverses. `parsePosition`
   validates the prefix, JSON validity, required-field presence and types, and the
   version, in that order, throwing `CorruptContainerError` on any failure.
+- `resolvePosition(position, text)` matches by content and returns a
+  `ResolvedPosition` (`sectionId`, grapheme `offset`, grapheme `length`) or
+  `undefined`. Everything works in grapheme space, so a `ResolvedPosition.offset`
+  is directly comparable to a `TextAnchor.offset`. The **disambiguation ladder**:
+  1. Find every occurrence of the exact quote (grapheme-cluster comparison, so a
+     cluster inside the quote is matched whole).
+  2. Score each occurrence by how many stored prefix graphemes still precede it plus
+     how many stored suffix graphemes still follow it (contiguous from the quote
+     outward). Highest score wins — this is the content match.
+  3. On a score tie, pick the occurrence whose start is nearest the stored offset.
+     The offset is consulted **only** at this final rung; it never overrides a
+     better content match.
+  A quote with no occurrences returns `undefined`. An empty-quote anchor (captured
+  at end-of-text or in empty text) resolves to a zero-length location at the stored
+  offset, clamped to the target length.
 
 ## Gotchas
 
