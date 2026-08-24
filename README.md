@@ -15,7 +15,7 @@ wolfyReader renders ebooks in the browser — EPUB, FB2 and plain text today, MO
 
 ## Working with AI agents
 
-This repo uses a lightweight spec-driven workflow. AI agents (Claude Code, Cursor, Codex, Copilot, Aider, etc.) follow the rules in [`AGENTS.md`](AGENTS.md).
+This repo uses a [lightweight spec-driven workflow](https://github.com/vitaliy-tkachuk/ai-spec-template). AI agents (Claude Code, Cursor, Codex, Copilot, Aider, etc.) follow the rules in [`AGENTS.md`](AGENTS.md).
 
 Key docs:
 
