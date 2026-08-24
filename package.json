@@ -9,7 +9,8 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "fetch-corpus": "node scripts/fetch-corpus.mjs"
+    "fetch-corpus": "node scripts/fetch-corpus.mjs",
+    "demo": "node scripts/serve-demo.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

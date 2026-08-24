@@ -29,7 +29,11 @@ npm run fetch-corpus
 
 ## Running Locally
 
-Open `demo/index.html` directly in a browser — no server, no build step. The demo is the primary development surface: a plain file picker plus a rendering div, framework-free by rule.
+```bash
+npm run demo
+```
+
+This starts a dependency-free dev server (Node built-ins only) and prints the URL — `http://localhost:8080/` by default, or the next free port if 8080 is busy. It serves exactly two directories: `demo/` (at `/`, so `/` opens the demo) and `src/` (at `/src/`, so the demo can import library modules); no other repo path is reachable. The demo is the primary development surface: a plain file picker plus a rendering div, framework-free by rule. Opening `demo/index.html` as a `file://` URL does not work — browsers block ES module loading over `file://`.
 
 ## Working with AI agents
 
