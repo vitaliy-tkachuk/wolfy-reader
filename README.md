@@ -19,6 +19,7 @@ wolfyReader renders ebooks in the browser — EPUB, FB2 and plain text today, MO
 npm install
 npm test             # node:test suite, headless
 npm run typecheck    # tsc --noEmit
+npm run check:core   # fail if src/core reaches src/layout or src/view
 ```
 
 To download real books for testing (Project Gutenberg + Standard Ebooks, into gitignored `test/corpus/`):
