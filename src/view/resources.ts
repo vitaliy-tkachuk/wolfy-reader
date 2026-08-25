@@ -1,4 +1,5 @@
 import type { Resource } from '../core/index.ts';
+import { baseMediaType, isServableResource } from '../core/reading-text.ts';
 import { XLINK_NAMESPACE } from './allowlist.ts';
 import { rewriteCssReferences } from './css.ts';
 import { classifyReference, joinReference, normalizeReference } from './reference.ts';
@@ -25,17 +26,6 @@ export interface ResourceSummary {
 const NO_ANCESTORS: ReadonlySet<string> = new Set<string>();
 
 const STYLESHEET_TYPE = 'text/css';
-const FONT_TYPES = new Set([
-  'application/font-woff',
-  'application/font-woff2',
-  'application/vnd.ms-fontobject',
-  'application/vnd.ms-opentype',
-  'application/x-font-opentype',
-  'application/x-font-otf',
-  'application/x-font-truetype',
-  'application/x-font-ttf',
-  'application/x-font-woff',
-]);
 
 const BASE64_CHUNK = 0x8000;
 const SAFE_MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
@@ -48,20 +38,9 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function baseType(mediaType: string): string {
-  return (mediaType.split(';')[0] ?? '').trim().toLowerCase();
-}
-
-/**
- * Only these media types are minted a blob URL. A reference resolving is not
- * evidence it should be served: the seam answers for the whole manifest, so a
- * `text/javascript` entry resolves as readily as an image — and a blob URL is a
- * capability, not a convenience.
- */
-function isServable(mediaType: string): boolean {
-  const type = baseType(mediaType);
-  return type.startsWith('image/') || type.startsWith('font/') || FONT_TYPES.has(type);
-}
+// Which media types are minted a URL at all is part of the canonical reading
+// text (an unservable <img> falls back to its alt), so the predicate lives in
+// src/core/reading-text.ts where the headless search extractor shares it.
 
 /**
  * Turns references found in book content into `data:` URLs.
@@ -159,7 +138,7 @@ export class ResourceRegistry {
       this.#unresolved.add(key);
       return undefined;
     }
-    if (!isServable(resource.mediaType)) {
+    if (!isServableResource(resource.mediaType)) {
       this.#refused.add(key);
       return undefined;
     }
@@ -179,7 +158,7 @@ export class ResourceRegistry {
       this.#unresolved.add(key);
       return undefined;
     }
-    if (baseType(resource.mediaType) !== STYLESHEET_TYPE) {
+    if (baseMediaType(resource.mediaType) !== STYLESHEET_TYPE) {
       this.#refused.add(key);
       return undefined;
     }
@@ -199,7 +178,7 @@ export class ResourceRegistry {
 
   #dataUrl(bytes: Uint8Array, mediaType: string, key: string): string | undefined {
     if (this.#released) return undefined;
-    const type = baseType(mediaType);
+    const type = baseMediaType(mediaType);
     const declared = SAFE_MEDIA_TYPE.test(type) ? type : 'application/octet-stream';
     this.#minted += 1;
     this.#resolved.add(key);
@@ -253,6 +232,10 @@ export async function applyResources(doc: Document, registry: ResourceRegistry):
     styled.setAttribute('style', await registry.rewriteStylesheet(declarations, ''));
   }
 
+  // This branch decides part of the canonical reading text: the alt text it
+  // substitutes is text a search anchor may span, so `imageReadingText` in
+  // src/core/reading-text.ts mirrors the whole decision headlessly (minus the
+  // load-failure edge, which it cannot see). Change the two together.
   for (const image of [...doc.querySelectorAll('img')]) {
     const src = image.getAttribute('src');
     const classified = src === null ? undefined : classifyReference(src);

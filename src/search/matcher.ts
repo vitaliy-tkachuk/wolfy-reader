@@ -181,7 +181,9 @@ export async function* searchBook(
     const section: Section = sections[index]!;
     options.onSection?.(index);
     const bytes = await section.load();
-    const rawText = extractSectionText(bytes);
+    // The section's own resolver rides along so extraction shows an <img> the
+    // way the frame will: rendered (no text) or substituted by its alt.
+    const rawText = extractSectionText(bytes, section.resolve?.bind(section));
     for (const hit of matchText(rawText, query, section.id, index, options)) {
       yield hit;
     }

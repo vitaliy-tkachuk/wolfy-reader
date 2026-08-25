@@ -137,6 +137,56 @@ describe('reader.search — jump to hit', { ...skipAll }, () => {
   });
 });
 
+describe('reader.search — anchors align with the sanitized frame text', { ...skipAll }, () => {
+  const SEARCH_ANCHORS = '/fixtures/search-anchors.epub';
+
+  test('a hit spanning an alt-substituted drop cap and a discarded element jumps to its visible range', async () => {
+    await openReader(SEARCH_ANCHORS);
+    // The phrase the frame shows is "The tide ledger never forgave a missing
+    // entry": the "T" exists only as a substituted <img alt> (the drop cap is
+    // declared in the manifest but absent from the archive) and the run crosses
+    // a <textarea> the sanitizer discarded. Capture over anything but the
+    // canonical reading text either misses the phrase or anchors a quote the
+    // frame does not contain.
+    const query = 'The tide ledger never forgave a missing entry';
+    const hits = await page.evaluate((q) => window.harness.readerSearch(q), query);
+    assert.ok(hits.length >= 1, 'the phrase spanning both transformed regions must be found');
+    const hit = hits[0];
+    assert.equal(hit.text, 'The tide ledger never forgave a missing entry');
+    assert.ok(!hit.context.includes('FORM_NOISE'), 'discarded-element noise must not leak into context');
+
+    const targetSection = await page.evaluate((id) => window.harness.sectionIndexOf(id), 'ledger');
+    assert.equal(hit.sectionIndex, targetSection, 'the hit reported the wrong section');
+
+    // Start on the opening section; the jump must travel and land.
+    await page.evaluate(() => window.harness.readerGoTo('start'));
+    const before = await page.evaluate(() => window.harness.readerPosition());
+    assert.notEqual(before.section, targetSection, 'test must start off the target section');
+    const landed = await page.evaluate((s) => window.harness.readerGoToSearchHit(s), hit.serialized);
+    assert.equal(landed.section, targetSection, 'goTo(hit.position) did not reach the visible range');
+
+    // The same anchor draws a visible highlight — resolution against the frame
+    // text produced real geometry, not a soft miss.
+    await page.evaluate((s) => window.harness.readerDecorate('anchor-hit', s, 'anchor-hl'), hit.serialized);
+    const boxes = await overlayBoxes('anchor-hit', 'anchor-hl');
+    assert.ok(boxes.length > 0, 'the aligned anchor must paint at least one overlay box');
+  });
+
+  test("the hostile book's Gutenberg-style drop cap is searchable through its substituted alt", async () => {
+    await openReader(HOSTILE);
+    // "The lamplighter" exists in the frame only because <img alt="T"> is
+    // substituted; before capture/resolution shared one text model this query
+    // found nothing at all.
+    const hits = await page.evaluate(() => window.harness.readerSearch('The lamplighter counted'));
+    assert.ok(hits.length >= 1, 'the alt-substituted phrase must be found');
+    const targetSection = await page.evaluate((id) => window.harness.sectionIndexOf(id), 'preserve');
+    assert.equal(hits[0].sectionIndex, targetSection);
+    await page.evaluate(() => window.harness.readerGoTo('start'));
+    const landed = await page.evaluate((s) => window.harness.readerGoToSearchHit(s), hits[0].serialized);
+    assert.equal(landed.section, targetSection, 'the drop-cap hit must jump');
+  });
+});
+
 describe('reader.search — highlighting a hit', { ...skipAll }, () => {
   test('jumping to a hit then decorating its Position draws a class-carrying highlight', async () => {
     await openReader(HOSTILE);

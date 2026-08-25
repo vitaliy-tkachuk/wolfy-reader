@@ -721,6 +721,88 @@ writeFileSync(
   ]),
 );
 
+// --- search anchors: capture must match what the frame shows ----------------
+//
+// One searchable phrase interrupted by BOTH transformations the sanitize +
+// resource pipeline applies before text reaches the frame: a drop-cap <img>
+// whose alt text is substituted (declared in the manifest, deliberately absent
+// from the archive, so Section.resolve() returns undefined), and a form control
+// the sanitizer discards with everything inside it. The frame shows
+// "The tide ledger never forgave a missing entry", and a search hit spanning
+// that whole run must capture an anchor that resolves there — the canonical
+// reading-text model shared by src/search and src/view.
+
+const searchAnchorsLedger = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>The Tide Ledger</title></head>
+<body>
+<h1>The Tide Ledger</h1>
+<p>The clerk ruled his columns before the fleet was awake.</p>
+<p class="first"><img class="dropcap" src="images/dropcap-t.png" alt="T"/>he tide ledger never<textarea rows="1" cols="12">FORM_NOISE_NOT_PROSE</textarea> forgave a missing entry, and the harbour clerk knew it.</p>
+<p>He kept the pencil behind his ear and the truth in the margin.</p>
+</body>
+</html>
+`;
+
+const searchAnchorsOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" xml:lang="en">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:7b9d2c44-1e6f-4a02-9c58-3f8e5d1a6b70</dc:identifier>
+    <dc:title>The Tide Ledger</dc:title>
+    <dc:language>en</dc:language>
+    <meta property="dcterms:modified">2026-08-26T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="opening" href="opening.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ledger" href="ledger.xhtml" media-type="application/xhtml+xml"/>
+    <item id="image-dropcap" href="images/dropcap-t.png" media-type="image/png"/>
+  </manifest>
+  <spine>
+    <itemref idref="opening"/>
+    <itemref idref="ledger"/>
+  </spine>
+</package>
+`;
+
+const searchAnchorsNav = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>The Tide Ledger</title></head>
+<body>
+<nav epub:type="toc">
+<ol>
+<li><a href="opening.xhtml">A Quiet Opening</a></li>
+<li><a href="ledger.xhtml">The Tide Ledger</a></li>
+</ol>
+</nav>
+</body>
+</html>
+`;
+
+const searchAnchorsOpening = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>A Quiet Opening</title></head>
+<body>
+<h1>A Quiet Opening</h1>
+<p>Nothing here is searched for; the target phrase lives in the next section so a jump must actually travel.</p>
+</body>
+</html>
+`;
+
+writeFileSync(
+  join(outDir, 'search-anchors.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    { name: 'content.opf', data: searchAnchorsOpf },
+    { name: 'nav.xhtml', data: searchAnchorsNav },
+    { name: 'opening.xhtml', data: searchAnchorsOpening },
+    { name: 'ledger.xhtml', data: searchAnchorsLedger },
+    // images/dropcap-t.png is declared above and deliberately not written: the
+    // unresolvable drop cap is what forces the alt substitution.
+  ]),
+);
+
 // --- non-EPUB inputs -------------------------------------------------------
 
 writeFileSync(

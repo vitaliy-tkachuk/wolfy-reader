@@ -6,5 +6,5 @@
  * that never buffers the book whole and cleans up on early `break`.
  */
 export { searchBook, matchText, type SearchHit, type SearchOptions } from './matcher.ts';
-export { extractText, extractSectionText, decodeSectionBytes } from './extract.ts';
+export { extractText, extractSectionText, decodeSectionBytes, type ReadingResolver } from './extract.ts';
 export { normalizeText, normalizeQuery, type NormalizedText } from './normalize.ts';

@@ -131,34 +131,14 @@ export const HTML_ELEMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
  * survives into the frame is re-read in the other mode and attribute
  * boundaries move under it — the mutation-XSS shape this pipeline exists to
  * defeat. Removing the element removes the reinterpretation.
+ *
+ * The table itself lives in `src/core/reading-text.ts` (re-exported here under
+ * its frozen name): discarding decides not only what renders but what the
+ * frame's *text* is, and the headless search extractor must mirror it exactly
+ * so a hit's anchor exists in the text the frame resolves against. One table,
+ * two consumers — never fork it.
  */
-export const HTML_DISCARDED = set(
-  'area',
-  'base',
-  'button',
-  'embed',
-  'frame',
-  'frameset',
-  'iframe',
-  'input',
-  'keygen',
-  'listing',
-  'meta',
-  'noembed',
-  'noframes',
-  'option',
-  'optgroup',
-  'param',
-  'plaintext',
-  'script',
-  'select',
-  'source',
-  'template',
-  'textarea',
-  'title',
-  'track',
-  'xmp',
-);
+export { DISCARDED_HTML_ELEMENTS as HTML_DISCARDED } from '../core/reading-text.ts';
 
 export const SVG_GLOBAL_ATTRIBUTES = set(
   'class',
@@ -252,22 +232,11 @@ export const SVG_ELEMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
  * SMIL animation is on this list, not merely absent from the allowlist, because
  * `<animate attributeName="href" to="javascript:...">` turns an inert element
  * into a live one after sanitization has already run.
+ *
+ * Shared from `src/core/reading-text.ts` for the same reason as HTML_DISCARDED:
+ * the search extractor mirrors what discarding removes from the frame's text.
  */
-export const SVG_DISCARDED = set(
-  'animate',
-  'animateMotion',
-  'animateTransform',
-  'audio',
-  'canvas',
-  'discard',
-  'foreignObject',
-  'handler',
-  'iframe',
-  'listener',
-  'script',
-  'set',
-  'video',
-);
+export { DISCARDED_SVG_ELEMENTS as SVG_DISCARDED } from '../core/reading-text.ts';
 
 /** Attributes carrying a reference, by element local name. */
 export const URL_ATTRIBUTES: ReadonlyMap<string, ReadonlySet<string>> = new Map([

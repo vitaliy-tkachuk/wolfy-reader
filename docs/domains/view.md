@@ -34,6 +34,11 @@ Each layer covers a failure of the others. Do not simplify one away because anot
 ## The allowlist
 
 `allowlist.ts` holds five tables. Elements and attributes absent from them do not survive.
+The two *discard* tables (and the reference/servability primitives below) are defined once
+in `src/core/reading-text.ts` and re-exported here under their frozen names: what discarding
+removes and what alt substitution adds are part of the canonical **reading text** the
+headless search matcher must capture against (see [`search.md`](search.md)), and search may
+not import `src/view`. One definition, two consumers — never fork it.
 
 - **`HTML_ELEMENTS`** — structural and inline prose elements (headings, paragraphs, lists, tables, `ruby`, `figure`, `details`), plus `img`, `link`, `style` and the EPUB 2 presentational leftovers (`center`, `tt`, `big`, `strike`) real books still use. Each maps to the attributes it may keep.
 - **`HTML_GLOBAL_ATTRIBUTES`** — `class`, `id`, `dir`, `lang`, `xml:lang`, `title`, `style`, `role`, `hidden`, `translate`, `epub:type`, plus any `aria-*`. Any attribute whose lowercased name starts with `on` is removed first, before any other rule.
@@ -64,7 +69,7 @@ Two rules are worth stating separately because they are not obvious from the tab
 - **`@import` targets become nested `data:text/css` URLs rather than being inlined.** Inlining would need the statement's extent, and would lose the media queries and layer syntax an `@import` can carry. Nesting costs another 33% per level; real books nest once or twice.
 - **Cycles terminate by ancestor set.** `urlForStylesheet` carries the chain of sheets it is nested inside; a sheet that is already its own ancestor returns `undefined` and the `@import` becomes `about:invalid`. An in-flight set would give false positives the moment two sheets import the same third one.
 - **`undefined` from `resolve()` is routine, not damage.** Fragment-only references, `data:`/`mailto:`/`tel:` and absolute URLs all return it by design, as do a file present in the archive but absent from the manifest and a declared item whose entry is missing. Only the last two mean "this should have worked".
-- **Unresolvable `<img>` degrades to its `alt` text as a text node.** Gutenberg's ebookmaker sets each chapter's drop cap as `<img alt="T">`; dropping the image silently deletes the first letter of every chapter. An empty `alt` means decorative, and the element is removed.
+- **Unresolvable `<img>` degrades to its `alt` text as a text node.** Gutenberg's ebookmaker sets each chapter's drop cap as `<img alt="T">`; dropping the image silently deletes the first letter of every chapter. An empty `alt` means decorative, and the element is removed. This decision is part of the canonical reading text: `imageReadingText` in `src/core/reading-text.ts` mirrors it headlessly for search anchor capture (minus the bytes-fail-to-load edge, which degrades to a position soft miss) — change the two together.
 - **Unresolvable references in CSS become `url("about:invalid")`**, never the original relative path: a `srcdoc` document inherits the *parent's* base URL, so a surviving relative reference would aim a request at the host's own origin.
 
 ## Protocol

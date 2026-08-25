@@ -24,6 +24,85 @@ test('extraction keeps CDATA text and tolerates malformed markup', () => {
   assert.equal(extractText('<p>dangling < not a tag'), 'dangling < not a tag');
 });
 
+// --- The canonical reading text: capture mirrors what the frame shows -------
+
+test('discarded-element content contributes nothing, exactly as the sanitizer removes it', () => {
+  // The sanitizer discards form controls and template with everything inside
+  // them; their text never reaches the frame, so it must not be captured over.
+  assert.equal(extractText('<p>one <textarea>NOISE</textarea>two</p>'), 'one two');
+  assert.equal(extractText('<p>a<select><option>x</option><option>y</option></select>b</p>'), 'ab');
+  assert.equal(extractText('<p>a<template><p>smuggled</p></template>b</p>'), 'ab');
+  assert.equal(extractText('<p>a<input type="text" value="q"/>b</p>'), 'ab');
+  // SVG discards by its own table: script goes, but <text> prose stays.
+  assert.equal(
+    extractText('<p>before <svg><script>evil()</script><text>diagram label</text></svg> after</p>'),
+    'before diagram label after',
+  );
+});
+
+test('an <img> contributes what the resource layer will show: nothing when served, alt when substituted', () => {
+  const resolve = (reference: string) =>
+    reference === 'images/dropcap-t.png' ? { mediaType: 'image/png', load: async () => new Uint8Array() } : undefined;
+  // Served image: zero characters, like textContent over an <img> element.
+  assert.equal(extractText('<p><img src="images/dropcap-t.png" alt="T"/>he tide</p>', resolve), 'he tide');
+  // Unresolvable image: the frame substitutes the alt text as a text node.
+  assert.equal(extractText('<p><img src="images/gone.png" alt="T"/>he tide</p>', resolve), 'The tide');
+  // Resolvable but unservable media type: refused a URL, so alt again.
+  const refuse = () => ({ mediaType: 'text/javascript', load: async () => new Uint8Array() });
+  assert.equal(extractText('<p><img src="x.js" alt="T"/>he tide</p>', refuse), 'The tide');
+  // Remote/data references are left for the CSP: the element survives, no text.
+  assert.equal(extractText('<p><img src="https://example.invalid/x.png" alt="T"/>he tide</p>'), 'he tide');
+  // Empty alt means decorative: removed, nothing contributed.
+  assert.equal(extractText('<p><img src="images/gone.png" alt=""/>tide</p>', resolve), 'tide');
+  // No resolver at all mirrors a section without a resolve seam: alt shows.
+  assert.equal(extractText('<p><img src="images/gone.png" alt="T"/>he tide</p>'), 'The tide');
+});
+
+test('whitespace-only top-level text runs are dropped, as the chunker drops those text nodes', () => {
+  // Between block elements the source carries newlines/indentation; the chunker
+  // drops those top-level text nodes before the frame tiles the section text.
+  assert.equal(extractText('<body>\n<p>one</p>\n  <p>two</p>\n</body>'), 'onetwo');
+  // Whitespace inside an element is real reading text and stays.
+  assert.equal(extractText('<p>a <b>bold</b> claim</p>'), 'a bold claim');
+  // Non-whitespace bare text at the top level is glued into the flow, not dropped.
+  assert.equal(extractText('<body><p>a</p>bare<p>b</p></body>'), 'abareb');
+  // The implied </p> of HTML parsing keeps unclosed paragraphs from swallowing
+  // the top level: the separator between these two never reaches the frame.
+  assert.equal(extractText('<body><p>first\n<p>second</p></body>'), 'first\nsecond');
+});
+
+test('a hit spanning an alt substitution and a discarded element resolves in the frame-shown text', () => {
+  // The exact shape of the search-anchors fixture, headlessly: a drop cap whose
+  // alt is substituted and a discarded form control, both inside the phrase.
+  const markup =
+    '<body>\n' +
+    '<h1>The Tide Ledger</h1>\n' +
+    '<p class="first"><img src="images/dropcap-t.png" alt="T"/>he tide ledger never' +
+    '<textarea rows="1">FORM_NOISE_NOT_PROSE</textarea>' +
+    ' forgave a missing entry, and the harbour clerk knew it.</p>\n' +
+    '</body>';
+  const raw = extractText(markup); // no resolver: the drop cap cannot resolve, alt shows
+  // What the frame measures: sanitized body textContent, top-level whitespace dropped.
+  const frameText =
+    'The Tide Ledger' +
+    'The tide ledger never forgave a missing entry, and the harbour clerk knew it.';
+  assert.equal(raw, frameText, 'capture text must equal the frame-shown text');
+
+  const hits = [...matchText(raw, 'The tide ledger never forgave a missing entry', 'ledger', 0)];
+  assert.equal(hits.length, 1, 'the phrase spanning both regions must be found');
+  assert.equal(hits[0]!.text, 'The tide ledger never forgave a missing entry');
+  const resolved = resolvePosition(hits[0]!.position, frameText);
+  assert.ok(resolved !== undefined, 'the anchor must resolve against the frame-shown text');
+});
+
+test('a genuine miss still degrades to a value, never an error', () => {
+  // A Position captured over text the target no longer contains resolves to
+  // undefined — the soft-miss contract is unchanged by the alignment.
+  const hits = [...matchText('the quick brown fox', 'quick', 's', 0)];
+  assert.equal(hits.length, 1);
+  assert.equal(resolvePosition(hits[0]!.position, 'entirely different prose'), undefined);
+});
+
 // --- Normalization policy --------------------------------------------------
 
 test('matching is case-insensitive', () => {
