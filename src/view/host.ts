@@ -29,6 +29,8 @@ export interface ViolationReport {
 export interface ContentHostOptions {
   readonly onViolation?: (report: ViolationReport) => void;
   readonly onError?: (message: string) => void;
+  /** An internal link was clicked in the frame; carries the raw authored href. */
+  readonly onLinkClick?: (href: string) => void;
   /** How long the frame has to answer, in milliseconds. Defaults to 10000. */
   readonly timeoutMs?: number;
 }
@@ -91,6 +93,9 @@ export class ContentHost {
         return;
       case 'error':
         this.#options.onError?.(message.message);
+        return;
+      case 'linkclick':
+        this.#options.onLinkClick?.(message.href);
         return;
       case 'pong':
       case 'measured':
@@ -235,6 +240,18 @@ export class ContentHost {
     return reply.offset;
   }
 
+  /**
+   * Character offset of the element carrying `elementId` into the section text,
+   * or -1 if no element carries the id. The seam behind fragment anchoring.
+   */
+  async offsetOfElementId(elementId: string): Promise<number> {
+    const reply = await this.#request('offsetOfElementId', { elementId });
+    if (reply.type !== 'offset') {
+      throw new ContentHostError('the frame answered offsetOfElementId with the wrong message');
+    }
+    return reply.offset;
+  }
+
   /** The page (0-based) painting the glyph at a section-text character offset. */
   async pageOfOffset(offset: number): Promise<number> {
     const reply = await this.#request('pageOfOffset', { offset });
@@ -329,6 +346,7 @@ export class ContentHost {
   #request(type: 'paginate', extras: { options: PaginateOptions }): Promise<FrameMessage>;
   #request(type: 'goToPage' | 'offsetOfPage', extras: { page: number }): Promise<FrameMessage>;
   #request(type: 'pageOfOffset', extras: { offset: number }): Promise<FrameMessage>;
+  #request(type: 'offsetOfElementId', extras: { elementId: string }): Promise<FrameMessage>;
   #request(type: string, extras: Record<string, unknown> = {}): Promise<FrameMessage> {
     if (this.#destroyed) return Promise.reject(new ContentHostError('the host has been destroyed'));
     const target = this.frame.contentWindow;

@@ -62,7 +62,7 @@ function escapeAttribute(value: string): string {
 export function coordinationScript(hostOrigin: string): string {
   return `(function(){
 'use strict';
-var VERSION = 2;
+var VERSION = 4;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
@@ -89,6 +89,7 @@ function validateHost(data){
   }
   if (t === 'goToPage' || t === 'offsetOfPage') return typeof data.page === 'number' ? data : null;
   if (t === 'pageOfOffset') return typeof data.offset === 'number' ? data : null;
+  if (t === 'offsetOfElementId') return typeof data.elementId === 'string' ? data : null;
   return null;
 }
 
@@ -359,6 +360,39 @@ function pageOfOffset(offset){
   return chunk.firstPage;
 }
 
+// Map an element id to its character offset into the section's concatenated text.
+// Find the element, walk up to its enclosing chunk container, then measure the
+// text length from the chunk container's start to just before the element with a
+// Range: range.toString().length added to the chunk's cumulative start offset is
+// the offset. Returns -1 when no element carries the id.
+function offsetOfElementId(elementId){
+  var el = document.getElementById(elementId);
+  if (el === null) return -1;
+  // Walk up to the enclosing chunk container.
+  var chunkEl = el;
+  while (chunkEl && !(chunkEl.nodeType === 1 && chunkEl.className &&
+      (' ' + chunkEl.className + ' ').indexOf(' ' + CHUNK_CLASS + ' ') !== -1)){
+    chunkEl = chunkEl.parentNode;
+  }
+  if (!chunkEl || chunkEl.nodeType !== 1) return -1;
+  // The element (or its chunk) may be un-realized; force it visible so the Range
+  // measures real text, mirroring offsetOfPage/pageOfOffset.
+  chunkEl.style.contentVisibility = 'visible';
+  var chunkStart = numAttr(chunkEl, START_ATTR);
+  var range = document.createRange();
+  try {
+    range.setStart(chunkEl, 0);
+    range.setEndBefore(el);
+    // Touch the rects (length-checked) so the layout is up to date, matching the
+    // other seams; the offset itself comes from the range's text length.
+    var rects = range.getClientRects();
+    void (rects.length > 0);
+    return chunkStart + range.toString().length;
+  } finally {
+    range.detach && range.detach();
+  }
+}
+
 function sectionText(){
   var text = '';
   for (var i = 0; i < layout.chunks.length; i++) text += layout.chunks[i].el.textContent || '';
@@ -396,6 +430,7 @@ window.addEventListener('message', function(event){
   if (data.type === 'goToPage') { var moved = goToPage(data.page); send({ v: VERSION, type: 'movedToPage', id: id, page: moved }); return; }
   if (data.type === 'offsetOfPage') { send({ v: VERSION, type: 'offset', id: id, offset: offsetOfPage(data.page) }); return; }
   if (data.type === 'pageOfOffset') { send({ v: VERSION, type: 'page', id: id, page: pageOfOffset(data.offset) }); return; }
+  if (data.type === 'offsetOfElementId') { send({ v: VERSION, type: 'offset', id: id, offset: offsetOfElementId(data.elementId) }); return; }
   if (data.type === 'sectionText') { send({ v: VERSION, type: 'text', id: id, text: sectionText() }); return; }
   if (data.type === 'diagnostics') {
     send({ v: VERSION, type: 'diagnosticsReport', id: id,
@@ -418,7 +453,13 @@ window.addEventListener('error', function(event){
 document.addEventListener('click', function(event){
   var node = event.target;
   while (node && node.nodeType === 1) {
-    if (node.localName === 'a' && node.hasAttribute('href')) { event.preventDefault(); return; }
+    if (node.localName === 'a' && node.hasAttribute('href')) {
+      event.preventDefault();
+      // Report the raw authored href, not node.href: the opaque origin resolves
+      // the property against a null base and mangles it. The host/facade parses.
+      send({ v: VERSION, type: 'linkclick', href: String(node.getAttribute('href') || '') });
+      return;
+    }
     node = node.parentNode;
   }
 });

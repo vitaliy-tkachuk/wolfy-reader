@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 4;
 
 export interface Measurement {
   readonly width: number;
@@ -66,6 +66,12 @@ export type HostMessage =
       readonly id: number;
       readonly offset: number;
     }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'offsetOfElementId';
+      readonly id: number;
+      readonly elementId: string;
+    }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'sectionText'; readonly id: number }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'diagnostics'; readonly id: number };
 
@@ -103,7 +109,8 @@ export type FrameMessage =
       readonly directive: string;
       readonly blockedUri: string;
     }
-  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'error'; readonly message: string };
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'error'; readonly message: string }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'linkclick'; readonly href: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
@@ -195,6 +202,10 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
       const text = message['message'];
       return typeof text === 'string' ? { v: PROTOCOL_VERSION, type: 'error', message: text } : null;
     }
+    case 'linkclick': {
+      const href = message['href'];
+      return typeof href === 'string' ? { v: PROTOCOL_VERSION, type: 'linkclick', href } : null;
+    }
     default:
       return null;
   }
@@ -249,6 +260,12 @@ export function asHostMessage(data: unknown): HostMessage | null {
     case 'pageOfOffset': {
       const offset = message['offset'];
       return typeof offset === 'number' ? { v: PROTOCOL_VERSION, type: 'pageOfOffset', id, offset } : null;
+    }
+    case 'offsetOfElementId': {
+      const elementId = message['elementId'];
+      return typeof elementId === 'string'
+        ? { v: PROTOCOL_VERSION, type: 'offsetOfElementId', id, elementId }
+        : null;
     }
     case 'sectionText':
       return { v: PROTOCOL_VERSION, type: 'sectionText', id };

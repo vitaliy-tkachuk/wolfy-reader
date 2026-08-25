@@ -243,6 +243,19 @@ export class Paginator {
     return this.#host.pageOfOffset(offset);
   }
 
+  /**
+   * The 0-based page painting the element carrying `elementId`, or -1 when no
+   * element in the section carries that id (the caller degrades softly). Bridges
+   * fragment anchoring: `offsetOfElementId` in the frame yields the element's
+   * character offset, then `pageOfOffset` maps it to a page.
+   */
+  async pageOfElementId(elementId: string): Promise<number> {
+    this.#requireActive();
+    const offset = await this.#host.offsetOfElementId(elementId);
+    if (offset < 0) return -1;
+    return this.#host.pageOfOffset(offset);
+  }
+
   /** Within-chapter progress: current page, total (estimate/firm), and fraction. */
   chapterProgress(): ChapterProgress {
     this.#requireActive();

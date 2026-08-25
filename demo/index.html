@@ -215,9 +215,12 @@
     <main class="pane">
       <p id="reader-label"></p>
       <div id="pager" class="pager">
+        <button type="button" id="prev-section" disabled title="Previous section">⏮</button>
         <button type="button" id="prev-page" disabled>◀ Prev</button>
         <span id="page-status" class="page-status">—</span>
         <button type="button" id="next-page" disabled>Next ▶</button>
+        <button type="button" id="next-section" disabled title="Next section">⏭</button>
+        <button type="button" id="back" disabled title="Back to the pre-jump position">↩ Back</button>
         <label class="mode-toggle"><input type="checkbox" id="scrolled-toggle"> Scrolled mode</label>
       </div>
       <div id="reader"></div>
@@ -240,7 +243,8 @@
 <script type="module">
   import { open } from '/src/core/index.ts';
   import { epub } from '/src/formats/index.ts';
-  import { Paginator } from '/src/layout/index.ts';
+  import { render } from '/src/reader/index.ts';
+  import { ContentHost } from '/src/view/index.ts';
 
   const input = document.querySelector('#book-input');
   const errorEl = document.querySelector('#error');
@@ -256,8 +260,11 @@
   const readerLabelEl = document.querySelector('#reader-label');
   const readerEl = document.querySelector('#reader');
   const pagerEl = document.querySelector('#pager');
+  const prevSectionEl = document.querySelector('#prev-section');
   const prevPageEl = document.querySelector('#prev-page');
   const nextPageEl = document.querySelector('#next-page');
+  const nextSectionEl = document.querySelector('#next-section');
+  const backEl = document.querySelector('#back');
   const pageStatusEl = document.querySelector('#page-status');
   const scrolledToggleEl = document.querySelector('#scrolled-toggle');
   const roundtripEl = document.querySelector('#roundtrip');
@@ -275,10 +282,16 @@
   let book = null;
   let coverUrl = null;
   let generation = 0;
-  let paginator = null;
-  let currentSection = null;
-  let currentButton = null;
-  let queue = Promise.resolve();
+  // The visible reader is the public facade (T002). A hidden reporter host
+  // re-runs the sanitize/resource/CSP pipeline for the active section so the
+  // panel below can show exactly what the sandbox did — the facade itself owns
+  // no report surface, and this keeps the demo a faithful harness.
+  let reader = null;
+  let reporter = null;
+  let reporterHostEl = null;
+  let backStackDepth = 0;
+  let sectionButtons = new Map();
+  let activeButton = null;
   const violations = [];
 
   function showError(err) {
@@ -301,12 +314,21 @@
     badgesEl.replaceChildren();
     tocEl.replaceChildren();
     orderEl.replaceChildren();
-    if (paginator !== null) {
-      paginator.destroy();
-      paginator = null;
+    if (reader !== null) {
+      reader.destroy();
+      reader = null;
     }
-    currentSection = null;
-    currentButton = null;
+    if (reporter !== null) {
+      reporter.destroy();
+      reporter = null;
+    }
+    if (reporterHostEl !== null) {
+      reporterHostEl.remove();
+      reporterHostEl = null;
+    }
+    backStackDepth = 0;
+    sectionButtons = new Map();
+    activeButton = null;
     readerEl.replaceChildren();
     readerLabelEl.textContent = '';
     pagerEl.style.display = 'none';
@@ -375,105 +397,67 @@
     button.classList.add('active');
   }
 
-  function loadSection(sectionId, fragment, button) {
-    // Renders are serialized: the host refuses a render that a later one has
-    // already superseded, and clicking through a TOC is exactly that case.
-    queue = queue.then(() => renderSection(sectionId, fragment, button)).catch(() => {});
+  /** The button for a section id, whether it came from the TOC or the reading order. */
+  function buttonForSection(sectionId) {
+    return sectionButtons.get(sectionId) ?? null;
   }
 
-  function ensurePaginator() {
-    if (paginator !== null) return paginator;
-    paginator = new Paginator(readerEl, {
-      onViolation: (violation) => {
-        violations.push(violation);
-        showViolations();
-      },
-      onError: (message) => showError(new Error(`inside the frame: ${message}`)),
-    });
-    return paginator;
-  }
-
-  function pageMode() {
-    return scrolledToggleEl.checked ? 'scrolled' : 'paginated';
-  }
-
-  /** Renders the current page count + within-chapter progress into the pager. */
-  function showPageStatus() {
-    const progress = paginator.chapterProgress();
-    const percent = Math.round(progress.fraction * 100);
-    const count = progress.firm ? `${progress.totalPages}` : `≈ ${progress.totalPages}`;
-    if (progress.mode === 'scrolled') {
-      pageStatusEl.textContent = `scrolled · ${count} pages · ${progress.realizedChunks}/${progress.totalChunks} chunks`;
+  /** Renders the current page count + within-chapter progress from a ReaderPosition. */
+  function showPageStatus(position) {
+    const firm = reader.mode === 'scrolled' ? true : reader.position.totalPages > 0;
+    const count = `${position.totalPages}`;
+    const bookPercent = Math.round(position.progress * 100);
+    if (reader.mode === 'scrolled') {
+      pageStatusEl.textContent =
+        `scrolled · section ${position.section + 1}/${book.sections.length} · book ${bookPercent}%`;
       prevPageEl.disabled = true;
       nextPageEl.disabled = true;
     } else {
+      const chapterPercent = Math.round(position.chapterProgress * 100);
       pageStatusEl.textContent =
-        `page ${progress.page + 1} of ${count} · ${percent}%` +
-        (progress.firm ? '' : ' (estimate)');
-      prevPageEl.disabled = progress.page <= 0;
-      nextPageEl.disabled = progress.page >= progress.totalPages - 1;
+        `section ${position.section + 1}/${book.sections.length} · ` +
+        `page ${position.page + 1} of ${count} · chapter ${chapterPercent}% · book ${bookPercent}%`;
+      prevPageEl.disabled = false;
+      nextPageEl.disabled = false;
     }
+    prevSectionEl.disabled = position.section <= 0;
+    nextSectionEl.disabled = position.section >= book.sections.length - 1;
+    backEl.disabled = backStackDepth <= 0;
   }
 
   /**
-   * Proves the engine works end to end: capture a Position at the current page,
-   * resolve it back to a page, and report whether the round-trip lands home.
+   * Re-runs the sandbox pipeline for the active section in a hidden reporter host,
+   * purely to display what the sanitizer removed and what the CSP blocked. The
+   * visible reading happens in the facade's own frame.
    */
-  async function showRoundTrip() {
-    roundtripEl.className = 'roundtrip';
-    if (pageMode() === 'scrolled') {
-      roundtripEl.style.display = 'none';
-      return;
-    }
-    try {
-      const page = paginator.page;
-      const position = await paginator.positionOfPage(page);
-      const resolvedPage = await paginator.pageOfPosition(position);
-      const ok = resolvedPage === page;
-      roundtripEl.className = `roundtrip ${ok ? 'ok' : 'bad'}`;
-      roundtripEl.textContent =
-        `page↔Position round-trip: page ${page} → ${position.serialized.slice(0, 48)}… ` +
-        `→ page ${resolvedPage} ${ok ? '✓ lands home' : '✗ drifted'}`;
-      roundtripEl.style.display = 'block';
-    } catch (err) {
-      roundtripEl.style.display = 'none';
-    }
-  }
-
-  async function refresh() {
-    showPageStatus();
-    await showRoundTrip();
-  }
-
-  async function renderSection(sectionId, fragment, button) {
+  async function showSectionReport(sectionIndex, fragment) {
     const current = generation;
-    const section = book.section(sectionId);
-    if (section === undefined) {
-      showError(new Error(`no section with id "${sectionId}"`));
-      return;
-    }
+    const section = book.sections[sectionIndex];
+    if (section === undefined) return;
+    readerLabelEl.textContent =
+      `section "${section.id}" (${section.mediaType})` +
+      (fragment !== undefined ? ` — target fragment #${fragment}` : '');
     try {
-      ensurePaginator();
       violations.length = 0;
-      // renderChunked returns the sanitize/resource report the panel below shows;
-      // paginate then lays that same chunked section out into pages.
-      const report = await paginator.host.renderChunked(section);
+      const report = await reporter.renderChunked(section);
       if (current !== generation) return;
-      await paginator.paginate(section, { mode: pageMode() });
-      if (current !== generation) return;
-      currentSection = section;
-      currentButton = button;
       readerLabelEl.textContent =
         `section "${section.id}" (${section.mediaType})` +
         (fragment !== undefined ? ` — target fragment #${fragment}` : '') +
         (report.declaredScripted ? ' — declares scripted content' : '');
       showReport(report);
-      pagerEl.style.display = 'flex';
-      markActive(button);
-      await refresh();
     } catch (err) {
-      if (current !== generation) return;
-      showError(err);
+      if (current === generation) showError(err);
+    }
+  }
+
+  /** Reflects the reader's settled position into the pager, label and report panel. */
+  function onPositionChange(position) {
+    showPageStatus(position);
+    const button = buttonForSection(book.sections[position.section]?.id);
+    if (button !== null && button !== activeButton) {
+      markActive(button);
+      activeButton = button;
     }
   }
 
@@ -484,7 +468,12 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.textContent = item.label;
-      button.addEventListener('click', () => loadSection(item.sectionId, item.fragment, button));
+      // goTo(TocItem) drives both the reader's frame and, via the position event,
+      // the report panel. The TocItem carries its own sectionId (+ fragment).
+      button.addEventListener('click', () => {
+        void reader.goTo(item);
+      });
+      sectionButtons.set(item.sectionId, button);
       entry.append(button);
       if (item.children.length > 0) entry.append(buildTocList(item.children));
       list.append(entry);
@@ -503,7 +492,10 @@
       note.className = 'section-note';
       note.textContent = ` ${section.mediaType}${section.scripted === true ? ' · scripted' : ''}`;
       button.append(note);
-      button.addEventListener('click', () => loadSection(section.id, undefined, button));
+      button.addEventListener('click', () => {
+        void reader.goTo({ sectionId: section.id, label: section.id, fragment: undefined, children: [] });
+      });
+      if (!sectionButtons.has(section.id)) sectionButtons.set(section.id, button);
       entry.append(button);
       list.append(entry);
     });
@@ -530,8 +522,9 @@
     orderEl.append(
       book.sections.length > 0 ? buildReadingOrder(book.sections) : emptyNote('no sections'),
     );
-    readerLabelEl.textContent = 'pick a chapter to render it in the sandboxed frame';
+    readerLabelEl.textContent = 'opening the book in the sandboxed reader…';
     bookEl.style.display = 'block';
+    startReader();
     if (book.metadata.cover !== undefined) {
       const current = generation;
       try {
@@ -546,23 +539,65 @@
     }
   }
 
-  function turnPage(delta) {
-    if (paginator === null || currentSection === null) return;
-    queue = queue
-      .then(async () => {
-        await (delta > 0 ? paginator.nextPage() : paginator.previousPage());
-        await refresh();
-      })
-      .catch(() => {});
+  /**
+   * Spins up the public reader over the opened book plus a hidden reporter host,
+   * and wires the facade's events to the pager, the TOC highlight, and the report
+   * panel. Everything below drives the Reader — never the paginator directly.
+   */
+  function startReader() {
+    // The reporter host needs an attached container for its frame to hand-shake,
+    // so it lives off-screen rather than detached.
+    reporterHostEl = document.createElement('div');
+    reporterHostEl.style.cssText = 'position:absolute;width:1px;height:1px;left:-9999px;top:0;overflow:hidden;';
+    document.body.append(reporterHostEl);
+    reporter = new ContentHost(reporterHostEl, {
+      onViolation: (violation) => {
+        violations.push(violation);
+        showViolations();
+      },
+      onError: () => {},
+    });
+    pagerEl.style.display = 'flex';
+    reader = render(book, readerEl, { mode: 'paginated' });
+    reader.on('error', (err) => showError(err));
+    reader.on('sectionchange', ({ index }) => {
+      // The report reflects the section the reader just entered.
+      void showSectionReport(index, undefined);
+    });
+    reader.on('linkclick', () => {
+      // A followed internal link pushes a back-stack entry; enable Back.
+      backStackDepth += 1;
+      backEl.disabled = false;
+    });
+    reader.on('positionchange', onPositionChange);
+    reader.on('ready', (position) => {
+      onPositionChange(position);
+      void showSectionReport(position.section, undefined);
+    });
   }
 
-  prevPageEl.addEventListener('click', () => turnPage(-1));
-  nextPageEl.addEventListener('click', () => turnPage(1));
+  prevPageEl.addEventListener('click', () => {
+    if (reader !== null) void reader.prev();
+  });
+  nextPageEl.addEventListener('click', () => {
+    if (reader !== null) void reader.next();
+  });
+  prevSectionEl.addEventListener('click', () => {
+    if (reader !== null) void reader.prevSection();
+  });
+  nextSectionEl.addEventListener('click', () => {
+    if (reader !== null) void reader.nextSection();
+  });
+  backEl.addEventListener('click', () => {
+    if (reader === null || backStackDepth <= 0) return;
+    backStackDepth -= 1;
+    void reader.back();
+  });
 
   scrolledToggleEl.addEventListener('change', () => {
-    if (paginator === null || currentSection === null) return;
-    // Re-paginate through the same chunk pipeline in the new mode.
-    loadSection(currentSection.id, undefined, currentButton);
+    if (reader === null) return;
+    // The facade re-lays the section in the new mode and holds the place (M1-2).
+    void reader.setMode(scrolledToggleEl.checked ? 'scrolled' : 'paginated');
   });
 
   input.addEventListener('change', async () => {

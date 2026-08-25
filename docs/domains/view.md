@@ -112,3 +112,46 @@ The coordination script sits in `<head>`, immediately after the CSP element, so 
 The host hands over a **normalized, sanitized document**, not "sanitized bytes" — the paginator chunks what the host produced, and must not re-parse. The host owns markup normalization and image/alt policy because both require the parsed tree. It does **not** own column geometry, chunking, page↔position mapping, or measurement beyond the single `measure` message; and it must never impose a column context on the body.
 
 Two negative duties matter to the paginator: zero-width anchor spans (`<span class="…"><a id="page_357"></a></span>`) are **not** tidied away — they are what fragment navigation and reading positions resolve against — and empty inline elements are left alone, because their empty `getClientRects()` is the paginator's problem to guard, not the host's to prevent.
+
+## The reader facade (`src/reader`)
+
+`render(book, element, options?): Reader` is the public reader — the top of the view stack. It lives in `src/reader`, **outside `src/core`**, because it drives both `src/layout` and `src/view` and core is headless by rule; the PLAN's `book.render(...)` shape is relocated here as a free function (see [`architecture.md`](../architecture.md)). It owns no format vocabulary and never fetches or persists: a `Book` comes in, page geometry comes from one `Paginator` (which it drives, never reaching past into frame geometry), and positions are the headless `Position` model. **Its public surface is frozen under the 0.x contract** — names, event payloads, and firing order are expensive to reverse, so review against the PLAN sketch before changing any of them.
+
+**Surface.** `ReaderOptions { mode?, theme?, fontSize?, fontFamily?, lineHeight?, margin?, columns?, start? }` — `mode` selects `'paginated'` (default) or `'scrolled'`; `margin` maps to the paginator's `columnGap` today; the other appearance fields are retained for the M3 appearance system and not applied yet; `start` opens somewhere other than the book's beginning (any `GoToTarget`). The returned `Reader` exposes `next/prev` (async, page-then-section roll), `nextSection/prevSection` (async, whole-section jumps, no-op at the ends), `goTo(target)`, `back()`, `setMode(mode)`, the synchronous getters `position` and `mode`, `on(event, handler)` (returns an unsubscribe fn), and `destroy()`. `ReaderPosition` is `{ section, progress, chapterProgress, page, totalPages }`, assembled from `Paginator.bookProgress` (progress/chapterProgress/page/totalPages) plus the active section index; before the first paint it reads as all-zero at the current section index.
+
+**Navigation is serialized through a promise queue.** Every nav method enqueues its work behind previously-issued calls so overlapping calls settle in issue order; a task failure surfaces as an `error` event and is swallowed so it never breaks the chain, and `destroy` short-circuits the queue. This is the facade's answer to the host refusing a superseded render — callers never have to serialize themselves.
+
+**Events (FROZEN) — names, payloads, firing order.**
+
+| event | payload | when |
+|---|---|---|
+| `ready` | `ReaderPosition` | once, after the first section paints |
+| `positionchange` | `ReaderPosition` | after any navigation settles |
+| `sectionchange` | `{ index, sectionId }` | when the active section changes |
+| `linkclick` | `{ href }` | an in-frame link click, **before** it is followed |
+| `error` | `Error` | a navigation or render failure (also frame-reported errors) |
+
+Firing order is documented and tested:
+- **initial render:** `sectionchange` → `positionchange` → `ready`.
+- **page turn within a section:** `positionchange`.
+- **roll across a section boundary / `goTo` / `nextSection` / `prevSection`:** `sectionchange` (only if the section actually changed) → `positionchange`.
+- **link click:** `linkclick` → (`sectionchange` if it landed in a new section) → `positionchange`.
+- **`setMode`:** `positionchange`.
+
+A listener throwing is caught and swallowed (a copy of the set is iterated, so a handler unsubscribing mid-dispatch cannot skip a sibling); it never derails the emit or the navigation.
+
+**`goTo` — six target forms.** `'start'` (first section, first page), `'end'` (last section, last page), a number `0..1` (even-weight book fraction → section + nearest page, matching `BookProgress.bookFraction`), a `Position` (content-anchor resolve via `Paginator.pageOfPosition`), a `TocItem` (its `sectionId` + optional `fragment`), and an internal `href` string. `back()` is `goTo(Position)` under the hood, restoring a pushed pre-jump position.
+
+**`href` resolution is a best-effort, format-neutral heuristic** — core exposes no href→section seam (sections are id-addressed; `Section.resolve` yields a `Resource`, not a section target), and adding one would leak format vocabulary, so the facade resolves using only public `Book` data and **degrades quietly on a miss** (no throw, stays put / page 0), consistent with the `Position` soft-miss philosophy. In order: (1) the path or its last segment equals a `section.id`; (2) the last segment, or that segment minus its extension, matches a `section.id` or an id's own last-segment/extension-less form; (3) a fragment the href carries is also carried by a `TocItem`, whose `sectionId` is then borrowed. A pure-fragment href (`#note`) seeks within the current section.
+
+**Fragment anchoring uses the v4 seam.** A fragment (from a `TocItem` or an href) is turned into a page by `Paginator.pageOfElementId`, which the frame answers via `offsetOfElementId` → `pageOfOffset` (protocol v4). A resolved id lands on that element's page; an unresolvable id is a soft miss that lands on the section's first page.
+
+**Internal-link back-stack.** The paginator/host cancels the in-frame default and reports the click through `ContentHostOptions.onLinkClick`; the facade emits `linkclick`, pushes the current `Position` onto its back-stack, then follows the href — all enqueued so it settles in order. `back()` pops and restores via `goTo(Position)`; empty-stack `back()` is a no-op.
+
+**Mode switch preserves position.** `setMode` delegates to `Paginator.switchMode`, which captures a `Position` for the current page, re-paginates in the new mode, and seeks back to the page that `Position` now resolves to (M1-2 capture→re-layout→resolve→restore) — no reload. A same-session same-text miss degrades to page 0. Switching before the first paint just records the mode. **Caveat (engine, not facade):** scrolled mode collapses paging to a single page, so a `Position` captured at a *mid-section* page while scrolled resolves back to that section's first page — a paginated→scrolled→paginated round trip from a mid-section page can therefore drift toward page 0. Exact mid-scroll capture is the M3-2 appearance-invariant's job; the facade only guarantees the switch composes, holds the section, and preserves the page when the anchor page survives the collapse (e.g. a page-0 round trip lands home).
+
+**`destroy()` leaves nothing behind** (idempotent): it tears down the `Paginator` (which destroys the host, the iframe, and — because resources are `data:` URLs the frame carries, not host-minted blob URLs — there is nothing to revoke; the frame's `message` listener goes with the iframe), clears all event listener sets, and drops the back-stack. Pending frame requests reject as the host tears the channel down.
+
+**Protocol is at v4.** The facade needed link-click reporting and fragment→page mapping on top of T001's paginator additions; `PROTOCOL_VERSION` is `4`, and the frame's hand-written validator is kept in step with `asHostMessage`/`asFrameMessage` by hand.
+
+**Packaging note.** `package.json` has **no `exports` map yet** — neither the reader subpath nor `core`/`epub`/`layout` are declared, so all are importable by path only (which is what the tests and demo do). Adding a partial map now would break those path imports; the public `exports` map (including the `./reader` subpath) is deferred to a later packaging milestone.
