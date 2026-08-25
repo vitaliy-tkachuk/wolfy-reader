@@ -275,7 +275,11 @@ since moved past `7` for image-tap reporting and decorations, unrelated to searc
 
 `reader.decorate(id, position, { className })` draws a styled overlay over the range
 `position` resolves to; `reader.undecorate(id)` removes it. Both join the frozen 0.x
-surface. It is the API a visible search-result highlight is built on.
+surface. It is the API a visible search-result highlight is built on: a search hit's
+content-addressed `Position` (see [`search.md`](search.md)) is both jumped to via `goTo`
+and decorated over via `decorate` off that one anchor, so the highlight lands exactly
+where the jump does. A hit whose `Position` no longer resolves is the ordinary soft miss
+below — the highlight draws nothing and throws nothing.
 
 - **Draw-only, never store — the cross-cutting rule.** The library DRAWS decorations
   and never persists, serializes, or fetches annotation data; storage is the host's,

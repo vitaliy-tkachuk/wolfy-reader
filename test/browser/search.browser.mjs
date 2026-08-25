@@ -7,15 +7,18 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * Browser tests for full-text search's one browser-load-bearing piece:
- * `goTo(hit.position)` landing on the hit's page inside the sandboxed frame. The
+ * Browser tests for full-text search's browser-load-bearing pieces:
+ * `goTo(hit.position)` landing on the hit's page inside the sandboxed frame, and the
+ * search-hit *highlight* drawn over that same anchor via the decorations API. The
  * matcher, extraction, normalization, context windowing and iterator laziness are
- * all headless (test/search.test.ts); only the jump crosses the frame boundary —
- * resolving a hit's content-anchored Position against the frame-measured section
- * text and seeking to its page — so only that is asserted here.
+ * all headless (test/search.test.ts); only the jump and the drawn overlay cross the
+ * frame boundary — resolving a hit's content-anchored Position against the
+ * frame-measured section text, seeking to its page, and painting the overlay client
+ * rects — so only those are asserted here.
  *
- * Mirrors reader.browser.mjs: same serve-demo mounts, same harness.html, a graceful
- * skip when playwright is absent, and a corpus skip for the multi-page landing case.
+ * Mirrors reader.browser.mjs / decorations.browser.mjs: same serve-demo mounts, same
+ * harness.html, a graceful skip when playwright is absent, and a corpus skip for the
+ * multi-page landing case.
  */
 
 const browserDir = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +80,26 @@ async function openReader(url, options = {}) {
 const HOSTILE = '/fixtures/hostile.epub';
 const PP = '/corpus/gutenberg-pride-and-prejudice.epub';
 
+function contentFrame() {
+  const frames = page.mainFrame().childFrames();
+  assert.equal(frames.length, 1, 'expected exactly one child frame — the reader content frame');
+  return frames[0];
+}
+
+/** The overlay boxes painted for a decoration id, with class + geometry facts. */
+async function overlayBoxes(id, className) {
+  return contentFrame().evaluate(
+    ([decorationId, cls]) => {
+      const boxes = [...document.querySelectorAll(`[data-decoration="${decorationId}"]`)];
+      return boxes.map((box) => {
+        const rect = box.getBoundingClientRect();
+        return { width: rect.width, height: rect.height, hasClass: box.classList.contains(cls) };
+      });
+    },
+    [id, className],
+  );
+}
+
 describe('reader.search — jump to hit', { ...skipAll }, () => {
   test('a hit found in a section jumps to that section, its Position resolving in the frame', async () => {
     await openReader(HOSTILE);
@@ -111,6 +134,59 @@ describe('reader.search — jump to hit', { ...skipAll }, () => {
     // Hits are ordered by section (the scan is sequential).
     const sections = hits.map((h) => h.sectionIndex);
     for (let i = 1; i < sections.length; i += 1) assert.ok(sections[i] >= sections[i - 1]);
+  });
+});
+
+describe('reader.search — highlighting a hit', { ...skipAll }, () => {
+  test('jumping to a hit then decorating its Position draws a class-carrying highlight', async () => {
+    await openReader(HOSTILE);
+    const hits = await page.evaluate(() => window.harness.readerSearch('lamplighter'));
+    assert.ok(hits.length >= 1, 'search found no hit for "lamplighter"');
+    const hit = hits[0];
+
+    // Land on the hit's page, then draw the highlight over the very same anchor the
+    // jump used — this is the whole feature: the hit's Position is both jumpable and
+    // decoratable off one content-addressed anchor.
+    const landed = await page.evaluate((s) => window.harness.readerGoToSearchHit(s), hit.serialized);
+    const targetSection = await page.evaluate((id) => window.harness.sectionIndexOf(id), 'preserve');
+    assert.equal(landed.section, targetSection, 'goTo(hit.position) landed in the wrong section');
+
+    let threw = false;
+    try {
+      await page.evaluate((s) => window.harness.readerDecorate('search-hit', s, 'search-hl'), hit.serialized);
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, 'decorating a landed hit must not throw');
+
+    const boxes = await overlayBoxes('search-hit', 'search-hl');
+    assert.ok(boxes.length > 0, 'the highlight must paint at least one overlay box on the landed hit');
+    for (const box of boxes) {
+      assert.ok(box.hasClass, 'each highlight box carries the decoration class');
+      assert.ok(box.width > 0 && box.height > 0, 'a painted highlight box has real geometry');
+    }
+  });
+
+  test('a hit whose Position no longer resolves draws nothing and throws nothing', async () => {
+    await openReader(HOSTILE);
+    await page.evaluate(() => window.harness.readerGoTo('start'));
+    // A Position anchored to the active section but over text absent from it — the same
+    // soft-miss a stale/edited hit Position would produce. Decorating it must be inert.
+    const serialized = await page.evaluate(() => window.harness.buildAbsentPosition());
+    if (serialized === null) return;
+
+    let threw = false;
+    try {
+      await page.evaluate((s) => window.harness.readerDecorate('search-hit', s, 'search-hl'), serialized);
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, 'a soft-miss hit must not throw');
+    assert.equal(
+      (await overlayBoxes('search-hit', 'search-hl')).length,
+      0,
+      'a soft-miss hit paints no overlay box',
+    );
   });
 });
 

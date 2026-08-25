@@ -93,6 +93,24 @@ leaves raw, an anchored quote could drift and resolution would miss.
   each section index just before that section is decoded, so a test proves laziness by
   counting decodes rather than inferring it from an eventual result.
 
+### Highlighting a hit rides the same anchor as the jump
+
+A hit is not only jumpable, it is *highlightable* off the identical anchor. After
+`goTo(hit.position)` lands, a consumer calls `decorate(id, hit.position, { className })`
+(the draw-only decorations API — see [`view.md`](view.md)) to draw a visible highlight
+over the hit's span with its class. Both the jump and the highlight resolve `hit.position`
+against the frame-measured section text through the same `Position` machinery, so **no new
+addressing is introduced** — the highlight sits exactly where the jump landed. The demo
+does this on a hit-row click, reusing one decoration id so a single hit is highlighted at
+a time.
+
+- **The soft miss stays inert on the highlight leg too.** A hit whose `Position` no longer
+  resolves (the content changed, or the extraction/frame edge divergence above shifts the
+  quote out of reach) decorates to **nothing and throws nothing** — the exact
+  position/decoration soft-miss contract the jump already follows. A stale hit degrades
+  quietly on both legs: the jump lands on the section's first page and the highlight draws
+  no box. There is no new error path.
+
 ## Gotchas
 
 - **Sections are the scan unit — a match spanning a section boundary is not found.**

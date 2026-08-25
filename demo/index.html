@@ -991,6 +991,7 @@
     searchResultsEl.replaceChildren();
     if (reader === null || query.trim() === '') {
       searchStatusEl.textContent = '';
+      if (reader !== null) void reader.undecorate('search-hit');
       return;
     }
     searchStatusEl.textContent = 'searching…';
@@ -1022,10 +1023,15 @@
     const sectionId = book.sections[hit.sectionIndex]?.id ?? `#${hit.sectionIndex + 1}`;
     where.textContent = ` — in ${sectionId}`;
     button.append(context, where);
-    // The hit's Position is jumpable: goTo lands on its page. (A visible highlight on
-    // the landed page is a later task — this proves the jump.)
+    // The hit's Position is jumpable and decoratable off the same anchor: goTo lands on
+    // its page, then decorate draws a visible highlight over the matched span with its
+    // class. A single reused id keeps one hit highlighted at a time. If the anchor no
+    // longer resolves (a soft miss), decorate quietly draws nothing — no throw.
     button.addEventListener('click', () => {
-      void reader.goTo(hit.position);
+      void (async () => {
+        await reader.goTo(hit.position);
+        await reader.decorate('search-hit', hit.position, { className: 'demo-highlight' });
+      })();
     });
     row.append(button);
     return row;
