@@ -273,8 +273,24 @@ describe('internal-link back-stack', { ...skipAll, ...skipCorpus }, () => {
       'linkclick was not followed by a positionchange',
     );
 
-    // Give the follow navigation a moment, then back() must restore the position.
+    // Give the follow navigation a moment to settle before probing where it landed.
     await new Promise((done) => setTimeout(done, 100));
+
+    // A clicked href that carries a path (not a bare `#fragment`) names a *different*
+    // document, so following it must land in a different section. This is the exact
+    // case the old id/filename heuristic could not resolve for opaque manifest ids
+    // (Gutenberg's `item8`-style ids share nothing with the `..._1342-h-2.htm.xhtml`
+    // file names) — it would soft-miss and move nothing.
+    if (clicked.split('#')[0] !== '') {
+      const afterJump = await page.evaluate(() => window.harness.readerPosition());
+      assert.notEqual(
+        afterJump.section,
+        beforeJump.section,
+        'a cross-file link did not move to another section — href resolution soft-missed',
+      );
+    }
+
+    // back() must restore the pre-jump position.
     const restored = await page.evaluate(() => window.harness.readerBack());
     assert.equal(restored.section, beforeJump.section, 'back() landed in the wrong section');
     assert.equal(restored.page, beforeJump.page, `back() landed on page ${restored.page}, wanted ${beforeJump.page}`);

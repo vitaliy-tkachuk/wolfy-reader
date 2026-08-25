@@ -762,11 +762,18 @@ class ReaderImpl implements Reader {
       this.#emit('positionchange', this.#snapshot());
       return fragment !== undefined;
     }
-    const index = this.#resolveHrefToSection(path, fragment);
+    // Prefer the format's own section-relative resolver: it maps the raw href to a
+    // section by the same authority the TOC uses (EPUB's resolved-path → id table),
+    // which the id/filename heuristic below cannot match against opaque manifest ids.
+    // Fall back to the heuristic for formats that expose no resolver.
+    const viaFormat = this.#paginator.section?.resolveHref?.(href);
+    let index = viaFormat === undefined ? -1 : this.#indexOfSection(viaFormat.sectionId);
+    const targetFragment = (viaFormat?.fragment ?? fragment);
+    if (index === -1) index = this.#resolveHrefToSection(path, fragment);
     if (index === -1) return false; // soft miss
     await this.#gotoSection(index, 'first');
     if (this.#destroyed) return false;
-    if (fragment !== undefined) await this.#seekFragment(fragment);
+    if (targetFragment !== undefined) await this.#seekFragment(targetFragment);
     this.#emit('positionchange', this.#snapshot());
     return true;
   }

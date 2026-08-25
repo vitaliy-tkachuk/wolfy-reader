@@ -37,6 +37,29 @@ export interface Section {
    * cannot resolve references.
    */
   resolve?(reference: string): Resource | undefined;
+  /**
+   * Resolves a reference appearing inside this section's content to the *section*
+   * it targets (plus any fragment), or undefined when it names no section in this
+   * book. The counterpart to {@link resolve}: `resolve` hands back a `Resource`'s
+   * bytes for a reference (an image, a stylesheet), this hands back a navigation
+   * target for a reference to another reading unit — a "next chapter" link, a
+   * table-of-contents entry rendered in-content. Section-relative (a bare
+   * `chapter-2.xhtml` resolves against this section's own location) and path-free
+   * on return, so container paths never enter the model. Omitted by formats whose
+   * references cannot name a section (plain text has none).
+   */
+  resolveHref?(reference: string): SectionRef | undefined;
+}
+
+/**
+ * A resolved in-content reference: the section it targets, plus any fragment the
+ * reference carried. Path-free by design — the return names a section by id, never
+ * by container path, so paths never enter the model.
+ */
+export interface SectionRef {
+  readonly sectionId: string;
+  /** Anchor within the target section, when the reference carried one. */
+  readonly fragment?: string;
 }
 
 /** Reading order of the pages: left-to-right or right-to-left. */

@@ -214,6 +214,40 @@ test('Section.resolve falls through to spine-listed documents, which are not in 
   assert.deepEqual(await target.load(), await intro.load());
 });
 
+test('Section.resolveHref maps a section-relative href to the section it names', async () => {
+  const book = await openFixture('opf-subdir.epub');
+  const middle = book.section('middle');
+  assert.ok(middle?.resolveHref, 'the EPUB decoder supplies the href resolver on every section');
+
+  // OEBPS/text/middle.xhtml + ../text/first light.xhtml → OEBPS/text/first light.xhtml,
+  // whose manifest id is `intro` — a mapping the id/filename heuristic cannot make,
+  // since the id (`intro`) shares nothing with the file name.
+  assert.deepEqual(
+    middle.resolveHref('../text/first%20light.xhtml'),
+    { sectionId: 'intro' },
+    'a cross-directory, percent-encoded href resolves to the target section id',
+  );
+  assert.equal(
+    middle.resolveHref('https://example.invalid/elsewhere.xhtml'),
+    undefined,
+    'an unresolvable href is a soft miss, not a throw',
+  );
+});
+
+test('Section.resolveHref resolves sibling documents by filename and carries the fragment', async () => {
+  const book = await openFixture('epub3.epub');
+  const c1 = book.section('c1');
+  assert.ok(c1?.resolveHref, 'the EPUB3 fixture supplies the href resolver');
+
+  // Manifest id `c1` names the file chapter-1.xhtml; a link to chapter-2.xhtml must
+  // reach section `c2`, and any fragment rides along untouched.
+  assert.deepEqual(c1.resolveHref('chapter-2.xhtml'), { sectionId: 'c2' });
+  assert.deepEqual(c1.resolveHref('chapter-3.xhtml#tide-tables'), {
+    sectionId: 'c3',
+    fragment: 'tide-tables',
+  });
+});
+
 test('Section.resolve returns undefined for references it cannot serve, and never throws', async () => {
   const book = await openFixture('opf-subdir.epub');
   const middle = book.section('middle');

@@ -136,6 +136,16 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
       ...(scripted ? { scripted } : {}),
       load: () => readEntry(zip, path),
       resolve: (reference) => resolveFrom(contentDir, reference),
+      // Resolve a section-relative href to the section it names, reusing the same
+      // resolved-entry-name → section-id table the TOC is built from. `sectionByPath`
+      // is fully populated by the time any click fires, so the closure reads it live.
+      resolveHref: (reference) => {
+        const target = resolveHref(contentDir, reference);
+        if (target === undefined) return undefined;
+        const sectionId = sectionByPath.get(target.path);
+        if (sectionId === undefined) return undefined;
+        return target.fragment === undefined ? { sectionId } : { sectionId, fragment: target.fragment };
+      },
     });
     // TOCs point at the spine item's own href even when a fallback supplies
     // the content, so both paths map to the section.
