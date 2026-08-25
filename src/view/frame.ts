@@ -670,8 +670,66 @@ document.addEventListener('keydown', function(event){
   if (NAV_KEYS[event.key] === 1) {
     event.preventDefault();
     send({ v: VERSION, type: 'key', key: event.key });
+    return;
+  }
+  // Keyboard equivalent of a figure tap: Enter/Space on a focused image opens the
+  // same host-side zoom overlay a pointer tap does, so zoom is reachable without a
+  // pointer. Images are made focusable below (markImages); imageAncestor also
+  // catches Enter fired on a wrapper the image sits inside.
+  if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+    var img = imageAncestor(event.target);
+    if (img) {
+      event.preventDefault();
+      var isrc = img.getAttribute('src') || img.getAttribute('href') || img.getAttribute('xlink:href') || '';
+      send({ v: VERSION, type: 'imagetap', src: String(isrc), alt: String(img.getAttribute('alt') || '') });
+    }
   }
 });
+
+// A figure is only tap-to-zoom by default; making each content image focusable and
+// button-roled is what lets a keyboard user reach the zoom overlay. Marked as chunks
+// realize (content is virtualized), idempotently, without touching the sandbox: these
+// are ARIA/tabindex attributes only, no new capability.
+function markImage(img){
+  if (img.getAttribute('data-wr-activatable') === '1') return;
+  img.setAttribute('data-wr-activatable', '1');
+  if (!img.hasAttribute('tabindex')) img.setAttribute('tabindex', '0');
+  if (!img.hasAttribute('role')) img.setAttribute('role', 'button');
+  if (!img.getAttribute('aria-label')) {
+    var label = img.getAttribute('alt') || 'Image';
+    img.setAttribute('aria-label', label + ' — press Enter to zoom');
+  }
+}
+function markImages(scope){
+  if (!scope || !scope.getElementsByTagName) return;
+  var imgs = scope.getElementsByTagName('img');
+  for (var i = 0; i < imgs.length; i++) markImage(imgs[i]);
+}
+function setupImageActivation(){
+  var root = document.getElementById(ROOT_ID) || document.body;
+  if (!root) return;
+  // Content ships in the initial srcdoc, so a one-shot pass marks everything present
+  // at parse; the observer then catches images added by later chunk realization.
+  markImages(root);
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(function(records){
+      for (var i = 0; i < records.length; i++) {
+        var added = records[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var n = added[j];
+          if (!n || n.nodeType !== 1) continue;
+          if (n.localName === 'img') markImage(n);
+          else markImages(n);
+        }
+      }
+    }).observe(root, { childList: true, subtree: true });
+  }
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupImageActivation);
+} else {
+  setupImageActivation();
+}
 
 // Pointer/touch: a drag that clears the threshold and is horizontal-dominant is
 // a swipe; a small movement that is not on a link is a tap. The host maps both
