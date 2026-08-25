@@ -11,6 +11,11 @@
  * `Position` maps back through `resolvePosition` → `pageOfOffset`.
  */
 import { capturePosition, resolvePosition, type Position, type Section } from '../core/index.ts';
+import {
+  graphemeIndexToCodeUnitOffset as graphemeIndexToOffset,
+  segmentGraphemes,
+  type Grapheme,
+} from '../core/graphemes.ts';
 import { DEFAULT_CHUNK_CHARS } from './chunk.ts';
 import { ContentHost, type ContentHostOptions } from '../view/host.ts';
 import type { LayoutMode, PaginateOptions, PaginationState } from '../view/protocol.ts';
@@ -512,15 +517,18 @@ function clamp(value: number, low: number, high: number): number {
  * carries each grapheme's code-unit index, so the mapping is exact for surrogate
  * pairs, combining sequences, and emoji clusters. An index at or past the end
  * maps to the text length.
+ *
+ * The section text is segmented once and memoized (the paginator caches one
+ * section text at a time, so a single-entry memo suffices); each lookup is then a
+ * binary search over the shared grapheme-boundary helper, never a re-segmentation.
  */
-const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+let memoizedText: string | null = null;
+let memoizedGraphemes: readonly Grapheme[] = [];
 
 function graphemeIndexToCodeUnitOffset(text: string, graphemeIndex: number): number {
-  if (graphemeIndex <= 0) return 0;
-  let index = 0;
-  for (const segment of GRAPHEME_SEGMENTER.segment(text)) {
-    if (index === graphemeIndex) return segment.index;
-    index += 1;
+  if (text !== memoizedText) {
+    memoizedText = text;
+    memoizedGraphemes = segmentGraphemes(text);
   }
-  return text.length;
+  return graphemeIndexToOffset(memoizedGraphemes, text.length, graphemeIndex);
 }

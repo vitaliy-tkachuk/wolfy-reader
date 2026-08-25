@@ -1,4 +1,10 @@
 import { CorruptContainerError } from './errors.ts';
+import {
+  codeUnitOffsetToGraphemeIndex,
+  countGraphemes,
+  segmentGraphemes,
+  type Grapheme,
+} from './graphemes.ts';
 
 /**
  * A content-addressed anchor into a section's text, Hypothesis-style. A match is
@@ -92,11 +98,38 @@ export function capturePosition(
   sectionId: string,
   options: CapturePositionOptions = {},
 ): Position {
-  const graphemes = segmentGraphemes(text);
+  return captureSegmented(segmentText(text), offset, sectionId, options);
+}
+
+/**
+ * A text segmented once, shared across many captures — the batch-capture
+ * invariant: graphemes and word starts are computed O(1) times per text, never
+ * per sentence or per occurrence. `wordStarts` is built lazily on the first
+ * word-snap (a capture at index 0 or end-of-text never needs it) and holds the
+ * sorted code-unit start offset of every word segment.
+ */
+interface SegmentedText {
+  readonly text: string;
+  readonly graphemes: readonly Grapheme[];
+  wordStarts: number[] | null;
+}
+
+function segmentText(text: string): SegmentedText {
+  return { text, graphemes: segmentGraphemes(text), wordStarts: null };
+}
+
+/** `capturePosition` over an already-segmented text; behavior is identical. */
+function captureSegmented(
+  segmented: SegmentedText,
+  offset: number,
+  sectionId: string,
+  options: CapturePositionOptions,
+): Position {
+  const { graphemes } = segmented;
   const total = graphemes.length;
 
   const rawIndex = codeUnitOffsetToGraphemeIndex(graphemes, offset);
-  const start = snapToWordStart(text, graphemes, rawIndex, options.locale);
+  const start = snapToWordStart(segmented, rawIndex, options.locale);
 
   const quoteLength = options.quoteLength ?? DEFAULT_QUOTE_LENGTH;
   const contextLength = options.contextLength ?? DEFAULT_CONTEXT_LENGTH;
@@ -153,12 +186,19 @@ export function segmentSentences(
   options: CapturePositionOptions = {},
 ): SentenceRange[] {
   const out: SentenceRange[] = [];
+  // Segment graphemes (and, lazily, words) once for the whole text; every
+  // sentence capture reuses the same arrays instead of re-segmenting — this is
+  // what keeps a long chapter linear instead of quadratic.
+  const segmented = segmentText(text);
   for (const segment of sentenceSegmenter(options.locale).segment(text)) {
     const trimmed = segment.segment.replace(/\s+$/u, '');
     if (trimmed.trim().length === 0) continue;
     const quoteLength = countGraphemes(trimmed);
     // Anchor the quote over the whole sentence so decorate highlights all of it.
-    const position = capturePosition(text, segment.index, sectionId, { ...options, quoteLength });
+    const position = captureSegmented(segmented, segment.index, sectionId, {
+      ...options,
+      quoteLength,
+    });
     out.push({ text: trimmed, position });
   }
   return out;
@@ -231,9 +271,12 @@ export function resolvePosition(
   if (occurrences.length === 0) return undefined;
 
   const quoteLength = segmentGraphemes(anchor.exact).length;
+  // Segment the stored context once, outside the occurrence loop.
+  const prefix = segmentGraphemes(anchor.prefix).map((g) => g.segment);
+  const suffix = segmentGraphemes(anchor.suffix).map((g) => g.segment);
   let best: { offset: number; score: number } | undefined;
   for (const offset of occurrences) {
-    const score = contextScore(graphemes, offset, quoteLength, anchor);
+    const score = contextScore(graphemes, offset, quoteLength, prefix, suffix);
     if (
       best === undefined ||
       score > best.score ||
@@ -266,16 +309,18 @@ function findGraphemeOccurrences(graphemes: Grapheme[], quote: string): number[]
   return hits;
 }
 
-/** Count of trailing prefix graphemes + leading suffix graphemes that still match. */
+/**
+ * Count of trailing prefix graphemes + leading suffix graphemes that still match.
+ * `prefix`/`suffix` are the anchor's context pre-segmented into grapheme strings —
+ * segmented once by the caller, never per occurrence.
+ */
 function contextScore(
-  graphemes: Grapheme[],
+  graphemes: readonly Grapheme[],
   quoteStart: number,
   quoteLength: number,
-  anchor: TextAnchor,
+  prefix: readonly string[],
+  suffix: readonly string[],
 ): number {
-  const prefix = segmentGraphemes(anchor.prefix).map((g) => g.segment);
-  const suffix = segmentGraphemes(anchor.suffix).map((g) => g.segment);
-
   let score = 0;
   for (let back = 1; back <= prefix.length; back += 1) {
     const here = graphemes[quoteStart - back];
@@ -319,13 +364,6 @@ function isSerialPayload(value: unknown): value is SerialPayload {
   );
 }
 
-/** A grapheme cluster together with its UTF-16 code-unit offset in the text. */
-interface Grapheme {
-  readonly segment: string;
-  readonly index: number;
-}
-
-const graphemeSegmenters = new Map<string, Intl.Segmenter>();
 const wordSegmenters = new Map<string, Intl.Segmenter>();
 const sentenceSegmenters = new Map<string, Intl.Segmenter>();
 
@@ -335,21 +373,6 @@ function sentenceSegmenter(locale: string | undefined): Intl.Segmenter {
   if (segmenter === undefined) {
     segmenter = new Intl.Segmenter(locale, { granularity: 'sentence' });
     sentenceSegmenters.set(key, segmenter);
-  }
-  return segmenter;
-}
-
-function countGraphemes(text: string): number {
-  let count = 0;
-  for (const _ of graphemeSegmenter().segment(text)) count += 1;
-  return count;
-}
-
-function graphemeSegmenter(): Intl.Segmenter {
-  let segmenter = graphemeSegmenters.get('');
-  if (segmenter === undefined) {
-    segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-    graphemeSegmenters.set('', segmenter);
   }
   return segmenter;
 }
@@ -364,51 +387,43 @@ function wordSegmenter(locale: string | undefined): Intl.Segmenter {
   return segmenter;
 }
 
-function segmentGraphemes(text: string): Grapheme[] {
-  const out: Grapheme[] = [];
-  for (const segment of graphemeSegmenter().segment(text)) {
-    out.push({ segment: segment.segment, index: segment.index });
-  }
-  return out;
-}
-
-function join(graphemes: Grapheme[], start: number, end: number): string {
+function join(graphemes: readonly Grapheme[], start: number, end: number): string {
   let out = '';
   for (let index = start; index < end; index += 1) out += graphemes[index]!.segment;
   return out;
 }
 
-/** Maps a UTF-16 offset to the grapheme index at or after it. */
-function codeUnitOffsetToGraphemeIndex(graphemes: Grapheme[], offset: number): number {
-  if (offset <= 0) return 0;
-  for (let index = 0; index < graphemes.length; index += 1) {
-    if (graphemes[index]!.index >= offset) return index;
-  }
-  return graphemes.length;
-}
-
 /**
  * Snaps a grapheme index to the start of the word segment it falls in, so a
- * captured quote begins on a word boundary rather than mid-token.
+ * captured quote begins on a word boundary rather than mid-token. Word segments
+ * tile the text, so the containing segment is the one with the greatest start
+ * offset <= the grapheme's offset — a binary search over the word-start array,
+ * which is built once per `SegmentedText` and reused by every capture.
  */
 function snapToWordStart(
-  text: string,
-  graphemes: Grapheme[],
+  segmented: SegmentedText,
   index: number,
   locale: string | undefined,
 ): number {
+  const { graphemes } = segmented;
   if (index <= 0 || index >= graphemes.length) return index;
 
-  const unitOffset = graphemes[index]!.index;
-  let start = 0;
-  for (const word of wordSegmenter(locale).segment(text)) {
-    const wordEnd = word.index + word.segment.length;
-    if (word.index <= unitOffset && unitOffset < wordEnd) {
-      start = word.index;
-      break;
-    }
-    if (word.index > unitOffset) break;
-    start = word.index;
+  if (segmented.wordStarts === null) {
+    const starts: number[] = [];
+    for (const word of wordSegmenter(locale).segment(segmented.text)) starts.push(word.index);
+    segmented.wordStarts = starts;
   }
-  return codeUnitOffsetToGraphemeIndex(graphemes, start);
+  const starts = segmented.wordStarts;
+
+  const unitOffset = graphemes[index]!.index;
+  // Greatest word start <= unitOffset. starts[0] is 0 and unitOffset > 0 here,
+  // so the search never underflows.
+  let low = 0;
+  let high = starts.length - 1;
+  while (low < high) {
+    const mid = (low + high + 1) >>> 1;
+    if (starts[mid]! <= unitOffset) low = mid;
+    else high = mid - 1;
+  }
+  return codeUnitOffsetToGraphemeIndex(graphemes, starts[low]!);
 }

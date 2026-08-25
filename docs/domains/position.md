@@ -57,6 +57,23 @@ caller-supplied plain text and UTF-16 offsets — no DOM, HTML, or Range.
   4. Computes `progress = start / totalGraphemes` (0 for empty text).
 - `Intl.Segmenter` instances are cached per locale (grapheme segmentation is
   locale-independent, so it uses one shared instance).
+- **Batch-capture invariant: segment once per text, never per sentence or per
+  occurrence** (2026-08-26). Segmentation over a section is O(text), not
+  O(text × sentences). `segmentSentences` builds one internal `SegmentedText`
+  (the grapheme array plus a lazily-built sorted word-start array) and every
+  per-sentence capture reuses it; `resolvePosition` segments the anchor
+  prefix/suffix once, outside the occurrence-scoring loop; code-unit↔grapheme
+  conversions are binary searches over the sorted grapheme-boundary array —
+  never a linear re-segmentation per lookup. The shared boundary helper lives in
+  `src/core/graphemes.ts` (internal — not re-exported from `src/core/index.ts`,
+  so not public surface) and also backs the paginator's grapheme→code-unit
+  mapping in `src/layout`. The batch path is byte-identical to per-call capture
+  by contract; `test/position-segmentation-perf.test.ts` guards both the
+  identity (batch vs single serialization) and the cost (a metered
+  `Intl.Segmenter` work budget that the quadratic path exceeds ~300×). Any new
+  per-sentence/per-occurrence code must take the precomputed arrays, not
+  re-segment. (Broader segmenter-cache consolidation across modules is T007's,
+  not settled here.)
 - `serializePosition` / `parsePosition` are exact inverses. `parsePosition`
   validates the prefix, JSON validity, required-field presence and types, and the
   version, in that order, throwing `CorruptContainerError` on any failure.
