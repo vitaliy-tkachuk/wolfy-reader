@@ -89,6 +89,7 @@ caller-supplied plain text and UTF-16 offsets — no DOM, HTML, or Range.
 - `parsePosition` throwing (not returning `undefined`) is intentional and is the one
   place in the position domain that raises: a corrupt/foreign string is a structural
   fault, whereas a live-content match failure is a value-level miss.
+- **Sentence segmentation is a headless enabler built on capture.** `segmentSentences(text, sectionId, options?)` splits section text with `Intl.Segmenter` (sentence granularity) and returns `SentenceRange[]` (`{ text, position }`), capturing each sentence's `Position` with `quoteLength` set to the sentence's grapheme count — so the anchored quote is the *whole* sentence and `resolvePosition` returns its full span, which is what lets `decorate` highlight the entire sentence rather than just its start. Whitespace-only segments are dropped. It is the TTS enabler (out of scope to *speak*, in scope to *enable*): the library exposes ranges, a host reads them. Pure core, no DOM — same headless contract as `capturePosition`. The reader surfaces it as `reader.sentences()` over the current section (see [`view.md`](view.md)); the additive-surface decision is in [`../architecture.md`](../architecture.md).
 - **The appearance invariant is the payoff of this resolver.** `setAppearance`/
   `setMode` capture a `Position` for the page start, re-lay out, and resolve it back —
   content-addressed, so the reading place survives a reflow that moves every page

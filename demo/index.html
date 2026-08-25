@@ -414,6 +414,11 @@
         <button type="button" id="highlight" class="highlight-btn" disabled>Highlight selection</button>
         <button type="button" id="clear-highlights" class="highlight-btn" hidden>Clear highlights</button>
       </p>
+      <p class="selection">
+        TTS enabler — step through the current section sentence by sentence,
+        highlighting each (the library exposes ranges + draws; it speaks nothing):
+        <button type="button" id="read-sentences" class="highlight-btn" disabled>▶ Read sentences</button>
+      </p>
       <section id="report">
         <h2>What the host did to this section</h2>
         <dl>
@@ -485,6 +490,7 @@
   const selectionResolvesEl = document.querySelector('#selection-resolves');
   const highlightEl = document.querySelector('#highlight');
   const clearHighlightsEl = document.querySelector('#clear-highlights');
+  const readSentencesEl = document.querySelector('#read-sentences');
   const reportEl = document.querySelector('#report');
   const reportFields = {
     parse: document.querySelector('#report-parse'),
@@ -563,6 +569,8 @@
     highlightCount = 0;
     highlightEl.disabled = true;
     clearHighlightsEl.hidden = true;
+    stopTts();
+    readSentencesEl.disabled = true;
     searchGeneration += 1;
     searchInputEl.value = '';
     searchStatusEl.textContent = '';
@@ -917,7 +925,10 @@
     reader.on('ready', (position) => {
       onPositionChange(position);
       void showSectionReport(position.section, undefined);
+      readSentencesEl.disabled = false;
     });
+    // A section change invalidates the stepper's cached sentences.
+    reader.on('sectionchange', () => stopTts());
   }
 
   prevPageEl.addEventListener('click', () => {
@@ -961,6 +972,50 @@
     for (let i = 0; i < highlightCount; i += 1) void reader.undecorate(`hl-${i}`);
     highlightCount = 0;
     clearHighlightsEl.hidden = true;
+  });
+
+  // TTS enabler demo: sentences() exposes each sentence with a Position; the host
+  // jumps to it (goTo) and highlights it (decorate) — the exact primitives a real
+  // TTS host drives while a speech engine reads. The library speaks nothing; this
+  // stepper is host code, exactly where a TTS integration would sit. Auto-advances
+  // so the composition (segment → resolve → highlight → step) is visible.
+  let ttsTimer = null;
+  let ttsSentences = [];
+  let ttsIndex = 0;
+
+  function stopTts() {
+    if (ttsTimer !== null) {
+      clearInterval(ttsTimer);
+      ttsTimer = null;
+    }
+    if (reader !== null) void reader.undecorate('tts-active');
+    readSentencesEl.textContent = '▶ Read sentences';
+  }
+
+  async function ttsStep() {
+    if (reader === null || ttsIndex >= ttsSentences.length) {
+      stopTts();
+      return;
+    }
+    const sentence = ttsSentences[ttsIndex++];
+    void reader.undecorate('tts-active');
+    await reader.goTo(sentence.position);
+    void reader.decorate('tts-active', sentence.position, { className: 'demo-highlight' });
+  }
+
+  async function startTts() {
+    if (reader === null) return;
+    ttsSentences = await reader.sentences();
+    ttsIndex = 0;
+    if (ttsSentences.length === 0) return;
+    readSentencesEl.textContent = '⏸ Stop reading';
+    await ttsStep();
+    ttsTimer = setInterval(() => { void ttsStep(); }, 1500);
+  }
+
+  readSentencesEl.addEventListener('click', () => {
+    if (ttsTimer !== null) stopTts();
+    else void startTts();
   });
 
   // A live appearance change: setAppearance holds the reading place and repaints

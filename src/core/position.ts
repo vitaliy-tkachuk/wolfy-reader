@@ -127,6 +127,43 @@ export function serializePosition(position: Position): string {
   return serializeParts(position.sectionId, position.progress, position.anchor);
 }
 
+/** One sentence of a section, with a `Position` anchored over its whole span. */
+export interface SentenceRange {
+  /** The sentence text, trailing whitespace trimmed. */
+  readonly text: string;
+  /**
+   * A `Position` whose anchored quote is the whole sentence, so `resolvePosition`
+   * returns its full span — a host can `goTo` it (jump) and `decorate` it
+   * (highlight the entire sentence, not just its start).
+   */
+  readonly position: Position;
+}
+
+/**
+ * Segments a section's plain text into sentences with `Intl.Segmenter`, each
+ * carrying a `Position` anchored over the whole sentence. This is the TTS *enabler*
+ * (PLAN M3-6): the library exposes sentence ranges and reuses `decorate` as the
+ * highlight primitive so a host can build text-to-speech on top — it speaks nothing
+ * and stores nothing. Whitespace-only segments are dropped. Headless: the caller
+ * supplies already-extracted text, exactly like `capturePosition`.
+ */
+export function segmentSentences(
+  text: string,
+  sectionId: string,
+  options: CapturePositionOptions = {},
+): SentenceRange[] {
+  const out: SentenceRange[] = [];
+  for (const segment of sentenceSegmenter(options.locale).segment(text)) {
+    const trimmed = segment.segment.replace(/\s+$/u, '');
+    if (trimmed.trim().length === 0) continue;
+    const quoteLength = countGraphemes(trimmed);
+    // Anchor the quote over the whole sentence so decorate highlights all of it.
+    const position = capturePosition(text, segment.index, sectionId, { ...options, quoteLength });
+    out.push({ text: trimmed, position });
+  }
+  return out;
+}
+
 /**
  * Parses a serialized position back into a `Position`. Round-trips losslessly
  * with `serializePosition`. Throws `CorruptContainerError` when the string is
@@ -290,6 +327,23 @@ interface Grapheme {
 
 const graphemeSegmenters = new Map<string, Intl.Segmenter>();
 const wordSegmenters = new Map<string, Intl.Segmenter>();
+const sentenceSegmenters = new Map<string, Intl.Segmenter>();
+
+function sentenceSegmenter(locale: string | undefined): Intl.Segmenter {
+  const key = locale ?? '';
+  let segmenter = sentenceSegmenters.get(key);
+  if (segmenter === undefined) {
+    segmenter = new Intl.Segmenter(locale, { granularity: 'sentence' });
+    sentenceSegmenters.set(key, segmenter);
+  }
+  return segmenter;
+}
+
+function countGraphemes(text: string): number {
+  let count = 0;
+  for (const _ of graphemeSegmenter().segment(text)) count += 1;
+  return count;
+}
 
 function graphemeSegmenter(): Intl.Segmenter {
   let segmenter = graphemeSegmenters.get('');

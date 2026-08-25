@@ -17,8 +17,8 @@
  * positions are the headless `Position` model from core. It drives the paginator
  * and reads the book; it never reaches past the paginator into frame geometry.
  */
-import type { Book, Position, ReadingDirection, Section, TocItem } from '../core/index.ts';
-import { parsePosition } from '../core/index.ts';
+import type { Book, Position, ReadingDirection, Section, SentenceRange, TocItem } from '../core/index.ts';
+import { parsePosition, segmentSentences } from '../core/index.ts';
 import { Paginator, type BookProgress, type LayoutMode } from '../layout/index.ts';
 import { searchBook, type SearchHit, type SearchOptions } from '../search/index.ts';
 import {
@@ -219,6 +219,15 @@ export interface Reader {
   decorate(id: string, position: Position, opts: { className: string }): Promise<void>;
   /** Removes the decoration drawn for `id` and drops its intent. No-op for an unknown id. */
   undecorate(id: string): Promise<void>;
+  /**
+   * Sentence ranges for the current section, each with a `Position` anchored over
+   * the whole sentence. The **TTS enabler**: pair a sentence's `position` with
+   * {@link goTo} to jump and {@link decorate} to highlight it, and a host can step
+   * a speech engine sentence-by-sentence over the reading view. The library speaks
+   * nothing and stores nothing — it exposes ranges only. Returns `[]` before the
+   * first paint or for an empty section.
+   */
+  sentences(): Promise<readonly SentenceRange[]>;
   /** A synchronous snapshot of the current place in the book. */
   readonly position: ReaderPosition;
   /** The layout mode currently in effect. */
@@ -444,6 +453,17 @@ class ReaderImpl implements Reader {
     return this.#run(() => this.#undecorate(id));
   }
 
+  sentences(): Promise<readonly SentenceRange[]> {
+    return this.#runResult<readonly SentenceRange[]>([], async () => {
+      const section = this.#paginator.section;
+      if (section === null) return [];
+      // Segment the same frame-measured section text decorations resolve against, so
+      // every sentence Position both jumps (goTo) and highlights (decorate) cleanly.
+      const text = await this.#paginator.sectionText();
+      return segmentSentences(text, section.id);
+    });
+  }
+
   async #decorate(id: string, position: Position, className: string): Promise<void> {
     if (this.#destroyed || this.#paginator.section === null) return;
     await this.#paginator.decorate(id, position, className);
@@ -536,6 +556,30 @@ class ReaderImpl implements Reader {
     });
     this.#queue = next;
     return next;
+  }
+
+  /**
+   * Like {@link #run} but returns the task's value, resolving to `fallback` when the
+   * reader is destroyed or the task throws (the error is reported through `error`).
+   * For read-only queries that must settle in order with navigation.
+   */
+  #runResult<T>(fallback: T, task: () => Promise<T>): Promise<T> {
+    const run = this.#queue.then(async () => {
+      if (this.#destroyed) return fallback;
+      try {
+        return await task();
+      } catch (error) {
+        if (!this.#destroyed) {
+          this.#emit('error', error instanceof Error ? error : new ReaderError(String(error)));
+        }
+        return fallback;
+      }
+    });
+    this.#queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   // --- Lifecycle ------------------------------------------------------------

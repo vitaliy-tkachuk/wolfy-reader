@@ -11,12 +11,14 @@ export {
   capturePosition,
   parsePosition,
   resolvePosition,
+  segmentSentences,
   serializePosition,
 } from './position.ts';
 export type {
   CapturePositionOptions,
   Position,
   ResolvedPosition,
+  SentenceRange,
   TextAnchor,
 } from './position.ts';
 export type { OpenOptions } from './open.ts';

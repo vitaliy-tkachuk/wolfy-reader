@@ -382,6 +382,12 @@
       return true;
     },
 
+    /** Sentence ranges for the current section, positions serialized for the wire. */
+    async readerSentences() {
+      const sentences = await reader.sentences();
+      return sentences.map((s) => ({ text: s.text, position: serializePosition(s.position) }));
+    },
+
     /**
      * A serialized Position anchored to the active section's id but over text that is
      * absent from it — so resolvePosition returns undefined against the real section

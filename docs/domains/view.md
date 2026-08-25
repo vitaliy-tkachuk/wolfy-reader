@@ -341,4 +341,29 @@ below — the highlight draws nothing and throws nothing.
   is the M3-2 appearance-invariant's job, not this one's. The decoration's *text* anchor
   is unaffected — only the page it redraws on can drift, and only through that round trip.
 
+### TTS enablers (`reader.sentences()`)
+
+`reader.sentences(): Promise<readonly SentenceRange[]>` returns the current section's
+sentences, each a `{ text, position }` whose `Position` is anchored over the whole
+sentence (see [`position.md`](position.md)). It is the **TTS enabler** — out of scope
+to speak, in scope to *enable*: a host pairs each sentence's `position` with `goTo`
+(jump) and `decorate` (highlight the whole sentence) to step a speech engine
+sentence-by-sentence over the reading view. The library speaks nothing, plays no
+audio, and stores nothing — it exposes ranges and draws, reusing the decorations
+machinery unchanged (no new wire message, no protocol bump).
+
+- **It reads the same frame-measured section text decorations resolve against.**
+  `sentences()` segments `Paginator.sectionText()` (the tiled section text
+  `selection`/`decorate`/`resolvePosition` all share), so a sentence `Position` both
+  jumps and highlights cleanly with no drift between the two.
+- **Current section only, and it never mutates.** It is a read-only query, but it
+  still rides the reader's serialized navigation queue (`#runResult`, the value-
+  returning sibling of `#run`) so it settles in order with navigation rather than
+  racing a reflow; it resolves to `[]` before the first paint or when destroyed.
+  Stepping across section boundaries is host work (call `sentences()` again after a
+  `sectionchange`), which is exactly what the demo's sentence-stepper does.
+- **Demonstrated in `/demo`.** A "Read sentences" button auto-advances the highlight
+  sentence by sentence — the composition (segment → resolve → highlight → step) made
+  visible — and `test/browser/tts.browser.mjs` proves it composes end to end.
+
 **Packaging note.** `package.json` has **no `exports` map yet** — neither the reader subpath nor `core`/`epub`/`layout` are declared, so all are importable by path only (which is what the tests and demo do). Adding a partial map now would break those path imports; the public `exports` map (including the `./reader` subpath) is deferred to a later packaging milestone.
