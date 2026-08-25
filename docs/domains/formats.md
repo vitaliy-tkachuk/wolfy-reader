@@ -80,6 +80,26 @@ Code:
   never dropped even for tags the renderer does not explicitly map. Known inline tags
   (`emphasis`→`em`, `strong`, `sub`/`sup`, …) and block tags (`section`, `title`→`h2..h6`
   by depth, `poem`/`stanza`/`v`, `cite`→`blockquote`, `epigraph`) map to XHTML.
+- **FB2 parses tolerantly; every other `parseXml` caller stays strict** (2026-08-26,
+  T005). Real-world FB2 is frequently hand-edited and sloppy — a valueless attribute,
+  an unquoted value, one mismatched close tag — and an all-or-nothing parse would
+  discard an otherwise-readable book over a single slip. `parseXml(input, { tolerant:
+  true })` recovers: valueless attributes become empty strings, unquoted values read
+  to the next whitespace/tag end, a mismatched close closes the nearest matching
+  ancestor (or is ignored when nothing matches), and elements left open at EOF are
+  auto-closed. Strict remains the default and EPUB's container/OPF/nav parsing is
+  unchanged — those documents are machine-generated inside a zip, where malformedness
+  really does mean corruption. Grossly malformed FB2 still fails and is wrapped in
+  `CorruptContainerError`.
+- **`fb2.sniff` decodes a UTF-16 BOM head before testing for `<FictionBook`**
+  (2026-08-26, T005). The sniff reads the head as Latin-1 (one byte → one char) so
+  the root name is legible under any single-byte encoding — but in UTF-16 every other
+  byte is NUL, `<FictionBook` never matches, and a BOM'd UTF-16 FictionBook fell
+  through to `text.sniff` (which accepts any BOM as a positive text signal) and
+  decoded as plain text. The sniff now decodes an FF FE / FE FF head as UTF-16LE/BE
+  first; `decodeXml` already honored the BOM at decode time, so only the sniff needed
+  widening. `text.sniff` stays a genuine last resort — the fix is making the richer
+  format claim its bytes, never making the catch-all pickier.
 
 ## Implementation notes
 

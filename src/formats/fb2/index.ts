@@ -23,17 +23,28 @@ export const fb2: BookFormat = {
   name: 'fb2',
   async sniff(source) {
     const head = await source.read(0, Math.min(source.size, 1024));
-    // Read as Latin-1 so the root element name is legible whatever the real
+    // A UTF-16 BOM must be honored first: read as Latin-1, every other byte of a
+    // UTF-16 head is NUL and `<FictionBook` never matches, so a BOM'd UTF-16 FB2
+    // would fall through to the text format's catch-all sniff. Without a BOM,
+    // read as Latin-1 so the root element name is legible whatever the real
     // encoding is; the FB2 root is always near the top.
-    let text = '';
-    for (let i = 0; i < head.length; i += 1) text += String.fromCharCode(head[i]!);
+    let text: string;
+    if (head[0] === 0xff && head[1] === 0xfe) text = new TextDecoder('utf-16le').decode(head);
+    else if (head[0] === 0xfe && head[1] === 0xff) text = new TextDecoder('utf-16be').decode(head);
+    else {
+      text = '';
+      for (let i = 0; i < head.length; i += 1) text += String.fromCharCode(head[i]!);
+    }
     return /<\s*FictionBook[\s>]/.test(text);
   },
   async decode(source) {
     const bytes = await source.read(0, source.size);
     let root: XmlElement;
     try {
-      root = parseXml(decodeXml(bytes));
+      // Tolerant parse: real-world FB2 is frequently sloppy (valueless attributes,
+      // a mismatched close tag), and one such slip must not discard an otherwise
+      // readable book. Grossly malformed input still fails and is wrapped below.
+      root = parseXml(decodeXml(bytes), { tolerant: true });
     } catch (error) {
       throw new CorruptContainerError('the FB2 document is not well-formed XML', { cause: error });
     }

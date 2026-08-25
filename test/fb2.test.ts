@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { open, type Book } from '../src/core/index.ts';
 import { epub, fb2, text } from '../src/formats/index.ts';
+import { parseXml } from '../src/formats/xml.ts';
 
 async function openFb2(name: string): Promise<Book> {
   const bytes = await readFile(new URL(`./fixtures/fb2/${name}`, import.meta.url));
@@ -107,6 +108,54 @@ test('a windows-1251 declared FB2 decodes Cyrillic correctly', async () => {
   assert.equal(book.metadata.title, 'Тест', 'the windows-1251 title decoded to Cyrillic');
   const only = await html(book, 's0');
   assert.ok(only.includes('Тест'), 'the section heading decoded too');
+});
+
+test('a lightly-malformed FB2 still decodes instead of failing whole', async () => {
+  // malformed.fb2 carries a valueless attribute, an unquoted attribute value, a
+  // close tag that mismatches its open tag, and a stray close — the real-world
+  // sloppiness the tolerant parse recovers from.
+  const book = await openFb2('malformed.fb2');
+  assert.equal(book.metadata.title, 'Messy But Readable');
+  assert.equal(book.metadata.author, 'Ada Writer');
+  const ch1 = await html(book, 's0');
+  assert.ok(ch1.includes('survives a valueless and an unquoted attribute'), 'the sloppy paragraph renders');
+  assert.ok(ch1.includes('<em>emphasis'), 'the mismatched-close emphasis still maps to <em>');
+  assert.ok(ch1.includes('Chapter One'), 'the chapter title renders');
+});
+
+test('tolerance is opt-in: strict parseXml still rejects malformed attributes', () => {
+  assert.throws(() => parseXml('<a><b broken>text</b></a>'), /has no value/, 'valueless attribute throws strictly');
+  assert.throws(() => parseXml('<a><b>text</c></a>'), /closes/, 'a mismatched close throws strictly');
+  const root = parseXml('<a><b broken>text</c></a>', { tolerant: true });
+  assert.equal(root.children[0]!.attributes.get('broken'), '', 'tolerant keeps the valueless attribute as empty');
+  assert.equal(root.children[0]!.text, 'text', 'tolerant recovers the content');
+});
+
+test('a UTF-16 (BOM) FictionBook is claimed by fb2, not swallowed by text', async () => {
+  // Built inline so the encoding path is exercised without committing a non-UTF-8
+  // binary fixture (the same approach as the windows-1251 test above).
+  const xml =
+    '<?xml version="1.0" encoding="UTF-16"?>\n' +
+    '<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><description><title-info>' +
+    '<book-title>Тест UTF-16</book-title><lang>ru</lang></title-info></description>' +
+    '<body><section><title><p>Глава</p></title><p>Текст главы.</p></section></body></FictionBook>';
+  const encode = (littleEndian: boolean): Uint8Array<ArrayBuffer> => {
+    const out = new Uint8Array((xml.length + 1) * 2);
+    const view = new DataView(out.buffer);
+    view.setUint16(0, 0xfeff, littleEndian); // BOM
+    for (let i = 0; i < xml.length; i += 1) view.setUint16((i + 1) * 2, xml.charCodeAt(i), littleEndian);
+    return out;
+  };
+  for (const littleEndian of [true, false]) {
+    const bytes = encode(littleEndian);
+    const src = { size: bytes.length, read: (o: number, n: number) => Promise.resolve(bytes.subarray(o, o + n)), bytes: () => Promise.resolve(bytes) };
+    assert.equal(await fb2.sniff(src), true, `fb2 claims UTF-16${littleEndian ? 'LE' : 'BE'}`);
+    // Registration order: fb2 before text, so fb2 must claim it first.
+    const book = await open(bytes.buffer, { formats: [epub, fb2, text] });
+    assert.equal(book.metadata.title, 'Тест UTF-16', 'the UTF-16 title decoded');
+    const only = await html(book, 's0');
+    assert.ok(only.includes('Текст главы.'), 'the section prose decoded');
+  }
 });
 
 test('fb2 sniff claims FictionBook and rejects a plain EPUB/zip', async () => {

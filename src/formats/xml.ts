@@ -96,7 +96,21 @@ export function descendantsNamed(element: XmlElement, localName: string): readon
 
 const NAME_END = new Set([' ', '\t', '\n', '\r', '>', '/', '=']);
 
-export function parseXml(input: string): XmlElement {
+export interface ParseXmlOptions {
+  /**
+   * Recover from light well-formedness slips instead of throwing: a valueless
+   * (HTML-boolean-style) attribute becomes an empty-string attribute, an unquoted
+   * attribute value reads to the next whitespace or tag end, a close tag that
+   * mismatches the open stack closes the nearest matching ancestor (or is ignored
+   * when nothing matches), and elements left open at end of input are auto-closed.
+   * Strict is the default; tolerance is opt-in per caller so strict guarantees
+   * (EPUB's container/OPF/nav parsing) are unchanged.
+   */
+  readonly tolerant?: boolean;
+}
+
+export function parseXml(input: string, options?: ParseXmlOptions): XmlElement {
+  const tolerant = options?.tolerant === true;
   let pos = input.charCodeAt(0) === 0xfeff ? 1 : 0;
   let root: MutableElement | undefined;
   const stack: MutableElement[] = [];
@@ -139,27 +153,58 @@ export function parseXml(input: string): XmlElement {
   const readAttributes = (element: MutableElement): boolean => {
     for (;;) {
       skipWhitespace();
-      if (pos >= input.length) fail(`unterminated <${element.name}> tag`);
+      if (pos >= input.length) {
+        if (!tolerant) fail(`unterminated <${element.name}> tag`);
+        return false;
+      }
       if (input[pos] === '>') {
         pos++;
         return false;
       }
       if (input[pos] === '/') {
         pos++;
-        if (input[pos] !== '>') fail(`expected "/>" in <${element.name}>`);
+        if (input[pos] !== '>') {
+          if (!tolerant) fail(`expected "/>" in <${element.name}>`);
+          continue; // stray slash inside the tag — drop it
+        }
         pos++;
         return true;
       }
       const name = readName();
       skipWhitespace();
-      if (input[pos] !== '=') fail(`attribute ${name} has no value`);
+      if (input[pos] !== '=') {
+        if (!tolerant) fail(`attribute ${name} has no value`);
+        // Valueless (HTML-boolean-style) attribute — keep it as an empty string.
+        element.attributes.set(name, '');
+        continue;
+      }
       pos++;
       skipWhitespace();
       const quote = input[pos];
-      if (quote !== '"' && quote !== "'") fail(`attribute ${name} value is not quoted`);
+      if (quote !== '"' && quote !== "'") {
+        if (!tolerant) fail(`attribute ${name} value is not quoted`);
+        // Unquoted value — read to the next whitespace or tag end.
+        const start = pos;
+        while (pos < input.length && !isWhitespace(input[pos]) && input[pos] !== '>') pos++;
+        let raw = input.slice(start, pos);
+        if (raw.endsWith('/') && input[pos] === '>') {
+          raw = raw.slice(0, -1);
+          pos -= 1; // leave "/>" for the self-closing check
+        }
+        element.attributes.set(name, decodeEntities(raw));
+        continue;
+      }
       pos++;
       const end = input.indexOf(quote, pos);
-      if (end === -1) fail(`unterminated value for attribute ${name}`);
+      if (end === -1) {
+        if (!tolerant) fail(`unterminated value for attribute ${name}`);
+        // Unterminated quote — take what is there up to the tag end.
+        const gt = input.indexOf('>', pos);
+        const stop = gt === -1 ? input.length : gt;
+        element.attributes.set(name, decodeEntities(input.slice(pos, stop)));
+        pos = stop;
+        continue;
+      }
       element.attributes.set(name, decodeEntities(input.slice(pos, end)));
       pos = end + 1;
     }
@@ -193,11 +238,27 @@ export function parseXml(input: string): XmlElement {
       pos += 2;
       const name = readName();
       skipWhitespace();
-      if (input[pos] !== '>') fail(`unterminated </${name}>`);
-      pos++;
+      if (input[pos] !== '>') {
+        if (!tolerant) fail(`unterminated </${name}>`);
+        const gt = input.indexOf('>', pos);
+        pos = gt === -1 ? input.length : gt + 1;
+      } else pos++;
       const open = stack.pop();
-      if (open === undefined) fail(`</${name}> has no matching open tag`);
-      else if (open.name !== name) fail(`</${name}> closes <${open.name}>`);
+      if (open === undefined) {
+        // Tolerant: a stray close with nothing open is ignored.
+        if (!tolerant) fail(`</${name}> has no matching open tag`);
+      } else if (open.name !== name) {
+        if (!tolerant) fail(`</${name}> closes <${open.name}>`);
+        if (stack.some((el) => el.name === name)) {
+          // Close the nearest matching ancestor, auto-closing what it skipped
+          // (children were attached at open time, so popping loses nothing).
+          while (stack.length > 0 && stack[stack.length - 1]!.name !== name) stack.pop();
+          stack.pop();
+        } else {
+          // No matching open tag anywhere above — ignore the stray close.
+          stack.push(open);
+        }
+      }
     } else {
       pos++;
       const name = readName();
@@ -215,13 +276,15 @@ export function parseXml(input: string): XmlElement {
         parent.children.push(element);
         parent.content.push(element);
       } else if (root === undefined) root = element;
-      else fail(`second root element <${name}>`);
+      else if (!tolerant) fail(`second root element <${name}>`);
+      // Tolerant: trailing junk after the root parses but is discarded.
       if (!selfClosing) stack.push(element);
     }
   }
 
   const open = stack[stack.length - 1];
-  if (open !== undefined) fail(`unclosed element <${open.name}>`);
+  // Tolerant: elements left open at end of input are auto-closed.
+  if (open !== undefined && !tolerant) fail(`unclosed element <${open.name}>`);
   if (root === undefined) fail('no root element');
   return root;
 }

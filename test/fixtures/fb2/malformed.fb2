@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+ <description>
+  <title-info>
+   <book-title>Messy But Readable</book-title>
+   <author><first-name>Ada</first-name><last-name>Writer</last-name></author>
+   <lang>en</lang>
+  </title-info>
+ </description>
+ <body>
+  <section id="ch1" broken>
+   <title><p>Chapter One</p></title>
+   <p align=center>A paragraph that survives a valueless and an unquoted attribute.</p>
+   <p>Some <emphasis>emphasis</em> closed with the wrong tag still reads.</p>
+   </div>
+  </section>
+ </body>
+</FictionBook>
