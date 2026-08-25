@@ -187,3 +187,61 @@ test('a selection over multi-code-unit clusters captures on grapheme boundaries'
   // The stored grapheme offset counts the emoji as one grapheme, not two units.
   assert.equal(position.anchor.offset, [...text.slice(0, start)].length);
 });
+
+/**
+ * Decoration draw path: a `Position` is resolved to a grapheme span
+ * `[offset, offset + length)`, and both ends are converted to UTF-16 code-unit
+ * offsets that the frame paints over — the exact conversion
+ * `Paginator.#drawDecoration` performs. The frame-side rect geometry is browser-only;
+ * this pins the pure resolve-span → UTF-16 range leg, mirroring the selection bridge.
+ */
+function graphemeIndexToCodeUnitOffset(text: string, graphemeIndex: number): number {
+  if (graphemeIndex <= 0) return 0;
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  let index = 0;
+  for (const segment of segmenter.segment(text)) {
+    if (index === graphemeIndex) return segment.index;
+    index += 1;
+  }
+  return text.length;
+}
+
+test('a Position resolves to the UTF-16 offset range the decoration paints over', () => {
+  const text = 'The quick brown fox jumps over the lazy dog. It was a fine morning.';
+  const at = text.indexOf('brown');
+  const position = capturePosition(text, at, 'chapter-1');
+  const resolved = resolvePosition(position, text);
+  assert.ok(resolved !== undefined, 'the anchor must resolve against the same text');
+
+  const start = graphemeIndexToCodeUnitOffset(text, resolved.offset);
+  const end = graphemeIndexToCodeUnitOffset(text, resolved.offset + resolved.length);
+  // The range starts at the anchored word and spans the captured quote — all-BMP
+  // here, so UTF-16 offsets equal grapheme offsets. The painted range is real text.
+  assert.equal(start, at);
+  assert.equal(text.slice(start, end), position.anchor.exact);
+  assert.ok(end > start, 'a resolvable decoration paints a non-empty range');
+});
+
+test('the decoration range stays on cluster boundaries across multi-unit text', () => {
+  // A flag (4 UTF-16 code units) sits before the decorated word; the grapheme→UTF-16
+  // conversion must land the range on the word, never inside the flag's surrogates.
+  const text = 'Read 🇺🇦 the highlighted phrase now, please.';
+  const at = text.indexOf('highlighted');
+  const position = capturePosition(text, at, 'chapter-3');
+  const resolved = resolvePosition(position, text);
+  assert.ok(resolved !== undefined);
+  const start = graphemeIndexToCodeUnitOffset(text, resolved.offset);
+  const end = graphemeIndexToCodeUnitOffset(text, resolved.offset + resolved.length);
+  assert.equal(start, at, 'the range starts exactly at the decorated word in UTF-16 space');
+  assert.equal(text.slice(start, end), position.anchor.exact);
+});
+
+test('a Position from another section is a decoration soft-miss (no resolvable range)', () => {
+  // The draw path guards `position.sectionId !== active` before resolving; here the
+  // quote is simply absent from the target text, which resolvePosition reports as a
+  // value (undefined), never a throw — the decoration draws nothing.
+  const text = 'Entirely different prose with none of the anchored words present at all.';
+  const anchorText = 'The quick brown fox jumps over the lazy dog once more today.';
+  const position = capturePosition(anchorText, anchorText.indexOf('brown'), 'chapter-1');
+  assert.equal(resolvePosition(position, text), undefined);
+});

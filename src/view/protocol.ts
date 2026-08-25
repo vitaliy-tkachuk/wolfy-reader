@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 export interface Measurement {
   readonly width: number;
@@ -81,7 +81,26 @@ export type HostMessage =
       readonly elementId: string;
     }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'sectionText'; readonly id: number }
-  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'diagnostics'; readonly id: number };
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'diagnostics'; readonly id: number }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'decorate';
+      readonly id: number;
+      /** Caller-chosen id: re-issuing the same id replaces that overlay. */
+      readonly decorationId: string;
+      /** UTF-16 code-unit offset of the range start in the section text. */
+      readonly start: number;
+      /** UTF-16 code-unit offset of the range end in the section text. */
+      readonly end: number;
+      /** The class name each painted overlay box carries. */
+      readonly className: string;
+    }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'undecorate';
+      readonly id: number;
+      readonly decorationId: string;
+    };
 
 export type FrameMessage =
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'ready' }
@@ -103,6 +122,13 @@ export type FrameMessage =
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'offset'; readonly id: number; readonly offset: number }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'page'; readonly id: number; readonly page: number }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'text'; readonly id: number; readonly text: string }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'decorated';
+      readonly id: number;
+      /** Number of overlay boxes painted for the range (0 on a soft-miss). */
+      readonly boxes: number;
+    }
   | {
       readonly v: typeof PROTOCOL_VERSION;
       readonly type: 'diagnosticsReport';
@@ -218,6 +244,11 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
       const text = message['text'];
       if (typeof id !== 'number' || typeof text !== 'string') return null;
       return { v: PROTOCOL_VERSION, type: 'text', id, text };
+    }
+    case 'decorated': {
+      const boxes = message['boxes'];
+      if (typeof id !== 'number' || typeof boxes !== 'number') return null;
+      return { v: PROTOCOL_VERSION, type: 'decorated', id, boxes };
     }
     case 'diagnosticsReport': {
       const domNodes = message['domNodes'];
@@ -354,6 +385,27 @@ export function asHostMessage(data: unknown): HostMessage | null {
       return { v: PROTOCOL_VERSION, type: 'sectionText', id };
     case 'diagnostics':
       return { v: PROTOCOL_VERSION, type: 'diagnostics', id };
+    case 'decorate': {
+      const decorationId = message['decorationId'];
+      const start = message['start'];
+      const end = message['end'];
+      const className = message['className'];
+      if (
+        typeof decorationId !== 'string' ||
+        typeof start !== 'number' ||
+        typeof end !== 'number' ||
+        typeof className !== 'string'
+      ) {
+        return null;
+      }
+      return { v: PROTOCOL_VERSION, type: 'decorate', id, decorationId, start, end, className };
+    }
+    case 'undecorate': {
+      const decorationId = message['decorationId'];
+      return typeof decorationId === 'string'
+        ? { v: PROTOCOL_VERSION, type: 'undecorate', id, decorationId }
+        : null;
+    }
     default:
       return null;
   }

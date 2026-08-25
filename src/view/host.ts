@@ -145,6 +145,7 @@ export class ContentHost {
       case 'offset':
       case 'page':
       case 'text':
+      case 'decorated':
       case 'diagnosticsReport': {
         const pending = this.#pending.get(message.id);
         if (pending === undefined) return;
@@ -340,6 +341,30 @@ export class ContentHost {
     };
   }
 
+  /**
+   * Draws a decoration over the section-text UTF-16 offset range `[start, end)`:
+   * the frame maps the range to client rects and paints pointer-transparent,
+   * layout-neutral overlay boxes carrying `className`. Re-issuing the same
+   * `decorationId` replaces that overlay. Returns the number of boxes painted — 0
+   * on a soft-miss (the range is not in the realized section text, or its rects are
+   * empty); a soft-miss draws nothing and is not an error.
+   */
+  async decorate(decorationId: string, start: number, end: number, className: string): Promise<number> {
+    const reply = await this.#request('decorate', { decorationId, start, end, className });
+    if (reply.type !== 'decorated') {
+      throw new ContentHostError('the frame answered decorate with the wrong message');
+    }
+    return reply.boxes;
+  }
+
+  /** Removes the decoration painted for `decorationId`, leaving nothing behind. */
+  async undecorate(decorationId: string): Promise<void> {
+    const reply = await this.#request('undecorate', { decorationId });
+    if (reply.type !== 'decorated') {
+      throw new ContentHostError('the frame answered undecorate with the wrong message');
+    }
+  }
+
   /** Content size as the frame measures it. */
   async measure(): Promise<Measurement> {
     const reply = await this.#request('measure');
@@ -404,6 +429,11 @@ export class ContentHost {
   #request(type: 'goToPage' | 'offsetOfPage', extras: { page: number }): Promise<FrameMessage>;
   #request(type: 'pageOfOffset', extras: { offset: number }): Promise<FrameMessage>;
   #request(type: 'offsetOfElementId', extras: { elementId: string }): Promise<FrameMessage>;
+  #request(
+    type: 'decorate',
+    extras: { decorationId: string; start: number; end: number; className: string },
+  ): Promise<FrameMessage>;
+  #request(type: 'undecorate', extras: { decorationId: string }): Promise<FrameMessage>;
   #request(type: string, extras: Record<string, unknown> = {}): Promise<FrameMessage> {
     if (this.#destroyed) return Promise.reject(new ContentHostError('the host has been destroyed'));
     const target = this.frame.contentWindow;

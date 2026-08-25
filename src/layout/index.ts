@@ -107,6 +107,14 @@ export class Paginator {
   #page = 0;
   /** Cached section text, invalidated on each {@link paginate}. */
   #text: string | null = null;
+  /**
+   * Live decoration intent, held for the paginator lifetime so a decoration can be
+   * re-anchored and re-drawn after a re-layout (font-size, mode switch, appearance).
+   * Draw-only: this is the sole decoration state the engine keeps, and it never
+   * leaves memory — nothing is persisted, serialized, or fetched. Keyed by the
+   * caller's id; the `className` rides through to the overlay boxes.
+   */
+  readonly #decorations = new Map<string, { position: Position; className: string }>();
 
   constructor(container: HTMLElement, options: ContentHostOptions = {}) {
     this.#container = container;
@@ -152,6 +160,7 @@ export class Paginator {
     this.#state = state;
     this.#page = 0;
     this.#text = null;
+    await this.#redrawDecorations();
     return state;
   }
 
@@ -274,6 +283,63 @@ export class Paginator {
     return this.#host.pageOfOffset(offset);
   }
 
+  /**
+   * Draws a decoration over the range `position` resolves to in the current section,
+   * and holds the intent so it survives a re-layout. Draw-only: the paginator keeps
+   * only the in-memory intent (id → position + class) and never persists it. The
+   * `position` is resolved against the frame-measured section text; its resolved
+   * grapheme span is converted to a UTF-16 offset range the frame paints over. A
+   * soft-miss — the anchor no longer resolves, or belongs to a section other than the
+   * one laid out — draws nothing and throws nothing; the intent is still retained so a
+   * later re-layout that brings the anchor back into view redraws it.
+   */
+  async decorate(decorationId: string, position: Position, className: string): Promise<void> {
+    this.#requireActive();
+    this.#decorations.set(decorationId, { position, className });
+    await this.#drawDecoration(decorationId, position, className);
+  }
+
+  /** Removes a decoration and drops its intent. A no-op for an unknown id. */
+  async undecorate(decorationId: string): Promise<void> {
+    const existed = this.#decorations.delete(decorationId);
+    if (this.#section === null) return;
+    if (existed) await this.#host.undecorate(decorationId);
+  }
+
+  /**
+   * Resolves `position` to a UTF-16 offset range over the section text and sends the
+   * frame the draw. A resolution miss (or a `Position` from another section) is a
+   * soft-miss: the frame is told to draw nothing (an empty range), never an error.
+   */
+  async #drawDecoration(decorationId: string, position: Position, className: string): Promise<void> {
+    const text = await this.#sectionText();
+    if (position.sectionId !== this.#section!.id) {
+      await this.#host.undecorate(decorationId);
+      return;
+    }
+    const resolved = resolvePosition(position, text);
+    if (resolved === undefined) {
+      await this.#host.undecorate(decorationId);
+      return;
+    }
+    const start = graphemeIndexToCodeUnitOffset(text, resolved.offset);
+    const end = graphemeIndexToCodeUnitOffset(text, resolved.offset + resolved.length);
+    await this.#host.decorate(decorationId, start, end, className);
+  }
+
+  /**
+   * Re-resolves and redraws every live decoration against the current section text —
+   * the M1-2 re-anchor pipeline, reused for decorations. Called after a re-layout so
+   * a highlight tracks the same text through a font-size or mode change. A decoration
+   * whose section is not the active one is simply not drawn (its intent is kept).
+   */
+  async #redrawDecorations(): Promise<void> {
+    if (this.#decorations.size === 0) return;
+    for (const [decorationId, { position, className }] of this.#decorations) {
+      await this.#drawDecoration(decorationId, position, className);
+    }
+  }
+
   /** Within-chapter progress: current page, total (estimate/firm), and fraction. */
   chapterProgress(): ChapterProgress {
     this.#requireActive();
@@ -375,6 +441,7 @@ export class Paginator {
     this.#text = null;
     const page = await this.pageOfPosition(anchor);
     await this.goToPage(page >= 0 ? page : 0);
+    await this.#redrawDecorations();
   }
 
   /** Frame-side counts, for eviction/memory checks. Eviction itself lives in-frame. */
@@ -396,6 +463,7 @@ export class Paginator {
     this.#options = null;
     this.#state = null;
     this.#text = null;
+    this.#decorations.clear();
   }
 
   async #sectionText(): Promise<string> {

@@ -286,6 +286,18 @@
   .selection q { color: var(--fg); }
   .selection .ok { color: #14682c; }
   .selection .bad { color: var(--error); }
+  .highlight-btn {
+    font: inherit;
+    font-size: 0.75rem;
+    margin-left: 0.4rem;
+    padding: 0.1rem 0.5rem;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .highlight-btn:disabled { color: var(--muted); border-color: var(--border); cursor: default; opacity: 0.6; }
 </style>
 </head>
 <body>
@@ -399,6 +411,8 @@
       <p id="selection" class="selection" hidden>
         Selected <q id="selection-text"></q>
         — <span id="selection-resolves"></span>
+        <button type="button" id="highlight" class="highlight-btn" disabled>Highlight selection</button>
+        <button type="button" id="clear-highlights" class="highlight-btn" hidden>Clear highlights</button>
       </p>
       <section id="report">
         <h2>What the host did to this section</h2>
@@ -469,6 +483,8 @@
   const selectionEl = document.querySelector('#selection');
   const selectionTextEl = document.querySelector('#selection-text');
   const selectionResolvesEl = document.querySelector('#selection-resolves');
+  const highlightEl = document.querySelector('#highlight');
+  const clearHighlightsEl = document.querySelector('#clear-highlights');
   const reportEl = document.querySelector('#report');
   const reportFields = {
     parse: document.querySelector('#report-parse'),
@@ -491,6 +507,11 @@
   let reporter = null;
   let reporterHostEl = null;
   let backStackDepth = 0;
+  // The most recent selection's Position, so "Highlight selection" can decorate over
+  // it. The library DRAWS the highlight and never stores it — the demo (the host)
+  // owns this handful of ids and the Positions behind them.
+  let lastSelectionPosition = null;
+  let highlightCount = 0;
   // Bumped on every new query so an in-flight streaming scan for a stale query stops
   // appending — the async iterator is abandoned (its generator cleans up on the next
   // GC / the loop simply stops consuming).
@@ -538,6 +559,10 @@
       reporterHostEl = null;
     }
     backStackDepth = 0;
+    lastSelectionPosition = null;
+    highlightCount = 0;
+    highlightEl.disabled = true;
+    clearHighlightsEl.hidden = true;
     searchGeneration += 1;
     searchInputEl.value = '';
     searchStatusEl.textContent = '';
@@ -884,6 +909,9 @@
       const pct = Math.round(position.progress * 100);
       selectionResolvesEl.textContent = `resolvable Position at ≈${pct}% of the chapter`;
       selectionResolvesEl.className = 'ok';
+      // Remember the selection's Position so the button can draw a highlight over it.
+      lastSelectionPosition = position;
+      highlightEl.disabled = false;
     });
     reader.on('positionchange', onPositionChange);
     reader.on('ready', (position) => {
@@ -914,6 +942,25 @@
     if (reader === null) return;
     // The facade re-lays the section in the new mode and holds the place (M1-2).
     void reader.setMode(scrolledToggleEl.checked ? 'scrolled' : 'paginated');
+  });
+
+  // Draw a highlight over the current selection. decorate() is DRAW-ONLY: the library
+  // paints the overlay and never stores it, so the demo (the host) keeps the id →
+  // Position pairing itself. The highlight survives a re-layout — change the font size
+  // below and it re-anchors and stays over the same text.
+  highlightEl.addEventListener('click', () => {
+    if (reader === null || lastSelectionPosition === null) return;
+    const id = `hl-${highlightCount++}`;
+    void reader.decorate(id, lastSelectionPosition, { className: 'demo-highlight' });
+    clearHighlightsEl.hidden = false;
+  });
+
+  clearHighlightsEl.addEventListener('click', () => {
+    if (reader === null) return;
+    // The host owns the ids it drew, so it undecorates each in turn.
+    for (let i = 0; i < highlightCount; i += 1) void reader.undecorate(`hl-${i}`);
+    highlightCount = 0;
+    clearHighlightsEl.hidden = true;
   });
 
   // A live appearance change: setAppearance holds the reading place and repaints

@@ -9,6 +9,9 @@ export const CHUNK_END_ATTR = 'data-chunk-end';
 /** Zero-based index of a chunk in section order. */
 export const CHUNK_INDEX_ATTR = 'data-chunk-index';
 
+/** Class every draw-only decoration overlay box carries, alongside the caller's class. */
+export const DECORATION_CLASS = 'wolfyreader-decoration';
+
 /**
  * A minimal reset and nothing else. Column geometry belongs to the paginator
  * and typography to the appearance controls; the host's job is to stay out of
@@ -19,6 +22,11 @@ const RESET_CSS = [
   '*,*::before,*::after{box-sizing:inherit}',
   'body{margin:0}',
   'img,svg{max-width:100%;height:auto}',
+  // A draw-only decoration overlay: pointer-transparent and given a visible default
+  // so a bare `decorate` shows without host CSS. It carries the caller's class too, so
+  // an appearance stylesheet can restyle it; a host that wants a different look targets
+  // its own class. The default is deliberately mild (translucent), below the text.
+  `.${DECORATION_CLASS}{pointer-events:none;background:rgba(255,214,0,0.4);border-radius:2px;mix-blend-mode:multiply}`,
 ].join('');
 
 /**
@@ -62,7 +70,7 @@ function escapeAttribute(value: string): string {
 export function coordinationScript(hostOrigin: string): string {
   return `(function(){
 'use strict';
-var VERSION = 8;
+var VERSION = 9;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
@@ -90,6 +98,12 @@ function validateHost(data){
   if (t === 'goToPage' || t === 'offsetOfPage') return typeof data.page === 'number' ? data : null;
   if (t === 'pageOfOffset') return typeof data.offset === 'number' ? data : null;
   if (t === 'offsetOfElementId') return typeof data.elementId === 'string' ? data : null;
+  if (t === 'decorate') {
+    if (typeof data.decorationId !== 'string' || typeof data.className !== 'string') return null;
+    if (typeof data.start !== 'number' || typeof data.end !== 'number') return null;
+    return data;
+  }
+  if (t === 'undecorate') return typeof data.decorationId === 'string' ? data : null;
   return null;
 }
 
@@ -454,6 +468,118 @@ function applyOptions(o){
   layout.windowChunks = o.windowChunks;
 }
 
+// Draw-only decorations. The host resolves a Position to a UTF-16 offset range over
+// the tiled section text and sends it here; the frame maps that range to a DOM Range,
+// reads its client rects, and paints one absolutely-positioned overlay box per rect.
+// The library only DRAWS — it holds no annotation data beyond the live intent needed
+// to re-paint across a re-layout, and never persists or fetches. Overlays are
+// pointer-transparent (must not eat a selection or a link click) and layout-neutral
+// (appended inside the chunk container, absolutely positioned, so they change no page
+// geometry and translate with the chunk on a page turn).
+var decorations = {};       // decorationId -> { start, end, className }
+var decorationBoxes = {};   // decorationId -> [box elements]
+var DECORATION_CLASS = ${JSON.stringify(DECORATION_CLASS)};
+
+// Find the (node, offset) DOM point for a global UTF-16 offset into the concatenated
+// chunk-container text — the inverse of offsetOfPoint used by selection. Walks every
+// chunk container's text nodes, accumulating live textContent length, and stops at
+// the node that spans the offset. Returns null when the offset is past the realized
+// text (a soft-miss the caller draws nothing for).
+function pointAtOffset(target){
+  var chunks = chunkContainers();
+  var acc = 0;
+  for (var i = 0; i < chunks.length; i++){
+    var el = chunks[i];
+    realize(el);
+    var len = (el.textContent || '').length;
+    if (target <= acc + len){
+      var local = target - acc;
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var nodeAcc = 0, node;
+      while ((node = walker.nextNode())){
+        var nlen = node.data.length;
+        if (local <= nodeAcc + nlen){
+          return { chunk: el, node: node, offset: local - nodeAcc };
+        }
+        nodeAcc += nlen;
+      }
+      // Offset lands exactly at the chunk's end with no trailing text node.
+      return { chunk: el, node: el, offset: el.childNodes.length };
+    }
+    acc += len;
+  }
+  return null;
+}
+
+// Erase every overlay box painted for a decoration id.
+function removeDecorationBoxes(decorationId){
+  var boxes = decorationBoxes[decorationId];
+  if (boxes){
+    for (var i = 0; i < boxes.length; i++){
+      if (boxes[i].parentNode) boxes[i].parentNode.removeChild(boxes[i]);
+    }
+  }
+  decorationBoxes[decorationId] = [];
+}
+
+// Paint one overlay box per client rect of the decoration's offset range. Boxes are
+// appended inside the range's start chunk container (the positioned, page-turn-
+// translated element) and positioned relative to it, so they ride the same transform
+// as the text they cover. Guards an empty getClientRects() (the zero-width-anchor /
+// empty-inline gotcha) — an empty rect list draws nothing, never a malformed box.
+// Returns the number of boxes painted (0 on a soft-miss).
+function paintDecoration(decorationId, start, end, className){
+  removeDecorationBoxes(decorationId);
+  if (end < start){ var swap = start; start = end; end = swap; }
+  var from = pointAtOffset(start);
+  var to = pointAtOffset(end);
+  if (from === null || to === null) return 0;
+  var range = document.createRange();
+  try {
+    range.setStart(from.node, from.offset);
+    range.setEnd(to.node, to.offset);
+  } catch (error) {
+    return 0;
+  }
+  var rects = range.getClientRects();
+  if (rects.length === 0) return 0;
+  // The overlay boxes live inside the chunk that owns the range start, positioned in
+  // that chunk's coordinate space so a page-turn transform carries them along. Each
+  // box's absolute offset is the rect's viewport position minus the chunk's padding-
+  // box origin; both are measured post-transform, so the offset is transform-invariant
+  // and the box rides the same translateX the text does on a page turn.
+  var container = from.chunk;
+  var origin = container.getBoundingClientRect();
+  var boxes = [];
+  for (var i = 0; i < rects.length; i++){
+    var rect = rects[i];
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    var box = document.createElement('div');
+    box.className = DECORATION_CLASS + (className ? ' ' + className : '');
+    box.setAttribute('data-decoration', decorationId);
+    box.style.position = 'absolute';
+    box.style.pointerEvents = 'none';
+    box.style.left = (rect.left - origin.left) + 'px';
+    box.style.top = (rect.top - origin.top) + 'px';
+    box.style.width = rect.width + 'px';
+    box.style.height = rect.height + 'px';
+    container.appendChild(box);
+    boxes.push(box);
+  }
+  decorationBoxes[decorationId] = boxes;
+  return boxes.length;
+}
+
+// Re-paint every live decoration. Called after a relayout / window shift so overlays
+// track the text their offset ranges cover across a re-flow.
+function repaintDecorations(){
+  for (var decorationId in decorations){
+    if (!Object.prototype.hasOwnProperty.call(decorations, decorationId)) continue;
+    var d = decorations[decorationId];
+    paintDecoration(decorationId, d.start, d.end, d.className);
+  }
+}
+
 window.addEventListener('message', function(event){
   if (event.source !== host) return;
   var data = validateHost(event.data);
@@ -465,9 +591,9 @@ window.addEventListener('message', function(event){
     send({ v: VERSION, type: 'measured', id: id, width: root.scrollWidth, height: root.scrollHeight });
     return;
   }
-  if (data.type === 'paginate') { applyOptions(data.options); relayout(); send({ v: VERSION, type: 'paginated', id: id, state: paginationState() }); return; }
-  if (data.type === 'relayout') { relayout(); send({ v: VERSION, type: 'paginated', id: id, state: paginationState() }); return; }
-  if (data.type === 'goToPage') { var moved = goToPage(data.page); send({ v: VERSION, type: 'movedToPage', id: id, page: moved }); return; }
+  if (data.type === 'paginate') { applyOptions(data.options); relayout(); repaintDecorations(); send({ v: VERSION, type: 'paginated', id: id, state: paginationState() }); return; }
+  if (data.type === 'relayout') { relayout(); repaintDecorations(); send({ v: VERSION, type: 'paginated', id: id, state: paginationState() }); return; }
+  if (data.type === 'goToPage') { var moved = goToPage(data.page); repaintDecorations(); send({ v: VERSION, type: 'movedToPage', id: id, page: moved }); return; }
   if (data.type === 'offsetOfPage') { send({ v: VERSION, type: 'offset', id: id, offset: offsetOfPage(data.page) }); return; }
   if (data.type === 'pageOfOffset') { send({ v: VERSION, type: 'page', id: id, page: pageOfOffset(data.offset) }); return; }
   if (data.type === 'offsetOfElementId') { send({ v: VERSION, type: 'offset', id: id, offset: offsetOfElementId(data.elementId) }); return; }
@@ -476,6 +602,19 @@ window.addEventListener('message', function(event){
     send({ v: VERSION, type: 'diagnosticsReport', id: id,
       domNodes: document.getElementsByTagName('*').length,
       realizedChunks: realizedCount(), totalChunks: layout.chunks.length });
+    return;
+  }
+  if (data.type === 'decorate') {
+    decorations[data.decorationId] = { start: data.start, end: data.end, className: data.className };
+    var boxes = paintDecoration(data.decorationId, data.start, data.end, data.className);
+    send({ v: VERSION, type: 'decorated', id: id, boxes: boxes });
+    return;
+  }
+  if (data.type === 'undecorate') {
+    removeDecorationBoxes(data.decorationId);
+    delete decorationBoxes[data.decorationId];
+    delete decorations[data.decorationId];
+    send({ v: VERSION, type: 'decorated', id: id, boxes: 0 });
     return;
   }
 });

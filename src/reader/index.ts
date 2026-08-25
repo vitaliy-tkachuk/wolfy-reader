@@ -199,6 +199,26 @@ export interface Reader {
    * painted.
    */
   search(query: string, options?: SearchOptions): AsyncIterableIterator<SearchHit>;
+  /**
+   * Draws a decoration — a styled overlay — over the range `position` resolves to,
+   * keyed by `id`. Re-issuing the same `id` replaces that overlay; the `className`
+   * on `opts` is applied to every overlay box so a host stylesheet can colour it.
+   *
+   * **Draw-only, never stored.** The reader holds the decoration *intent* (id →
+   * position + class) in memory only, so it can re-anchor the overlay across a
+   * re-layout (font-size, mode, appearance) — it never persists, serializes, or
+   * fetches annotation data. A host owns all annotation storage: to make a highlight
+   * durable, persist the `position` (or its serialized string) yourself and re-call
+   * `decorate` on the next open. The overlay is pointer-transparent and layout-
+   * neutral: it never eats a selection or a click and never changes page geometry.
+   *
+   * A soft-miss — the anchor no longer resolves, or it belongs to a section other
+   * than the one on screen — draws nothing and throws nothing; the intent is kept, so
+   * navigating to that section (or re-laying out) redraws it.
+   */
+  decorate(id: string, position: Position, opts: { className: string }): Promise<void>;
+  /** Removes the decoration drawn for `id` and drops its intent. No-op for an unknown id. */
+  undecorate(id: string): Promise<void>;
   /** A synchronous snapshot of the current place in the book. */
   readonly position: ReaderPosition;
   /** The layout mode currently in effect. */
@@ -406,6 +426,32 @@ class ReaderImpl implements Reader {
    */
   search(query: string, options: SearchOptions = {}): AsyncIterableIterator<SearchHit> {
     return searchBook(this.#book, query, options);
+  }
+
+  /**
+   * Draws (or replaces) a decoration over the range `position` resolves to. Enqueued
+   * behind navigation so it settles in issue order against a concurrent re-layout;
+   * the paginator holds the intent and re-anchors it across every later re-layout, so
+   * a highlight survives a font-size or mode change. Draw-only — no annotation data is
+   * ever stored, serialized, or fetched. A soft-miss draws nothing (no throw).
+   */
+  decorate(id: string, position: Position, opts: { className: string }): Promise<void> {
+    return this.#run(() => this.#decorate(id, position, opts.className));
+  }
+
+  /** Removes the decoration for `id`. Enqueued so it orders against navigation. */
+  undecorate(id: string): Promise<void> {
+    return this.#run(() => this.#undecorate(id));
+  }
+
+  async #decorate(id: string, position: Position, className: string): Promise<void> {
+    if (this.#destroyed || this.#paginator.section === null) return;
+    await this.#paginator.decorate(id, position, className);
+  }
+
+  async #undecorate(id: string): Promise<void> {
+    if (this.#destroyed) return;
+    await this.#paginator.undecorate(id);
   }
 
   destroy(): void {

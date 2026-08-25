@@ -68,7 +68,7 @@ Two rules are worth stating separately because they are not obvious from the tab
 
 ## Protocol
 
-Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `8` today (it began at `1`; the reader facade, human-input, selection, image-tap work, and the typography `columnCount` field on `PaginateOptions` grew it — see the reader-facade and appearance sections); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, `selection`, and `imagetap`) are documented with the features that added them.
+Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `9` today (it began at `1`; the reader facade, human-input, selection, image-tap work, the typography `columnCount` field on `PaginateOptions`, and the draw-only decorations channel grew it — see the reader-facade and appearance sections); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, `selection`, `imagetap`, and `decorate`/`undecorate`) are documented with the features that added them.
 
 Origin cannot authenticate here: the frame's origin is `'null'`, which identifies nothing. The host trusts a message only when `event.source === iframe.contentWindow` **and** it validates (`asFrameMessage`). The frame trusts a message only when `event.source === window.parent` and it validates. Everything else is ignored, never dispatched. Because the frame's origin is opaque, host→frame messages must use `'*'` as `targetOrigin`; the payloads carry nothing confidential for that reason. Frame→host messages target the host's real origin when it has one.
 
@@ -78,6 +78,8 @@ Host → frame:
 |---|---|---|
 | `ping` | `id` | `pong` |
 | `measure` | `id` | `measured` |
+| `decorate` | `id`, `decorationId`, `start`, `end`, `className` | `decorated` |
+| `undecorate` | `id`, `decorationId` | `decorated` |
 
 Frame → host:
 
@@ -86,6 +88,7 @@ Frame → host:
 | `ready` | — | on `DOMContentLoaded`, once per document. The handshake `render()` awaits. |
 | `pong` | `id` | answering `ping` |
 | `measured` | `id`, `width`, `height` | answering `measure`; the content root's scroll size |
+| `decorated` | `id`, `boxes` | answering `decorate`/`undecorate`; overlay boxes painted (0 on a soft-miss) |
 | `violation` | `directive`, `blockedUri` | a `securitypolicyviolation` event in the frame |
 | `error` | `message` | an uncaught error in the frame |
 
@@ -118,7 +121,7 @@ Two negative duties matter to the paginator: zero-width anchor spans (`<span cla
 
 `render(book, element, options?): Reader` is the public reader — the top of the view stack. It lives in `src/reader`, **outside `src/core`**, because it drives both `src/layout` and `src/view` and core is headless by rule; the PLAN's `book.render(...)` shape is relocated here as a free function (see [`architecture.md`](../architecture.md)). It owns no format vocabulary and never fetches or persists: a `Book` comes in, page geometry comes from one `Paginator` (which it drives, never reaching past into frame geometry), and positions are the headless `Position` model. **Its public surface is frozen under the 0.x contract** — names, event payloads, and firing order are expensive to reverse, so review against the PLAN sketch before changing any of them.
 
-**Surface.** `ReaderOptions { mode?, theme?, customProperties?, fontSize?, fontFamily?, lineHeight?, margin?, textAlign?, justify?, hyphenate?, columns?, start?, input? }` — `mode` selects `'paginated'` (default) or `'scrolled'`; `theme`/`customProperties` drive the appearance theme, and the typography fields (`fontSize`/`fontFamily`/`lineHeight`/`margin`/`textAlign`/`justify`/`hyphenate`/`columns`) drive the typography half — all applied at the first render (see [`appearance.md`](appearance.md)); `margin` maps to the paginator's `columnGap` and `columns` (1 or 2) to `PaginateOptions.columnCount`; `start` opens somewhere other than the book's beginning (any `GoToTarget`). The returned `Reader` exposes `next/prev` (async, page-then-section roll), `nextSection/prevSection` (async, whole-section jumps, no-op at the ends), `goTo(target)`, `back()`, `setMode(mode)`, `setAppearance(appearance)` (live theme + typography change, position-preserving, routed through the same navigation queue — a colour knob repaints in place, a reflowing typography knob re-lays out and restores the reading place by content anchor), `search(query, options?)` (whole-book full-text search — a lazy async iterator of jumpable hits, off the navigation queue; see Search below), the synchronous getters `position` and `mode`, `on(event, handler)` (returns an unsubscribe fn), and `destroy()`. `ReaderPosition` is `{ section, progress, chapterProgress, page, totalPages }`, assembled from `Paginator.bookProgress` (progress/chapterProgress/page/totalPages) plus the active section index; before the first paint it reads as all-zero at the current section index.
+**Surface.** `ReaderOptions { mode?, theme?, customProperties?, fontSize?, fontFamily?, lineHeight?, margin?, textAlign?, justify?, hyphenate?, columns?, start?, input? }` — `mode` selects `'paginated'` (default) or `'scrolled'`; `theme`/`customProperties` drive the appearance theme, and the typography fields (`fontSize`/`fontFamily`/`lineHeight`/`margin`/`textAlign`/`justify`/`hyphenate`/`columns`) drive the typography half — all applied at the first render (see [`appearance.md`](appearance.md)); `margin` maps to the paginator's `columnGap` and `columns` (1 or 2) to `PaginateOptions.columnCount`; `start` opens somewhere other than the book's beginning (any `GoToTarget`). The returned `Reader` exposes `next/prev` (async, page-then-section roll), `nextSection/prevSection` (async, whole-section jumps, no-op at the ends), `goTo(target)`, `back()`, `setMode(mode)`, `setAppearance(appearance)` (live theme + typography change, position-preserving, routed through the same navigation queue — a colour knob repaints in place, a reflowing typography knob re-lays out and restores the reading place by content anchor), `search(query, options?)` (whole-book full-text search — a lazy async iterator of jumpable hits, off the navigation queue; see Search below), `decorate(id, position, { className })` / `undecorate(id)` (draw-only highlights; see Decorations below), the synchronous getters `position` and `mode`, `on(event, handler)` (returns an unsubscribe fn), and `destroy()`. `ReaderPosition` is `{ section, progress, chapterProgress, page, totalPages }`, assembled from `Paginator.bookProgress` (progress/chapterProgress/page/totalPages) plus the active section index; before the first paint it reads as all-zero at the current section index.
 
 **Navigation is serialized through a promise queue.** Every nav method enqueues its work behind previously-issued calls so overlapping calls settle in issue order; a task failure surfaces as an `error` event and is swallowed so it never breaks the chain, and `destroy` short-circuits the queue. This is the facade's answer to the host refusing a superseded render — callers never have to serialize themselves.
 
@@ -155,7 +158,7 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **`destroy()` leaves nothing behind** (idempotent): it tears down the `Paginator` (which destroys the host, the iframe, and — because resources are `data:` URLs the frame carries, not host-minted blob URLs — there is nothing to revoke; the frame's `message` listener goes with the iframe), clears all event listener sets, and drops the back-stack. Pending frame requests reject as the host tears the channel down.
 
-**Protocol is at v8.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below), then a `columnCount` field on `PaginateOptions` for the typography half's 1-or-2 columns (v8 — column geometry is the paginator's, so it rides the wire while the other typography knobs ride the srcdoc stylesheet; see [`appearance.md`](appearance.md)); `PROTOCOL_VERSION` is `8`, and the frame's hand-written validator (`coordinationScript`'s `validateHost` copy of `asPaginateOptions`) is kept in step with `asHostMessage`/`asFrameMessage` by hand.
+**Protocol is at v9.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below), then a `columnCount` field on `PaginateOptions` for the typography half's 1-or-2 columns (v8 — column geometry is the paginator's, so it rides the wire while the other typography knobs ride the srcdoc stylesheet; see [`appearance.md`](appearance.md)), then the draw-only decorations channel (`decorate`/`undecorate`/`decorated`, v9 — see Decorations below); `PROTOCOL_VERSION` is `9`, and the frame's hand-written validator (`coordinationScript`'s `validateHost`, a copy of `asHostMessage`) is kept in step with `asHostMessage`/`asFrameMessage` by hand.
 
 ### Human input — keyboard, swipe, tap zones (T003)
 
@@ -266,6 +269,66 @@ frozen-surface addition since selection. The engine is headless and lives in
 
 **Search touches no wire message.** The matcher is headless and the scan does not
 cross the frame boundary, so search added nothing to the protocol (the version has
-since moved to `7` for image-tap reporting, unrelated to search).
+since moved past `7` for image-tap reporting and decorations, unrelated to search).
+
+### Decorations (draw-only)
+
+`reader.decorate(id, position, { className })` draws a styled overlay over the range
+`position` resolves to; `reader.undecorate(id)` removes it. Both join the frozen 0.x
+surface. It is the API a visible search-result highlight is built on.
+
+- **Draw-only, never store — the cross-cutting rule.** The library DRAWS decorations
+  and never persists, serializes, or fetches annotation data; storage is the host's,
+  by design (see [`architecture.md`](../architecture.md)). The reader holds only the
+  in-memory decoration *intent* (id → `Position` + `className`), for the `Reader`'s
+  lifetime, so it can re-anchor across a re-layout; `undecorate`/`destroy` drop it. A
+  host wanting durable highlights persists the `Position` strings itself and re-calls
+  `decorate` on the next open. Annotation UI (notes, colour pickers, comment threads)
+  is host work, out of the library per "no knowledge of any consuming application".
+- **Wire messages (host→frame, protocol v9):** `decorate { decorationId, start, end,
+  className }` and `undecorate { decorationId }`; both are acked with `decorated {
+  boxes }` (the number of overlay boxes painted, `0` on a soft-miss). `start`/`end` are
+  UTF-16 code-unit offsets over the tiled section text — the same space `sectionText`,
+  `selection`, and the paginator measure against.
+- **The Position → offset-range bridge.** `Paginator.decorate(id, position, className)`
+  resolves `position` against the frame-measured section text (`resolvePosition`) to a
+  grapheme span `[offset, offset + length)`, converts both ends to UTF-16 offsets, and
+  sends the frame the draw. The frame maps the offset range to a DOM `Range`, reads its
+  client rects, and paints one absolutely-positioned overlay box per rect **inside the
+  range's start chunk container** — the positioned, page-turn-translated element — so
+  each box rides the same `translateX` the text does on a turn and stays over its
+  words. This is the decoration analogue of the selection offset↔`Position` bridge.
+- **Re-anchor reuses the M1-2 pipeline.** After any re-layout — `relayout`,
+  `switchMode`, and the `applyAppearance`/`setThemeCss` reflow path (`#reapply`), plus a
+  fresh `paginate` — the paginator re-resolves every live decoration's `Position`
+  against the (same-text, new-geometry) section and re-issues the frame draw, exactly
+  the capture→re-layout→resolve→restore machinery mode-switch and appearance already
+  use. So a highlight survives a font-size change: it stays over the same text even as
+  its page number shifts. A `switchMode`/appearance change re-renders the section into a
+  **fresh frame document** with no decoration state, so re-issuing is mandatory, not an
+  optimization; a bare `relayout` leaves the frame document intact, and the frame also
+  repaints its own overlays geometrically after `relayout`/`goToPage`.
+- **Soft-miss draws nothing, throws nothing.** `resolvePosition` returning `undefined`,
+  or a `Position` whose `sectionId` is not the active section, means the decoration is
+  silently not drawn — the intent is retained, so navigating to that section (or a later
+  re-layout that brings the anchor back) redraws it. Only a structural fault (a
+  malformed serialized `Position` via `parsePosition`) throws, and only if the host
+  round-trips through a serialized string. A decoration for a not-yet-active section
+  simply waits: `paginate` redraws matching decorations when that section lands.
+- **Pointer-transparent and layout-neutral overlay + empty-rect gotchas.** Overlay
+  boxes are `position: absolute`, `pointer-events: none`, appended out of flow inside
+  the chunk — so they never eat a subsequent selection or a link click and never change
+  page geometry. Empty `getClientRects()` (the zero-width-anchor / empty-inline gotcha
+  the paginator already lives with) draws nothing rather than a malformed box; a
+  zero-area rect is skipped. A default `.wolfyreader-decoration` style in the frame's
+  reset makes a bare `decorate` visible without host CSS; the caller's `className`
+  rides alongside so an appearance stylesheet can restyle it.
+- **Known scrolled-mode caveat (engine, not this API).** Scrolled mode collapses paging
+  to a single page, so a `Position` captured at a *mid-section* page while scrolled
+  resolves back to that section's first page — the same drift the mode-switch section
+  documents. A decoration re-anchored across a paginated→scrolled→paginated round trip
+  from a mid-section page can therefore land on the wrong page; exact mid-scroll capture
+  is the M3-2 appearance-invariant's job, not this one's. The decoration's *text* anchor
+  is unaffected — only the page it redraws on can drift, and only through that round trip.
 
 **Packaging note.** `package.json` has **no `exports` map yet** — neither the reader subpath nor `core`/`epub`/`layout` are declared, so all are importable by path only (which is what the tests and demo do). Adding a partial map now would break those path imports; the public `exports` map (including the `./reader` subpath) is deferred to a later packaging milestone.

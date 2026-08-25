@@ -207,6 +207,12 @@ test('frame messages are accepted only in a known shape', () => {
     asFrameMessage({ v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' }),
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' },
   );
+  assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'decorated', id: 4, boxes: 3 }), {
+    v: PROTOCOL_VERSION,
+    type: 'decorated',
+    id: 4,
+    boxes: 3,
+  });
   for (const rejected of [
     null,
     'ready',
@@ -230,6 +236,9 @@ test('frame messages are accepted only in a known shape', () => {
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 5, alt: 'x' },
     { v: PROTOCOL_VERSION, type: 'imagetap', alt: 'x' },
     { v: 6, type: 'imagetap', src: 'data:x', alt: 'x' },
+    { v: PROTOCOL_VERSION, type: 'decorated', id: 4 },
+    { v: PROTOCOL_VERSION, type: 'decorated', id: 4, boxes: 'x' },
+    { v: PROTOCOL_VERSION, type: 'decorated', boxes: 3 },
   ]) {
     assert.equal(asFrameMessage(rejected), null, JSON.stringify(rejected));
   }
@@ -253,4 +262,57 @@ test('host messages are accepted only in a known shape', () => {
   });
   assert.equal(asHostMessage({ v: PROTOCOL_VERSION, type: 'ping' }), null);
   assert.equal(asHostMessage({ v: PROTOCOL_VERSION, type: 'evaluate', id: 1 }), null);
+});
+
+test('host decorate/undecorate messages are accepted only in a known shape', () => {
+  assert.deepEqual(
+    asHostMessage({
+      v: PROTOCOL_VERSION,
+      type: 'decorate',
+      id: 7,
+      decorationId: 'h1',
+      start: 5,
+      end: 17,
+      className: 'hl',
+    }),
+    { v: PROTOCOL_VERSION, type: 'decorate', id: 7, decorationId: 'h1', start: 5, end: 17, className: 'hl' },
+  );
+  assert.deepEqual(asHostMessage({ v: PROTOCOL_VERSION, type: 'undecorate', id: 8, decorationId: 'h1' }), {
+    v: PROTOCOL_VERSION,
+    type: 'undecorate',
+    id: 8,
+    decorationId: 'h1',
+  });
+  for (const rejected of [
+    { v: PROTOCOL_VERSION, type: 'decorate', id: 7, decorationId: 'h1', start: 5, end: 17 },
+    { v: PROTOCOL_VERSION, type: 'decorate', id: 7, decorationId: 5, start: 5, end: 17, className: 'hl' },
+    { v: PROTOCOL_VERSION, type: 'decorate', id: 7, decorationId: 'h1', start: '5', end: 17, className: 'hl' },
+    { v: PROTOCOL_VERSION, type: 'decorate', decorationId: 'h1', start: 5, end: 17, className: 'hl' },
+    { v: 8, type: 'decorate', id: 7, decorationId: 'h1', start: 5, end: 17, className: 'hl' },
+    { v: PROTOCOL_VERSION, type: 'undecorate', id: 8 },
+    { v: PROTOCOL_VERSION, type: 'undecorate', id: 8, decorationId: 5 },
+  ]) {
+    assert.equal(asHostMessage(rejected), null, JSON.stringify(rejected));
+  }
+});
+
+test('the frame validator copy carries the decorate/undecorate host cases in step', () => {
+  // The frame's validateHost is a hand-written copy of asHostMessage in a template
+  // string; it cannot import, so protocol.ts and the copy are kept in step by hand.
+  // Assert the copy handles the same message names, guarding against drift.
+  const script = coordinationScript('https://example.test');
+  assert.match(script, /t === 'decorate'/, 'frame validator must handle decorate');
+  assert.match(script, /t === 'undecorate'/, 'frame validator must handle undecorate');
+  assert.match(script, /data\.decorationId !== 'string'/, 'frame validator must type-check decorationId');
+  assert.match(script, /data\.className !== 'string'/, 'frame validator must type-check className');
+  assert.match(
+    script,
+    /if \(data\.type === 'decorate'\)/,
+    'frame message handler must dispatch decorate',
+  );
+  assert.match(
+    script,
+    /if \(data\.type === 'undecorate'\)/,
+    'frame message handler must dispatch undecorate',
+  );
 });

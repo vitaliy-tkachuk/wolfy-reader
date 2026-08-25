@@ -11,7 +11,7 @@
 <body>
 <div id="stage"></div>
 <script type="module">
-  import { open } from '/src/core/index.ts';
+  import { open, capturePosition, serializePosition } from '/src/core/index.ts';
   import { epub } from '/src/formats/index.ts';
   import { ContentHost } from '/src/view/index.ts';
   import { Paginator } from '/src/layout/index.ts';
@@ -365,6 +365,53 @@
     async readerSetMode(mode) {
       await reader.setMode(mode);
       return reader.position;
+    },
+
+    /**
+     * Draws a decoration over the range a serialized Position resolves to — the
+     * round trip a host performs to highlight a stored anchor. Rebuilds the Position
+     * from its opaque string, so this proves the public decorate() surface end to end.
+     */
+    async readerDecorate(id, serialized, className) {
+      await reader.decorate(id, parsePosition(serialized), { className });
+      return true;
+    },
+
+    async readerUndecorate(id) {
+      await reader.undecorate(id);
+      return true;
+    },
+
+    /**
+     * A serialized Position anchored to the active section's id but over text that is
+     * absent from it — so resolvePosition returns undefined against the real section
+     * text. Feeding it to decorate() is a genuine resolve soft-miss: the frame is told
+     * to draw nothing, and decorate throws nothing. Returns null before the first paint.
+     */
+    /**
+     * A serialized Position anchored at UTF-16 offset `offset` in the caller-supplied
+     * `text`, tagged with the active section's id — so decorate() over it resolves
+     * back against that section. The test reads the frame's chunk text, finds a real
+     * phrase, and passes its offset here; this is exactly the capture leg the selection
+     * path performs, but with a test-chosen anchor point. Returns null before paint.
+     */
+    buildPositionAt(text, offset) {
+      if (reader === null || book === null) return null;
+      const sectionId = book.sections[reader.position.section]?.id;
+      if (sectionId === undefined) return null;
+      return serializePosition(capturePosition(text, offset, sectionId));
+    },
+
+    buildAbsentPosition() {
+      if (reader === null || book === null) return null;
+      const sectionId = book.sections[reader.position.section]?.id;
+      if (sectionId === undefined) return null;
+      const position = capturePosition(
+        'a phrase that certainly does not occur anywhere in this particular book fixture zzqx',
+        0,
+        sectionId,
+      );
+      return serializePosition(position);
     },
 
     /** Applies a live appearance change; resolves once it settles. */
