@@ -22,9 +22,11 @@ import { parsePosition } from '../core/index.ts';
 import { Paginator, type BookProgress, type LayoutMode } from '../layout/index.ts';
 import { searchBook, type SearchHit, type SearchOptions } from '../search/index.ts';
 import {
+  isReflowingUpdate,
   mergeAppearance,
   themeStyleSheet,
   type Appearance,
+  type TextAlign,
   type ThemeName,
 } from '../view/appearance.ts';
 import {
@@ -37,14 +39,14 @@ import {
 } from './input.ts';
 
 export type { InputConfig, TapZones } from './input.ts';
-export type { Appearance, ThemeName } from '../view/appearance.ts';
+export type { Appearance, TextAlign, ThemeName } from '../view/appearance.ts';
 export type { SearchHit, SearchOptions } from '../search/index.ts';
 
 /**
  * Appearance and layout options for {@link render}. All optional. `mode` selects
- * paginated (default) or scrolled layout. The theme fields drive the appearance
- * system (applied at the first render); the typography fields are retained for
- * its typography half and not applied yet.
+ * paginated (default) or scrolled layout. The theme and typography fields drive
+ * the appearance system and are applied at the first render; change any of them
+ * live afterward with {@link Reader.setAppearance}.
  */
 export interface ReaderOptions {
   /** 'paginated' (default) or 'scrolled'. */
@@ -60,16 +62,22 @@ export interface ReaderOptions {
    * escape hatch for a custom theme; keys may omit the leading `--`.
    */
   readonly customProperties?: Readonly<Record<string, string>>;
-  /** Retained for the appearance system's typography half; not applied yet. */
+  /** Body font size in CSS px. Applied at the first render; change it live with {@link Reader.setAppearance}. */
   readonly fontSize?: number;
-  /** Retained for the appearance system's typography half; not applied yet. */
+  /** Body font family. Applied at the first render. */
   readonly fontFamily?: string;
-  /** Retained for the appearance system's typography half; not applied yet. */
+  /** Body line height (unitless multiplier). Applied at the first render. */
   readonly lineHeight?: number;
-  /** Column gap in CSS px, passed through to the paginator. */
+  /** Column gap in CSS px, passed through to the paginator as the page margin. */
   readonly margin?: number;
-  /** Number of text columns; retained for the appearance system's typography half. */
-  readonly columns?: number;
+  /** Body text alignment: `'start'` (publisher default) or `'justify'`. */
+  readonly textAlign?: TextAlign;
+  /** Shorthand for `textAlign: 'justify'`. */
+  readonly justify?: boolean;
+  /** Whether the content root hyphenates. */
+  readonly hyphenate?: boolean;
+  /** Text columns per page: 1 (default) or 2. Applied at the first render. */
+  readonly columns?: 1 | 2;
   /** Where to open. Any {@link GoToTarget}; defaults to the book's start. */
   readonly start?: GoToTarget;
   /**
@@ -170,10 +178,14 @@ export interface Reader {
   /** Switch paginated↔scrolled without reload, preserving the reading position. */
   setMode(mode: LayoutMode): Promise<void>;
   /**
-   * Update the live appearance (theme colours / background) without losing the
-   * reading place. Partial: only the fields present in `appearance` change;
-   * `customProperties` shallow-merges over the current set. A colour/background
-   * change repaints the current page in place — no text reflow.
+   * Update the live appearance without losing the reading place. Covers the theme
+   * half (colours / background) and the typography half (font family/size, line
+   * height, margin, text alignment, justification, hyphenation, 1-or-2 columns).
+   * Partial: only the fields present in `appearance` change; `customProperties`
+   * shallow-merges over the current set. A colour-only change repaints the current
+   * page in place with no reflow; a reflowing typography knob (font, size, line
+   * height, columns) re-lays out and restores the reading place by content anchor,
+   * so the place survives even though the page number may shift.
    */
   setAppearance(appearance: Appearance): Promise<void>;
   /**
@@ -291,12 +303,23 @@ class ReaderImpl implements Reader {
     this.#tapZones = input.tapZones === false ? null : (input.tapZones ?? {});
     // Seed the live appearance from the options. Only keys that were supplied are
     // carried — `exactOptionalPropertyTypes` keeps "follow the OS" (theme absent)
-    // distinct from a forced theme.
+    // distinct from a forced theme, and an unset typography knob from a forced one.
+    // The typography half is applied at the first render (below), not merely
+    // retained: the seeded stylesheet rides the opening srcdoc and `columns` drives
+    // the opening paginate.
     this.#appearance = {};
     if (options.theme !== undefined) this.#appearance = { ...this.#appearance, theme: options.theme };
     if (options.customProperties !== undefined) {
       this.#appearance = { ...this.#appearance, customProperties: options.customProperties };
     }
+    if (options.fontFamily !== undefined) this.#appearance = { ...this.#appearance, fontFamily: options.fontFamily };
+    if (options.fontSize !== undefined) this.#appearance = { ...this.#appearance, fontSize: options.fontSize };
+    if (options.lineHeight !== undefined) this.#appearance = { ...this.#appearance, lineHeight: options.lineHeight };
+    if (options.margin !== undefined) this.#appearance = { ...this.#appearance, margin: options.margin };
+    if (options.textAlign !== undefined) this.#appearance = { ...this.#appearance, textAlign: options.textAlign };
+    if (options.justify !== undefined) this.#appearance = { ...this.#appearance, justify: options.justify };
+    if (options.hyphenate !== undefined) this.#appearance = { ...this.#appearance, hyphenate: options.hyphenate };
+    if (options.columns !== undefined) this.#appearance = { ...this.#appearance, columns: options.columns };
     this.#paginator = new Paginator(element, {
       themeCss: themeStyleSheet(this.#appearance),
       onLinkClick: (href) => {
@@ -516,9 +539,17 @@ class ReaderImpl implements Reader {
     this.#emit('positionchange', this.#snapshot());
   }
 
-  #requestExtras(): { columnGap?: number } {
-    const margin = this.#options.margin;
-    return margin === undefined ? {} : { columnGap: margin };
+  /**
+   * The layout knobs the facade threads into every `paginate`: the page margin
+   * (`columnGap`) and the column count. Both are appearance-owned, so a section
+   * re-paginated after a mode switch or roll keeps the live typography rather than
+   * snapping back to the paginator defaults.
+   */
+  #requestExtras(): { columnGap?: number; columnCount?: number } {
+    const extras: { columnGap?: number; columnCount?: number } = {};
+    if (this.#appearance.margin !== undefined) extras.columnGap = this.#appearance.margin;
+    if (this.#appearance.columns !== undefined) extras.columnCount = this.#appearance.columns;
+    return extras;
   }
 
   // --- next / prev ----------------------------------------------------------
@@ -750,21 +781,37 @@ class ReaderImpl implements Reader {
   // --- appearance -----------------------------------------------------------
 
   /**
-   * Merges `appearance` over the live state, rebuilds the theme stylesheet, and
-   * applies it to the current section preserving the reading place. The paginator
-   * captures a `Position`, re-assembles the srcdoc with the new theme, and seeks
-   * back to the anchor page; a theme is colours + background only, so geometry is
-   * invariant and the exact page is restored — the content repaints, the text does
-   * not reflow. A no-op stylesheet change short-circuits inside the paginator.
-   * Before the first paint it records the appearance for the opening render.
+   * Merges `appearance` over the live state, rebuilds the appearance stylesheet,
+   * and applies it to the current section preserving the reading place. Two paths,
+   * chosen by whether the *update* touches a reflowing typography knob:
+   *
+   * - **Non-reflowing** (theme colours / background only): `setThemeCss` re-assembles
+   *   the srcdoc, captures a `Position`, and seeks back. Geometry is invariant, so
+   *   the exact page is restored and the text does not reflow.
+   * - **Reflowing** (font family/size, line height, alignment, hyphenation, columns):
+   *   `applyAppearance` reuses the same capture → re-layout → resolve → restore
+   *   machinery as `setMode`, but geometry changes, so the anchor's *nearest* page is
+   *   restored (the reading place survives the reflow, page number may shift).
+   *
+   * A no-op change short-circuits inside the paginator. Before the first paint it
+   * records the appearance for the opening render.
    */
   async #setAppearance(appearance: Appearance): Promise<void> {
+    const reflows = isReflowingUpdate(appearance);
     this.#appearance = mergeAppearance(this.#appearance, appearance);
     const css = themeStyleSheet(this.#appearance);
-    await this.#paginator.setThemeCss(css);
+    if (reflows) {
+      const geometry: { columnCount?: number; columnGap?: number } = {};
+      if (this.#appearance.columns !== undefined) geometry.columnCount = this.#appearance.columns;
+      if (this.#appearance.margin !== undefined) geometry.columnGap = this.#appearance.margin;
+      await this.#paginator.applyAppearance(css, geometry);
+    } else {
+      await this.#paginator.setThemeCss(css);
+    }
     if (this.#destroyed) return;
-    // The theme change does not move the reader; positionchange lets a host
-    // refresh anything keyed on the settled state (parity with setMode).
+    // Emitted after the change settles so a host can refresh anything keyed on the
+    // settled state (parity with setMode). A reflowing knob may have moved the page
+    // number even though the reading place is held.
     this.#emit('positionchange', this.#snapshot());
   }
 

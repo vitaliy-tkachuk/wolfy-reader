@@ -62,7 +62,7 @@ function escapeAttribute(value: string): string {
 export function coordinationScript(hostOrigin: string): string {
   return `(function(){
 'use strict';
-var VERSION = 7;
+var VERSION = 8;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
@@ -84,7 +84,7 @@ function validateHost(data){
     if (o.mode !== 'paginated' && o.mode !== 'scrolled') return null;
     if (typeof o.pageWidth !== 'number' || typeof o.pageHeight !== 'number') return null;
     if (typeof o.columnGap !== 'number' || typeof o.chunkChars !== 'number') return null;
-    if (typeof o.windowChunks !== 'number') return null;
+    if (typeof o.windowChunks !== 'number' || typeof o.columnCount !== 'number') return null;
     return data;
   }
   if (t === 'goToPage' || t === 'offsetOfPage') return typeof data.page === 'number' ? data : null;
@@ -99,6 +99,7 @@ var layout = {
   pageWidth: 0,
   pageHeight: 0,
   columnGap: 0,
+  columnCount: 1,
   windowChunks: 2,
   chunks: [],       // { el, index, start, end, top, height, pages, firstPage }
   pageCount: 0,
@@ -144,8 +145,20 @@ function measureChunkWidth(el){
   }
 }
 
+// The width of a single CSS column. With one column per page a column fills the
+// page; with N columns per page, N columns and (N-1) gaps share the page width.
+function colWidth(){
+  var n = layout.columnCount > 0 ? layout.columnCount : 1;
+  if (n <= 1) return layout.pageWidth;
+  return (layout.pageWidth - (n - 1) * layout.columnGap) / n;
+}
+// The horizontal distance one page-turn translates the active chunk: N column
+// strides. Each column stride is its width plus the gap that follows it, so N
+// columns advance by N * (colWidth + columnGap) — the width of one page plus its
+// trailing gap, independent of column count.
 function stride(){
-  return layout.pageWidth + layout.columnGap;
+  var n = layout.columnCount > 0 ? layout.columnCount : 1;
+  return n * (colWidth() + layout.columnGap);
 }
 
 // The chunk (and its local page) that paints a given global page, or null. Shared
@@ -221,7 +234,10 @@ function relayout(){
     c.style.top = '0';
     c.style.left = '0';
     c.style.height = layout.pageHeight + 'px';
-    c.style.columnWidth = layout.pageWidth + 'px';
+    // Each chunk is its own multi-column context. The CSS column width is one
+    // reader column (a fraction of the page for a 2-column layout); the page turn
+    // translates by stride() (N columns), so a page paints N columns at once.
+    c.style.columnWidth = colWidth() + 'px';
     c.style.columnGap = layout.columnGap + 'px';
     c.style.columnFill = 'auto';
     c.style.width = layout.pageWidth + 'px';
@@ -434,6 +450,7 @@ function applyOptions(o){
   layout.pageWidth = o.pageWidth;
   layout.pageHeight = o.pageHeight;
   layout.columnGap = o.columnGap;
+  layout.columnCount = o.columnCount > 0 ? o.columnCount : 1;
   layout.windowChunks = o.windowChunks;
 }
 

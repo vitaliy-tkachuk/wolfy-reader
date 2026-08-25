@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 export interface Measurement {
   readonly width: number;
@@ -28,6 +28,14 @@ export interface PaginateOptions {
   readonly chunkChars: number;
   /** How many chunks either side of the active one stay realized. */
   readonly windowChunks: number;
+  /**
+   * Text columns per page (a reflowing typography knob): 1 or 2. A page is split
+   * into this many intra-page columns, each `columnGap` apart, so a page of
+   * two-column layout paints twice the text before a turn. The other typography
+   * knobs ride the appearance stylesheet in the srcdoc, but column geometry is the
+   * paginator's, so it travels on the wire alongside `columnGap`.
+   */
+  readonly columnCount: number;
 }
 
 /** What the frame reports after (re-)paginating. Page count may be an estimate. */
@@ -293,17 +301,19 @@ function asPaginateOptions(value: unknown): PaginateOptions | null {
   const columnGap = options['columnGap'];
   const chunkChars = options['chunkChars'];
   const windowChunks = options['windowChunks'];
+  const columnCount = options['columnCount'];
   if (
     (mode !== 'paginated' && mode !== 'scrolled') ||
     typeof pageWidth !== 'number' ||
     typeof pageHeight !== 'number' ||
     typeof columnGap !== 'number' ||
     typeof chunkChars !== 'number' ||
-    typeof windowChunks !== 'number'
+    typeof windowChunks !== 'number' ||
+    typeof columnCount !== 'number'
   ) {
     return null;
   }
-  return { mode, pageWidth, pageHeight, columnGap, chunkChars, windowChunks };
+  return { mode, pageWidth, pageHeight, columnGap, chunkChars, windowChunks, columnCount };
 }
 
 export function asHostMessage(data: unknown): HostMessage | null {

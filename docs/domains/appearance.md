@@ -2,28 +2,37 @@
 
 ## Overview
 
-Live appearance controls for book content: switchable themes delivered as CSS
-custom properties injected into the sandboxed content frame, where publisher CSS
-can restyle its own content but can never reach a theme variable. The theme half
-is implemented; the typography half (font family, size, line height, margins,
-columns) will extend the same seam and share the same `--wr-*` namespace.
+Live appearance controls for book content: switchable themes plus typography —
+font family, size, line height, page margin, text alignment, justification,
+hyphenation, and 1-or-2 columns — delivered as CSS custom properties injected into
+the sandboxed content frame, where publisher CSS can restyle its own content but
+can never reach an appearance variable. Both halves share one `--wr-*` namespace,
+one cascade strategy, and one `setAppearance` seam. They differ in one way: a
+theme change is colours only and geometry-invariant (repaint in place), while a
+reflowing typography knob changes chunk geometry and re-lays out, preserving the
+reading place by content anchor rather than by exact page.
 
 Code:
 
 - `src/view/appearance.ts` — the pure, DOM-free core: the `Appearance` type, the
-  built-in `THEMES`, the `--wr-*` contract (`ThemeVariables`), appearance-state
-  merge (`mergeAppearance`), variable resolution (`resolveThemeProperties`), and
-  the frame stylesheet the theme injects (`themeStyleSheet`). No `document`, no
-  `window`, no protocol traffic.
+  built-in `THEMES`, the `--wr-*` contract (`ThemeVariables` + `TypographyVariables`),
+  appearance-state merge (`mergeAppearance`), variable resolution
+  (`resolveThemeProperties`, `resolveTypographyProperties`), reflow-path routing
+  (`isReflowingUpdate`), and the frame stylesheet both halves inject
+  (`themeStyleSheet`). No `document`, no `window`, no protocol traffic.
 - `src/view/frame.ts` — `assembleFrameDocument` injects the theme `<style>` after
   the minimal reset and before the publisher's `headHtml`.
 - `src/view/host.ts` — `ContentHost` carries the theme stylesheet
   (`ContentHostOptions.themeCss` / `setThemeCss`) and applies it at every document
   assembly.
-- `src/layout/index.ts` — `Paginator.setThemeCss` swaps the theme on the current
-  section, preserving the reading position.
+- `src/layout/index.ts` — `Paginator.setThemeCss` swaps a colour theme on the
+  current section (geometry invariant); `Paginator.applyAppearance` re-lays out for a
+  reflowing typography knob and restores the reading place. Both share `#reapply` and
+  thread `PaginateOptions.columnCount`/`columnGap`.
 - `src/reader/index.ts` — the public surface: `ReaderOptions.theme` /
-  `customProperties`, the `Appearance` type, and `Reader.setAppearance`.
+  `customProperties` / typography fields, the `Appearance` type, and
+  `Reader.setAppearance` (routed through the same serialized navigation queue as
+  `setMode`).
 
 ## Key decisions
 
@@ -51,12 +60,27 @@ Code:
   proof that a publisher `body/*{color;background !important}` cannot win the
   reading surface.
 
-- **The `--wr-*` variable contract is the public theme vocabulary.** A custom theme
-  supplies these names; the typography half will add more to the same namespace.
-  The theme names are: `--wr-background`, `--wr-color`, `--wr-link-color`,
-  `--wr-selection-background`, `--wr-selection-color`. Custom-property keys may be
-  given with or without the leading `--`. Values are emitted verbatim into an inline
-  `<style>` (the CSP already allows `style-src 'unsafe-inline' data:`).
+- **The `--wr-*` variable contract is the public appearance vocabulary.** A custom
+  theme supplies these names; typography adds more to the same namespace. The theme
+  names are `--wr-background`, `--wr-color`, `--wr-link-color`,
+  `--wr-selection-background`, `--wr-selection-color`; the typography names are
+  `--wr-font-family`, `--wr-font-size`, `--wr-line-height`, `--wr-text-align`,
+  `--wr-hyphens`, `--wr-column-count`. Custom-property keys may be given with or
+  without the leading `--`. Values are emitted verbatim into an inline `<style>`
+  (the CSP already allows `style-src 'unsafe-inline' data:`).
+
+- **Typography rides the same cascade device as the surface guarantee.** The
+  reader's own font/size/line-height/alignment/hyphenation are pinned on
+  `#wolfyreader-content` *unlayered and `!important`* at id specificity — an id
+  selector plus `!important` outranks even a hostile publisher `*{…!important}`, so
+  the chosen typography wins the reading surface. As with colours, it pins only the
+  content root's *own* values; a descendant the book styles directly
+  (`p{font-size:20px}`) still wins for itself, which is the intended split (a book
+  keeps its own emphasis while the reader owns the base). Only the knobs the caller
+  actually set emit a declaration — an unset knob leaves the publisher's value in
+  place rather than forcing a default. The `--wr-*` variables the rules consume are
+  names the book never knows, so it cannot clobber them, exactly like the theme
+  variables.
 
 - **`prefers-color-scheme` resolution stays inside the frame.** When the host does
   not force a theme, the injected sheet emits the light variables at `:root` plus a
@@ -73,11 +97,18 @@ Code:
   a complete, readable variable set; `customProperties` with no `theme` also forces
   a complete set (seeded from light) rather than following the OS.
 
-- **No protocol bump, no CSP change.** The theme is injected at document assembly
-  inside the `srcdoc` — not over the `postMessage` wire — so it changes no protocol
-  version. The CSP already emits `style-src 'unsafe-inline' data:`, which permits
-  the injected `<style>` and the inline `var(--wr-*)` values. The sandbox
-  three-defence rule is untouched. See [`view.md`](view.md).
+- **No CSP change; one protocol field, for columns only.** The theme *and* the
+  stylesheet-borne typography (font/size/line-height/alignment/hyphenation) are
+  injected at document assembly inside the `srcdoc`, not over the `postMessage`
+  wire, so they change no protocol version. The CSP already emits
+  `style-src 'unsafe-inline' data:`, which permits the injected `<style>` and the
+  inline `var(--wr-*)` values. **Column count is the exception**: column geometry
+  belongs to the paginator (each chunk is its own multi-column context — see
+  [`layout.md`](layout.md)), so `--wr-column-count` is *not* put in the stylesheet;
+  it rides `PaginateOptions.columnCount` on the wire and is applied frame-side
+  alongside `columnGap`. That field grew the protocol — the version bump is the
+  paired hand-edit in `protocol.ts` + the frame's `coordinationScript` validator
+  copy. The sandbox three-defence rule is untouched. See [`view.md`](view.md).
 
 ## Implementation notes
 
@@ -100,12 +131,52 @@ Code:
   and never races a render. It emits `positionchange` after settling (parity with
   `setMode`) so a host can refresh anything keyed on the settled state.
 
-- **The seam is shaped for the typography half.** `setAppearance` takes a partial
-  `Appearance`; adding font/size/line-height/margin fields there and more `--wr-*`
-  names to `themeStyleSheet` extends this without a new method. Typography that
-  reflows will differ in one way the theme half does not: it changes chunk geometry,
-  so it cannot claim the geometry-invariant, no-reflow guarantee above and must
-  re-measure.
+- **`setAppearance` carries both halves and picks its path by the update.**
+  `setAppearance` takes a partial `Appearance` covering theme (`theme`,
+  `customProperties`) and typography (`fontFamily`, `fontSize`, `lineHeight`,
+  `margin`, `textAlign`, `justify`, `hyphenate`, `columns`). `isReflowingUpdate(update)`
+  decides the path: a colour-only update takes `Paginator.setThemeCss` (geometry
+  invariant, exact page restored); an update touching a reflowing knob takes
+  `Paginator.applyAppearance`, which re-lays out and restores the *nearest* anchor
+  page. Whether a knob reflows is decided by the *update*, not the merged state, so
+  a lone theme change never pays for a re-layout even while typography is live.
+
+### The reflow path — position preserved by content anchor
+
+A reflowing typography knob (font family, font size, line height, page margin,
+column count; alignment and hyphenation are treated as reflowing to be safe)
+changes chunk geometry, so it cannot claim the theme half's geometry-invariant,
+no-reflow guarantee — it must re-measure. `Paginator.applyAppearance(themeCss,
+{ columnCount, columnGap })` reuses the exact machinery `switchMode` uses for a
+paginated↔scrolled switch (`#reapply`, shared with `setThemeCss`): capture a
+`Position` for the current page → set the stylesheet + geometry and re-`paginate`
+→ resolve the `Position` against the new layout → seek back to the page it now
+lands on. Because the `Position` is content-addressed (an exact quote + context,
+not an offset), the reading *place* survives the reflow even though the page count
+and page number shift — the visible anchor paragraph is on the page before and
+after. A same-text resolution miss (rare) degrades to page 0.
+
+- **`margin` and `columns` are paginator geometry, not `--wr-*` variables.** They
+  do not emit a stylesheet variable (`resolveTypographyProperties` skips them);
+  they thread through `PaginateOptions` (`columnGap`, `columnCount`) and are applied
+  frame-side. `margin` maps to the column gap; `columns` (1 or 2) splits each page
+  into that many CSS columns, so a 2-column page paints twice the text before a
+  turn. Everything else (font/size/line-height/alignment/hyphenation) is a `--wr-*`
+  variable in the srcdoc stylesheet.
+- **The reflow inherits the scrolled-mode caveat from `setMode`.** A `Position`
+  captured at a mid-section page while scrolled resolves back to the section's first
+  page (scrolled mode collapses paging), so a reflowing knob applied in scrolled
+  mode inherits that drift. Exact mid-scroll capture is separate, out-of-scope work.
+- **`ReaderOptions` typography is applied at the first render, not merely retained.**
+  The seeded appearance drives the opening `paginate` (`columns`/`margin` via the
+  request extras) and rides the opening srcdoc stylesheet (font/size/line-height/…),
+  so a book opened with `{ fontSize: 20, columns: 2 }` paints that way on the first
+  paint rather than snapping to defaults and reflowing after.
+- **`prefers-reduced-motion` is a documented no-op for typography.** This unit adds
+  no page-turn animation, so nothing here is gated on the preference; input always
+  turns the page. The reader's only animation remains the image-zoom overlay's
+  fade, which gates itself. When an animated page turn lands, gate *that* animation
+  the same way — never the input.
 
 ## Gotchas
 
@@ -130,8 +201,12 @@ Code:
 ## Patterns
 
 - **Pure mapping/serialization headless, rendering behaviour in the browser.** The
-  appearance-state merge, `--wr-*` resolution, and stylesheet-shape assertions are
-  headless `node:test` (`test/appearance.test.ts`); the cascade fight with publisher
-  CSS, per-theme computed styles, and `prefers-color-scheme` — all of which need the
-  real layout engine inside the opaque-origin frame — are Playwright
-  (`test/browser/appearance.browser.mjs`). This mirrors the layout domain's split.
+  appearance-state merge, `--wr-*` theme + typography resolution, `isReflowingUpdate`
+  routing, stylesheet-shape assertions, and the `PaginateOptions.columnCount`
+  protocol round-trip are headless `node:test` (`test/appearance.test.ts`); the
+  cascade fight with publisher CSS, per-theme and per-typography computed styles,
+  `prefers-color-scheme`, `column-count`/`column-gap` geometry, reduced-motion, and
+  the reflow that holds the reading place — all of which need the real layout engine
+  inside the opaque-origin frame — are Playwright
+  (`test/browser/appearance.browser.mjs`, one assertion per knob). This mirrors the
+  layout domain's split.

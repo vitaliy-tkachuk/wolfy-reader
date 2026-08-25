@@ -21,6 +21,8 @@ export type { LayoutMode, PaginateOptions, PaginationState } from '../view/proto
 const DEFAULT_WINDOW_CHUNKS = 2;
 /** Gap between text columns, in CSS px. */
 const DEFAULT_COLUMN_GAP = 40;
+/** Text columns per page. */
+const DEFAULT_COLUMN_COUNT = 1;
 
 /**
  * The parts of {@link PaginateOptions} a caller may set without also supplying
@@ -36,6 +38,8 @@ export interface PaginateRequest {
   readonly columnGap?: number;
   readonly chunkChars?: number;
   readonly windowChunks?: number;
+  /** Text columns per page (1 or 2). Defaults to 1. */
+  readonly columnCount?: number;
 }
 
 /**
@@ -315,10 +319,58 @@ export class Paginator {
    */
   async setThemeCss(themeCss: string | undefined): Promise<void> {
     if (this.#host.themeCss === themeCss) return;
+    await this.#reapply(themeCss, this.#options?.columnCount, this.#options?.columnGap);
+  }
+
+  /**
+   * Applies a live appearance change that may re-flow the layout — a new
+   * appearance stylesheet (font/size/line-height/alignment/hyphenation) and/or a
+   * new `columnCount` — preserving the reading position across it. Unlike
+   * {@link setThemeCss} (colours only, geometry invariant), a reflowing knob
+   * changes chunk geometry, so this reuses the same capture → re-layout → resolve →
+   * restore machinery as {@link switchMode}: it captures a `Position` for the
+   * current page, re-paginates with the new stylesheet and column count, and seeks
+   * back to the page that `Position` now resolves to. A same-text resolution miss
+   * degrades to page 0. Before the first `paginate` it only records the stylesheet
+   * for the next render. A no-op (same stylesheet, same column count) short-
+   * circuits, so re-issuing the same appearance is free.
+   */
+  async applyAppearance(
+    themeCss: string | undefined,
+    geometry: { columnCount?: number; columnGap?: number } = {},
+  ): Promise<void> {
+    const nextColumns = geometry.columnCount ?? this.#options?.columnCount;
+    const nextGap = geometry.columnGap ?? this.#options?.columnGap;
+    const sameCss = this.#host.themeCss === themeCss;
+    const sameColumns = this.#options === null || this.#options.columnCount === nextColumns;
+    const sameGap = this.#options === null || this.#options.columnGap === nextGap;
+    if (sameCss && sameColumns && sameGap) return;
+    await this.#reapply(themeCss, nextColumns, nextGap);
+  }
+
+  /**
+   * Sets the stylesheet and column geometry, re-paginates the current section, and
+   * restores the reading position by content anchor. Shared by {@link setThemeCss}
+   * (geometry invariant, exact page restored) and {@link applyAppearance} (geometry
+   * may change, nearest anchor page restored). Records the stylesheet and returns
+   * before the first `paginate` when no section is laid out yet.
+   */
+  async #reapply(
+    themeCss: string | undefined,
+    columnCount: number | undefined,
+    columnGap: number | undefined,
+  ): Promise<void> {
     this.#host.setThemeCss(themeCss);
     if (this.#section === null || this.#options === null) return;
+    const nextColumns = columnCount ?? this.#options.columnCount;
+    const nextGap = columnGap ?? this.#options.columnGap;
+    const options: PaginateOptions =
+      nextColumns === this.#options.columnCount && nextGap === this.#options.columnGap
+        ? this.#options
+        : { ...this.#options, columnCount: nextColumns, columnGap: nextGap };
     const anchor = await this.positionOfPage(this.#page);
-    const state = await this.#host.paginate(this.#section, this.#options);
+    const state = await this.#host.paginate(this.#section, options);
+    this.#options = options;
     this.#state = state;
     this.#text = null;
     const page = await this.pageOfPosition(anchor);
@@ -359,6 +411,7 @@ export class Paginator {
       columnGap: request.columnGap ?? DEFAULT_COLUMN_GAP,
       chunkChars: request.chunkChars ?? DEFAULT_CHUNK_CHARS,
       windowChunks: request.windowChunks ?? DEFAULT_WINDOW_CHUNKS,
+      columnCount: request.columnCount ?? DEFAULT_COLUMN_COUNT,
     };
   }
 
@@ -370,6 +423,7 @@ export class Paginator {
       columnGap: options.columnGap,
       chunkChars: options.chunkChars,
       windowChunks: options.windowChunks,
+      columnCount: options.columnCount,
     };
   }
 

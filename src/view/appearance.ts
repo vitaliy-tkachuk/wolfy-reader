@@ -8,20 +8,28 @@
  * `document`, no `window`, no protocol traffic. The frame-injection seam lives in
  * `frame.ts`; the reader facade owns the live appearance state.
  *
- * The typography half (font family, size, line height, margins, columns) will add
- * more `--wr-*` names to the same namespace and reuse this seam; the naming below
- * leaves room for it.
+ * The typography half (font family, size, line height, alignment, hyphenation,
+ * columns) adds more `--wr-*` names to the same namespace and rides the same
+ * cascade. The reflowing knobs (font, size, line height, columns) change chunk
+ * geometry, so the reader re-lays out and restores the reading position for them
+ * rather than repainting in place the way a colour change does.
  */
 import { CONTENT_ROOT_ID } from './frame.ts';
 
 /** A built-in theme name, or `'custom'` for a caller-supplied variable set. */
 export type ThemeName = 'light' | 'dark' | 'sepia' | 'custom';
 
+/** Text alignment for body prose: publisher default, ragged left, or justified. */
+export type TextAlign = 'start' | 'justify';
+
 /**
- * The live appearance state. Today only the theme half is honoured; typography
- * fields land later behind the same seam. `customProperties` supplies bespoke
- * `--wr-*` values that merge over the resolved theme (they win), so a `'custom'`
- * theme is any override set and the built-in themes are equally overridable.
+ * The live appearance state: the theme half (content colours) plus the typography
+ * half (font, size, line height, margin, alignment, hyphenation, columns). Both
+ * flow through the same `--wr-*` namespace and the same cascade, so publisher CSS
+ * can restyle its own content but can never reach an appearance variable.
+ * `customProperties` supplies bespoke `--wr-*` values that merge over the resolved
+ * theme (they win), so a `'custom'` theme is any override set and the built-in
+ * themes are equally overridable.
  */
 export interface Appearance {
   /**
@@ -37,6 +45,26 @@ export interface Appearance {
    * so a caller controls exactly what its own book renders.
    */
   readonly customProperties?: Readonly<Record<string, string>>;
+  /** Body font family (a CSS `font-family` value). Reflows. */
+  readonly fontFamily?: string;
+  /** Body font size in CSS px. Reflows. */
+  readonly fontSize?: number;
+  /** Body line height, a unitless multiplier. Reflows. */
+  readonly lineHeight?: number;
+  /**
+   * Page margin in CSS px — the gap between text columns (the paginator's
+   * `columnGap`). It is not a `--wr-*` variable: column geometry belongs to the
+   * paginator, so it rides `PaginateOptions` and reflows the layout. Reflows.
+   */
+  readonly margin?: number;
+  /** Text alignment: `'start'` (publisher default) or `'justify'`. May reflow. */
+  readonly textAlign?: TextAlign;
+  /** Shorthand for `textAlign: 'justify'` when `true`, `'start'` when `false`. */
+  readonly justify?: boolean;
+  /** Whether the content root hyphenates. May reflow line breaks. */
+  readonly hyphenate?: boolean;
+  /** Number of text columns per page: 1 or 2. Reflows. */
+  readonly columns?: 1 | 2;
 }
 
 /**
@@ -85,6 +113,27 @@ export const THEMES: Readonly<Record<Exclude<ThemeName, 'custom'>, ThemeVariable
   },
 } as const;
 
+/**
+ * The typography portion of the `--wr-*` contract. Each maps a live appearance
+ * knob to a custom property the content stylesheet consumes; publisher CSS never
+ * names these, so it cannot clobber them, exactly like the theme variables. All
+ * are optional: an unset knob leaves the publisher's own value in place.
+ */
+export interface TypographyVariables {
+  /** Body font family. */
+  readonly '--wr-font-family'?: string;
+  /** Body font size (a CSS length, e.g. `18px`). */
+  readonly '--wr-font-size'?: string;
+  /** Body line height (unitless multiplier). */
+  readonly '--wr-line-height'?: string;
+  /** Body text alignment. */
+  readonly '--wr-text-align'?: string;
+  /** Content-root hyphenation (`auto` or `manual`). */
+  readonly '--wr-hyphens'?: string;
+  /** Number of text columns per page. */
+  readonly '--wr-column-count'?: string;
+}
+
 /** The default theme when the host does not force one and the OS is in light mode. */
 const DEFAULT_LIGHT: Record<string, string> = { ...THEMES.light };
 /** The default theme when the host does not force one and the OS is in dark mode. */
@@ -106,11 +155,38 @@ function normalizeVarName(name: string): string {
  * absent from `undefined`.
  */
 export function mergeAppearance(base: Appearance, update: Appearance): Appearance {
-  const merged: { theme?: ThemeName; customProperties?: Record<string, string> } = {};
+  const merged: {
+    theme?: ThemeName;
+    customProperties?: Record<string, string>;
+    fontFamily?: string;
+    fontSize?: number;
+    lineHeight?: number;
+    margin?: number;
+    textAlign?: TextAlign;
+    justify?: boolean;
+    hyphenate?: boolean;
+    columns?: 1 | 2;
+  } = {};
   const theme = 'theme' in update ? update.theme : base.theme;
   if (theme !== undefined) merged.theme = theme;
   const custom = { ...(base.customProperties ?? {}), ...(update.customProperties ?? {}) };
   if (Object.keys(custom).length > 0) merged.customProperties = custom;
+  const fontFamily = 'fontFamily' in update ? update.fontFamily : base.fontFamily;
+  if (fontFamily !== undefined) merged.fontFamily = fontFamily;
+  const fontSize = 'fontSize' in update ? update.fontSize : base.fontSize;
+  if (fontSize !== undefined) merged.fontSize = fontSize;
+  const lineHeight = 'lineHeight' in update ? update.lineHeight : base.lineHeight;
+  if (lineHeight !== undefined) merged.lineHeight = lineHeight;
+  const margin = 'margin' in update ? update.margin : base.margin;
+  if (margin !== undefined) merged.margin = margin;
+  const textAlign = 'textAlign' in update ? update.textAlign : base.textAlign;
+  if (textAlign !== undefined) merged.textAlign = textAlign;
+  const justify = 'justify' in update ? update.justify : base.justify;
+  if (justify !== undefined) merged.justify = justify;
+  const hyphenate = 'hyphenate' in update ? update.hyphenate : base.hyphenate;
+  if (hyphenate !== undefined) merged.hyphenate = hyphenate;
+  const columns = 'columns' in update ? update.columns : base.columns;
+  if (columns !== undefined) merged.columns = columns;
   return merged;
 }
 
@@ -136,6 +212,36 @@ export function resolveThemeProperties(appearance: Appearance): Record<string, s
     for (const [name, value] of Object.entries(custom)) base[normalizeVarName(name)] = value;
   }
   return base;
+}
+
+/**
+ * The resolved typography `--wr-*` variables for an appearance, or `null` when no
+ * typography knob is set. `columns` maps to `--wr-column-count`; `justify` folds
+ * into `--wr-text-align` (an explicit `textAlign` wins over `justify`). Only the
+ * knobs the caller supplied are emitted — an unset knob leaves the publisher's own
+ * value in place rather than forcing a default.
+ */
+export function resolveTypographyProperties(
+  appearance: Appearance,
+): TypographyVariables | null {
+  const vars: Record<string, string> = {};
+  if (appearance.fontFamily !== undefined) vars['--wr-font-family'] = appearance.fontFamily;
+  if (appearance.fontSize !== undefined) vars['--wr-font-size'] = `${appearance.fontSize}px`;
+  if (appearance.lineHeight !== undefined) vars['--wr-line-height'] = String(appearance.lineHeight);
+  const align = resolveTextAlign(appearance);
+  if (align !== undefined) vars['--wr-text-align'] = align;
+  if (appearance.hyphenate !== undefined) {
+    vars['--wr-hyphens'] = appearance.hyphenate ? 'auto' : 'manual';
+  }
+  if (appearance.columns !== undefined) vars['--wr-column-count'] = String(appearance.columns);
+  return Object.keys(vars).length === 0 ? null : (vars as TypographyVariables);
+}
+
+/** The effective text alignment: an explicit `textAlign` wins over `justify`. */
+function resolveTextAlign(appearance: Appearance): string | undefined {
+  if (appearance.textAlign !== undefined) return appearance.textAlign;
+  if (appearance.justify !== undefined) return appearance.justify ? 'justify' : 'start';
+  return undefined;
 }
 
 /** Serialize a variable set into `--name: value;` declarations. */
@@ -203,21 +309,70 @@ function themeableDefaults(): string {
 }
 
 /**
- * The full theme stylesheet the frame injects at document assembly, before the
- * publisher's `headHtml`. It declares the theme layer first (so its ordering is
- * fixed regardless of any `@layer` a book declares later), emits the themeable
- * defaults and the unlayered surface guarantee, then the `prefers-color-scheme`
- * defaults, and finally — if a theme is forced — an unlayered `:root` block that
- * overrides the media query. `null` from {@link resolveThemeProperties} means
- * "follow the OS"; a variable set means "force it".
+ * The unlayered typography block: the reader's own font, size, line height,
+ * alignment and hyphenation, anchored on the content root and set `!important` at
+ * id specificity — the same cascade device as {@link surfaceGuarantee}. An id
+ * selector plus `!important` outranks even a hostile publisher `*{…!important}`,
+ * so a user's typography choice wins the reading surface; a descendant the book
+ * styles directly (`p{font-size:20px}`) still wins for itself, which is the
+ * intended split. Only the knobs actually set emit a declaration, and each reads
+ * its own `--wr-*` variable (unreachable by publisher CSS). `column-count` is not
+ * here — column geometry is per-chunk and applied frame-side by the paginator.
+ */
+function typographyGuarantee(vars: TypographyVariables): string {
+  const rules: string[] = [];
+  if (vars['--wr-font-family'] !== undefined) rules.push('font-family:var(--wr-font-family) !important');
+  if (vars['--wr-font-size'] !== undefined) rules.push('font-size:var(--wr-font-size) !important');
+  if (vars['--wr-line-height'] !== undefined) rules.push('line-height:var(--wr-line-height) !important');
+  if (vars['--wr-text-align'] !== undefined) rules.push('text-align:var(--wr-text-align) !important');
+  if (vars['--wr-hyphens'] !== undefined) {
+    rules.push('-webkit-hyphens:var(--wr-hyphens) !important', 'hyphens:var(--wr-hyphens) !important');
+  }
+  if (rules.length === 0) return '';
+  return `:root{${declarations(vars as Record<string, string>)}}#${CONTENT_ROOT_ID}{${rules.join(';')}}`;
+}
+
+/**
+ * The full appearance stylesheet the frame injects at document assembly, before
+ * the publisher's `headHtml`. It carries the theme half (colours) and the
+ * typography half (font/size/line-height/alignment/hyphenation) through one
+ * `--wr-*` namespace. It declares the theme layer first (so its ordering is fixed
+ * regardless of any `@layer` a book declares later), emits the themeable defaults
+ * and the unlayered surface guarantee, then the `prefers-color-scheme` defaults,
+ * then — if a theme is forced — an unlayered `:root` block that overrides the
+ * media query, and finally the unlayered typography guarantee. `null` from
+ * {@link resolveThemeProperties} means "follow the OS"; a variable set means
+ * "force it".
  */
 export function themeStyleSheet(appearance: Appearance): string {
   const forced = resolveThemeProperties(appearance);
+  const typography = resolveTypographyProperties(appearance);
   return (
     `@layer ${THEME_LAYER};` +
     themeableDefaults() +
     surfaceGuarantee() +
     preferenceDefaults() +
-    (forced === null ? '' : forcedRoot(forced))
+    (forced === null ? '' : forcedRoot(forced)) +
+    (typography === null ? '' : typographyGuarantee(typography))
+  );
+}
+
+/**
+ * The typography knobs that change chunk geometry and therefore require a re-layout
+ * (a `paginate`), not just a variable poke: font family, font size, line height,
+ * page margin, and column count. Alignment and hyphenation can shift line breaks
+ * too, so they are treated as reflowing to be safe. Whether an `update` touches any
+ * of these decides which path {@link Reader.setAppearance} takes.
+ */
+export function isReflowingUpdate(update: Appearance): boolean {
+  return (
+    update.fontFamily !== undefined ||
+    update.fontSize !== undefined ||
+    update.lineHeight !== undefined ||
+    update.margin !== undefined ||
+    update.textAlign !== undefined ||
+    update.justify !== undefined ||
+    update.hyphenate !== undefined ||
+    update.columns !== undefined
   );
 }

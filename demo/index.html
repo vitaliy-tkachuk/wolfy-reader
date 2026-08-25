@@ -213,6 +213,14 @@
   }
   .appearance select, .appearance input[type="color"] { font: inherit; }
   .appearance .custom-fields[hidden] { display: none; }
+  .appearance label { display: inline-flex; align-items: center; gap: 0.3rem; }
+  .appearance .typo-value { font-variant-numeric: tabular-nums; min-width: 2.5rem; }
+  .appearance hr {
+    border: 0;
+    border-left: 1px solid var(--border);
+    align-self: stretch;
+    margin: 0 0.2rem;
+  }
   .theme-vars {
     font-family: ui-monospace, monospace;
     font-size: 0.7rem;
@@ -336,6 +344,41 @@
           bg <input type="color" id="custom-bg" value="#102030">
           text <input type="color" id="custom-fg" value="#c8d2dc">
         </label>
+        <hr>
+        <label>Font
+          <select id="font-family-select">
+            <option value="">Publisher</option>
+            <option value="Georgia, serif">Georgia</option>
+            <option value="'Times New Roman', serif">Times</option>
+            <option value="system-ui, sans-serif">System</option>
+            <option value="'Courier New', monospace">Mono</option>
+          </select>
+        </label>
+        <label>Size
+          <input type="range" id="font-size-range" min="12" max="32" step="1" value="18">
+          <span id="font-size-value" class="typo-value">18px</span>
+        </label>
+        <label>Line
+          <input type="range" id="line-height-range" min="1.1" max="2.2" step="0.1" value="1.5">
+          <span id="line-height-value" class="typo-value">1.5</span>
+        </label>
+        <label>Margin
+          <input type="range" id="margin-range" min="0" max="120" step="8" value="40">
+          <span id="margin-value" class="typo-value">40px</span>
+        </label>
+        <label>Align
+          <select id="text-align-select">
+            <option value="start">Ragged</option>
+            <option value="justify">Justify</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="hyphenate-toggle"> Hyphenate</label>
+        <label>Columns
+          <select id="columns-select">
+            <option value="1">1</option>
+            <option value="2">2</option>
+          </select>
+        </label>
         <span id="theme-vars" class="theme-vars" title="the resolved --wr-* variable set"></span>
       </div>
       <p id="input-hint" class="input-hint">
@@ -376,7 +419,7 @@
   import { open } from '/src/core/index.ts';
   import { epub } from '/src/formats/index.ts';
   import { render } from '/src/reader/index.ts';
-  import { ContentHost, resolveThemeProperties } from '/src/view/index.ts';
+  import { ContentHost, resolveThemeProperties, resolveTypographyProperties } from '/src/view/index.ts';
 
   const input = document.querySelector('#book-input');
   const errorEl = document.querySelector('#error');
@@ -411,6 +454,16 @@
   const customFieldsEl = document.querySelector('#custom-fields');
   const customBgEl = document.querySelector('#custom-bg');
   const customFgEl = document.querySelector('#custom-fg');
+  const fontFamilyEl = document.querySelector('#font-family-select');
+  const fontSizeEl = document.querySelector('#font-size-range');
+  const fontSizeValueEl = document.querySelector('#font-size-value');
+  const lineHeightEl = document.querySelector('#line-height-range');
+  const lineHeightValueEl = document.querySelector('#line-height-value');
+  const marginEl = document.querySelector('#margin-range');
+  const marginValueEl = document.querySelector('#margin-value');
+  const textAlignEl = document.querySelector('#text-align-select');
+  const hyphenateEl = document.querySelector('#hyphenate-toggle');
+  const columnsEl = document.querySelector('#columns-select');
   const themeVarsEl = document.querySelector('#theme-vars');
   const roundtripEl = document.querySelector('#roundtrip');
   const selectionEl = document.querySelector('#selection');
@@ -505,8 +558,8 @@
     violations.length = 0;
   }
 
-  /** The live Appearance from the theme controls: '' → follow the OS. */
-  function currentAppearance() {
+  /** The live theme half of the Appearance: '' → follow the OS. */
+  function currentTheme() {
     const theme = themeSelectEl.value;
     if (theme === '') return { theme: undefined };
     if (theme === 'custom') {
@@ -518,22 +571,53 @@
     return { theme };
   }
 
-  /** Shows the resolved --wr-* set so the applied theme is observable. */
-  function showThemeVars(appearance) {
-    const resolved = resolveThemeProperties(appearance);
-    themeVarsEl.textContent =
-      resolved === null
-        ? '(following prefers-color-scheme)'
-        : Object.entries(resolved)
-            .map(([name, value]) => `${name}: ${value}`)
-            .join('  ');
+  /** The live typography half of the Appearance from the typography controls. */
+  function currentTypography() {
+    return {
+      fontFamily: fontFamilyEl.value === '' ? undefined : fontFamilyEl.value,
+      fontSize: Number(fontSizeEl.value),
+      lineHeight: Number(lineHeightEl.value),
+      margin: Number(marginEl.value),
+      textAlign: textAlignEl.value,
+      hyphenate: hyphenateEl.checked,
+      columns: Number(columnsEl.value),
+    };
   }
 
-  /** Applies the theme controls to the live reader and reflects the resolved set. */
+  /** The full live Appearance: theme + typography. */
+  function currentAppearance() {
+    return { ...currentTheme(), ...currentTypography() };
+  }
+
+  /** Shows the resolved --wr-* set (theme + typography) so the applied appearance is observable. */
+  function showThemeVars(appearance) {
+    const theme = resolveThemeProperties(appearance);
+    const typography = resolveTypographyProperties(appearance);
+    const parts = [];
+    if (theme === null) parts.push('(following prefers-color-scheme)');
+    else for (const [name, value] of Object.entries(theme)) parts.push(`${name}: ${value}`);
+    if (typography !== null) for (const [name, value] of Object.entries(typography)) parts.push(`${name}: ${value}`);
+    if (appearance.margin !== undefined) parts.push(`margin: ${appearance.margin}px`);
+    themeVarsEl.textContent = parts.join('  ');
+  }
+
+  /** Reflects the slider values in their readouts. */
+  function showTypographyValues() {
+    fontSizeValueEl.textContent = `${fontSizeEl.value}px`;
+    lineHeightValueEl.textContent = Number(lineHeightEl.value).toFixed(1);
+    marginValueEl.textContent = `${marginEl.value}px`;
+  }
+
+  /**
+   * Applies the theme + typography controls to the live reader and reflects the
+   * resolved set. A reflowing knob (size / line / margin / columns) preserves the
+   * reading place across the re-layout, exactly like a mode switch.
+   */
   function applyAppearance() {
     if (reader === null) return;
     const appearance = currentAppearance();
-    customFieldsEl.hidden = appearance.theme !== 'custom';
+    customFieldsEl.hidden = themeSelectEl.value !== 'custom';
+    showTypographyValues();
     showThemeVars(appearance);
     void reader.setAppearance(appearance);
   }
@@ -764,10 +848,12 @@
     // passes no `input` option so the facade wires all three straight into the
     // frame's forwarded gestures. Nothing here disables them; the reader is
     // operable by hand the moment its frame has focus.
-    reader = render(book, readerEl, { mode: 'paginated' });
-    // Reflect the initial (follow-the-OS) theme in the variable readout; a picker
-    // change calls reader.setAppearance live and re-shows the resolved set.
+    // The typography controls seed the opening render (applied at first paint, not
+    // merely retained); a control change then calls reader.setAppearance live.
+    reader = render(book, readerEl, { mode: 'paginated', ...currentAppearance() });
+    // Reflect the initial appearance (theme + typography) in the readout.
     customFieldsEl.hidden = themeSelectEl.value !== 'custom';
+    showTypographyValues();
     showThemeVars(currentAppearance());
     // Surface the input affordances and orient the tap-zone labels to the book's
     // reading direction: in RTL the left edge is the *next* page, the right the
@@ -830,12 +916,22 @@
     void reader.setMode(scrolledToggleEl.checked ? 'scrolled' : 'paginated');
   });
 
-  // A live theme change: setAppearance holds the reading place and repaints the
-  // content in the sandboxed frame. The variable readout makes the applied theme
+  // A live appearance change: setAppearance holds the reading place and repaints
+  // the content in the sandboxed frame. A colour knob repaints in place; a
+  // reflowing typography knob (size / line / margin / columns) re-lays out and
+  // restores the reading place by content anchor — so the page keeps its place
+  // across a font-size change. The variable readout makes the applied appearance
   // observable, the way the sanitizer report makes sanitization observable.
   themeSelectEl.addEventListener('change', applyAppearance);
   customBgEl.addEventListener('input', applyAppearance);
   customFgEl.addEventListener('input', applyAppearance);
+  fontFamilyEl.addEventListener('change', applyAppearance);
+  fontSizeEl.addEventListener('input', applyAppearance);
+  lineHeightEl.addEventListener('input', applyAppearance);
+  marginEl.addEventListener('input', applyAppearance);
+  textAlignEl.addEventListener('change', applyAppearance);
+  hyphenateEl.addEventListener('change', applyAppearance);
+  columnsEl.addEventListener('change', applyAppearance);
 
   /**
    * Streams hits for `query` from reader.search into the results list as sections are

@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  isReflowingUpdate,
   mergeAppearance,
   resolveThemeProperties,
+  resolveTypographyProperties,
   THEMES,
   themeStyleSheet,
   type Appearance,
 } from '../src/view/appearance.ts';
+import { asHostMessage, PROTOCOL_VERSION } from '../src/view/protocol.ts';
 
 /**
  * Headless unit tests for the appearance system's pure logic: appearance-state
@@ -116,4 +119,116 @@ test('themeStyleSheet with no theme emits only the OS-driven defaults (no forced
   assert.ok(css.endsWith('}}'), 'an unforced theme must end at the media block');
   const afterMedia = css.slice(css.indexOf('@media'));
   assert.equal((afterMedia.match(/:root\{/g) ?? []).length, 1, 'only the media :root, no forced one');
+});
+
+// --- Typography half -------------------------------------------------------
+
+test('resolveTypographyProperties returns null when no typography knob is set', () => {
+  assert.equal(resolveTypographyProperties({}), null);
+  assert.equal(resolveTypographyProperties({ theme: 'dark' }), null);
+});
+
+test('resolveTypographyProperties maps each knob to its --wr-* variable', () => {
+  const vars = resolveTypographyProperties({
+    fontFamily: 'Georgia, serif',
+    fontSize: 18,
+    lineHeight: 1.6,
+    textAlign: 'justify',
+    hyphenate: true,
+    columns: 2,
+  });
+  assert.deepEqual(vars, {
+    '--wr-font-family': 'Georgia, serif',
+    '--wr-font-size': '18px',
+    '--wr-line-height': '1.6',
+    '--wr-text-align': 'justify',
+    '--wr-hyphens': 'auto',
+    '--wr-column-count': '2',
+  });
+});
+
+test('justify:true folds into text-align:justify; justify:false into start', () => {
+  assert.equal(resolveTypographyProperties({ justify: true })!['--wr-text-align'], 'justify');
+  assert.equal(resolveTypographyProperties({ justify: false })!['--wr-text-align'], 'start');
+});
+
+test('an explicit textAlign wins over justify', () => {
+  const vars = resolveTypographyProperties({ justify: true, textAlign: 'start' });
+  assert.equal(vars!['--wr-text-align'], 'start');
+});
+
+test('hyphenate:false maps to hyphens:manual', () => {
+  assert.equal(resolveTypographyProperties({ hyphenate: false })!['--wr-hyphens'], 'manual');
+});
+
+test('themeStyleSheet forces the typography knobs on the content root, !important', () => {
+  const css = themeStyleSheet({ theme: 'light', fontSize: 20, justify: true, hyphenate: true });
+  // The reader's own values are pinned on the content root at id specificity with
+  // !important — the same cascade device the surface guarantee uses — so a hostile
+  // publisher rule cannot clobber the chosen typography on the reading surface.
+  assert.match(css, /#wolfyreader-content\{[^}]*font-size:var\(--wr-font-size\) !important/);
+  assert.match(css, /#wolfyreader-content\{[^}]*text-align:var\(--wr-text-align\) !important/);
+  assert.match(css, /hyphens:var\(--wr-hyphens\) !important/);
+  // The variables themselves are declared at :root (publisher CSS never names them).
+  assert.match(css, /--wr-font-size:20px/);
+});
+
+test('column-count is not put in the stylesheet (it is per-chunk, applied frame-side)', () => {
+  const css = themeStyleSheet({ columns: 2 });
+  assert.doesNotMatch(css, /column-count/);
+});
+
+test('a colour-only appearance emits no typography guarantee block', () => {
+  const css = themeStyleSheet({ theme: 'dark' });
+  assert.doesNotMatch(css, /#wolfyreader-content\{[^}]*font-/);
+});
+
+test('isReflowingUpdate: reflowing knobs are detected, a theme-only update is not', () => {
+  assert.equal(isReflowingUpdate({ theme: 'dark' }), false);
+  assert.equal(isReflowingUpdate({ customProperties: { '--wr-color': '#000' } }), false);
+  assert.equal(isReflowingUpdate({ fontSize: 18 }), true);
+  assert.equal(isReflowingUpdate({ fontFamily: 'serif' }), true);
+  assert.equal(isReflowingUpdate({ lineHeight: 1.5 }), true);
+  assert.equal(isReflowingUpdate({ margin: 24 }), true);
+  assert.equal(isReflowingUpdate({ columns: 2 }), true);
+  assert.equal(isReflowingUpdate({ textAlign: 'justify' }), true);
+  assert.equal(isReflowingUpdate({ justify: true }), true);
+  assert.equal(isReflowingUpdate({ hyphenate: true }), true);
+});
+
+test('margin is a reflowing knob but emits no --wr-* variable (it is columnGap)', () => {
+  assert.equal(resolveTypographyProperties({ margin: 24 }), null);
+  const merged = mergeAppearance({ fontSize: 16 }, { margin: 24 });
+  assert.equal(merged.margin, 24);
+  assert.equal(merged.fontSize, 16);
+});
+
+test('mergeAppearance carries the typography fields and lets an update win per field', () => {
+  const base: Appearance = { theme: 'dark', fontSize: 16, columns: 1, justify: false };
+  const merged = mergeAppearance(base, { fontSize: 22, columns: 2 });
+  assert.equal(merged.theme, 'dark', 'theme survives an unrelated update');
+  assert.equal(merged.fontSize, 22, 'the update overrides fontSize');
+  assert.equal(merged.columns, 2, 'the update overrides columns');
+  assert.equal(merged.justify, false, 'an omitted field keeps the base value');
+});
+
+test('asHostMessage accepts a paginate carrying the columnCount field, rejects it missing', () => {
+  const options = {
+    mode: 'paginated',
+    pageWidth: 800,
+    pageHeight: 600,
+    columnGap: 40,
+    chunkChars: 8000,
+    windowChunks: 2,
+    columnCount: 2,
+  };
+  const accepted = asHostMessage({ v: PROTOCOL_VERSION, type: 'paginate', id: 1, options });
+  assert.ok(accepted !== null && accepted.type === 'paginate', 'a paginate with columnCount must validate');
+  assert.equal(accepted.options.columnCount, 2);
+  const { columnCount: _drop, ...without } = options;
+  assert.equal(
+    asHostMessage({ v: PROTOCOL_VERSION, type: 'paginate', id: 1, options: without }),
+    null,
+    'a paginate missing columnCount must be rejected',
+  );
 });

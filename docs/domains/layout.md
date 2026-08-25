@@ -48,10 +48,23 @@ UTF-16 code units — so the paginator converts between them with `Intl.Segmente
 Public surface consumed by the facade (M2-4): `paginate(section, request?)`,
 `relayout`, `switchMode(mode)`, `refine`, `goToPage`/`nextPage`/`previousPage`,
 `positionOfPage`/`pageOfPosition`, `chapterProgress`/`bookProgress`,
-`diagnostics`, `sectionText`, `destroy`, plus the `host`/`section`/`options`/
-`state`/`page` getters. Defaults: paginated mode, `chunkChars` 8000,
-`windowChunks` 2, `columnGap` 40, page size from the container's
+`setThemeCss(css)` / `applyAppearance(css, geometry)`, `diagnostics`,
+`sectionText`, `destroy`, plus the `host`/`section`/`options`/`state`/`page`
+getters. Defaults: paginated mode, `chunkChars` 8000, `windowChunks` 2,
+`columnGap` 40, `columnCount` 1, page size from the container's
 `clientWidth`/`clientHeight`.
+
+**Appearance-driven re-layout reuses the mode-switch machinery.** A live
+appearance change lands through one of two entries. `setThemeCss(css)` handles a
+colour-only theme: geometry is invariant, so it captures a `Position`,
+re-assembles, and restores the *exact* page. `applyAppearance(css, { columnCount,
+columnGap })` handles a reflowing typography knob (font/size/line-height/margin/
+columns): geometry changes, so it reuses the exact capture → re-layout → resolve →
+restore path that `switchMode` uses (shared as `#reapply`), restoring the
+*nearest* anchor page. `PaginateRequest`/`resolveOptions` carry `columnCount`
+(1 or 2) through to `PaginateOptions`, and the frame splits each per-chunk
+multi-column context into that many columns per page — `stride()` advances by N
+column strides so a page paints N columns at once.
 
 ## Verdict (carried from the M2-1 prototype)
 
@@ -93,12 +106,16 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   forces a full relayout that measures every chunk and firms the count
   (`firm === true`). Callers surface `firm` so the churn is visible rather than
   presented as precise. See "Estimated-page-count churn" below.
-- **2026-08-25 — Protocol versioning: `PROTOCOL_VERSION = 2`, hand-maintained.**
-  The message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/`pageOfOffset`/
-  `sectionText`/`diagnostics` and their replies) is typed and validated on both
-  sides. The frame's copy of the host-message validator lives in a template string
-  in `frame.ts` (it cannot import), so `protocol.ts` and that copy are kept in step
-  by hand; any change bumps the version and edits both.
+- **2026-08-25 — Protocol versioning: hand-maintained, now at `PROTOCOL_VERSION =
+  8`.** The layout message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/
+  `pageOfOffset`/`sectionText`/`diagnostics` and their replies) is typed and
+  validated on both sides; the wire is shared with the reader facade, which grew the
+  version well past the layout-only `2` (link/input/selection/image-tap; see
+  [`view.md`](view.md)). The typography half added one *field*, `columnCount` on
+  `PaginateOptions`, taking it to `8`. The frame's copy of the host-message
+  validator lives in a template string in `frame.ts` (it cannot import), so
+  `protocol.ts` and that `validateHost` copy are kept in step by hand; any change
+  bumps the version and edits both.
 - **Each chunk is its own multi-column context, absolutely positioned.** Forced by
   layout containment (Gotchas). Every chunk boundary is a forced page break —
   accepted, and it is what the page-count cost below buys.

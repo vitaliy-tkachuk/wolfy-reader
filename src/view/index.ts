@@ -7,5 +7,18 @@ export { applyResources, ResourceRegistry, UNRESOLVABLE_URL } from './resources.
 export type { ReferenceResolver, ResourceSummary } from './resources.ts';
 export { sanitizeSection } from './sanitize.ts';
 export type { RemovalCount, SanitizationSummary, SanitizedSection } from './sanitize.ts';
-export { mergeAppearance, resolveThemeProperties, THEMES, themeStyleSheet } from './appearance.ts';
-export type { Appearance, ThemeName, ThemeVariables } from './appearance.ts';
+export {
+  isReflowingUpdate,
+  mergeAppearance,
+  resolveThemeProperties,
+  resolveTypographyProperties,
+  THEMES,
+  themeStyleSheet,
+} from './appearance.ts';
+export type {
+  Appearance,
+  TextAlign,
+  ThemeName,
+  ThemeVariables,
+  TypographyVariables,
+} from './appearance.ts';
