@@ -21,6 +21,12 @@ import type { Book, Position, ReadingDirection, Section, TocItem } from '../core
 import { parsePosition } from '../core/index.ts';
 import { Paginator, type BookProgress, type LayoutMode } from '../layout/index.ts';
 import {
+  mergeAppearance,
+  themeStyleSheet,
+  type Appearance,
+  type ThemeName,
+} from '../view/appearance.ts';
+import {
   keyIntent,
   swipeIntent,
   tapIntent,
@@ -30,27 +36,37 @@ import {
 } from './input.ts';
 
 export type { InputConfig, TapZones } from './input.ts';
+export type { Appearance, ThemeName } from '../view/appearance.ts';
 
 /**
  * Appearance and layout options for {@link render}. All optional. `mode` selects
- * paginated (default) or scrolled layout. The appearance fields are passed
- * through to the paginator where they map today and otherwise retained for the
- * M3 appearance system; nothing here builds that system.
+ * paginated (default) or scrolled layout. The theme fields drive the appearance
+ * system (applied at the first render); the typography fields are retained for
+ * its typography half and not applied yet.
  */
 export interface ReaderOptions {
   /** 'paginated' (default) or 'scrolled'. */
   readonly mode?: LayoutMode;
-  /** Retained for the M3 appearance system; not applied yet. */
-  readonly theme?: string;
-  /** Retained for the M3 appearance system; not applied yet. */
+  /**
+   * The theme applied to content: `'light' | 'dark' | 'sepia' | 'custom'`. Omit
+   * to follow the OS (`prefers-color-scheme`); a named theme overrides it. Change
+   * it live with {@link Reader.setAppearance}.
+   */
+  readonly theme?: ThemeName;
+  /**
+   * Bespoke `--wr-*` CSS custom properties, merged over the resolved theme. The
+   * escape hatch for a custom theme; keys may omit the leading `--`.
+   */
+  readonly customProperties?: Readonly<Record<string, string>>;
+  /** Retained for the appearance system's typography half; not applied yet. */
   readonly fontSize?: number;
-  /** Retained for the M3 appearance system; not applied yet. */
+  /** Retained for the appearance system's typography half; not applied yet. */
   readonly fontFamily?: string;
-  /** Retained for the M3 appearance system; not applied yet. */
+  /** Retained for the appearance system's typography half; not applied yet. */
   readonly lineHeight?: number;
   /** Column gap in CSS px, passed through to the paginator. */
   readonly margin?: number;
-  /** Number of text columns; retained for the M3 appearance system. */
+  /** Number of text columns; retained for the appearance system's typography half. */
   readonly columns?: number;
   /** Where to open. Any {@link GoToTarget}; defaults to the book's start. */
   readonly start?: GoToTarget;
@@ -138,6 +154,13 @@ export interface Reader {
   back(): Promise<void>;
   /** Switch paginated↔scrolled without reload, preserving the reading position. */
   setMode(mode: LayoutMode): Promise<void>;
+  /**
+   * Update the live appearance (theme colours / background) without losing the
+   * reading place. Partial: only the fields present in `appearance` change;
+   * `customProperties` shallow-merges over the current set. A colour/background
+   * change repaints the current page in place — no text reflow.
+   */
+  setAppearance(appearance: Appearance): Promise<void>;
   /** A synchronous snapshot of the current place in the book. */
   readonly position: ReaderPosition;
   /** The layout mode currently in effect. */
@@ -214,6 +237,8 @@ class ReaderImpl implements Reader {
   #mode: LayoutMode;
   #destroyed = false;
   #ready = false;
+  /** Live appearance state (theme half). Merged by {@link setAppearance}. */
+  #appearance: Appearance;
   /** Reading direction; drives the RTL flip in every input mode. */
   readonly #direction: ReadingDirection;
   /** Resolved input config: which modes are on and the tap-zone geometry. */
@@ -233,7 +258,16 @@ class ReaderImpl implements Reader {
     this.#keyboard = input.keyboard ?? true;
     this.#swipe = input.swipe ?? true;
     this.#tapZones = input.tapZones === false ? null : (input.tapZones ?? {});
+    // Seed the live appearance from the options. Only keys that were supplied are
+    // carried — `exactOptionalPropertyTypes` keeps "follow the OS" (theme absent)
+    // distinct from a forced theme.
+    this.#appearance = {};
+    if (options.theme !== undefined) this.#appearance = { ...this.#appearance, theme: options.theme };
+    if (options.customProperties !== undefined) {
+      this.#appearance = { ...this.#appearance, customProperties: options.customProperties };
+    }
     this.#paginator = new Paginator(element, {
+      themeCss: themeStyleSheet(this.#appearance),
       onLinkClick: (href) => {
         void this.#onLinkClick(href);
       },
@@ -298,6 +332,10 @@ class ReaderImpl implements Reader {
 
   setMode(mode: LayoutMode): Promise<void> {
     return this.#run(() => this.#setMode(mode));
+  }
+
+  setAppearance(appearance: Appearance): Promise<void> {
+    return this.#run(() => this.#setAppearance(appearance));
   }
 
   destroy(): void {
@@ -630,6 +668,27 @@ class ReaderImpl implements Reader {
     // so position is preserved across the switch (M1-2 machinery).
     await this.#paginator.switchMode(mode);
     this.#mode = mode;
+    this.#emit('positionchange', this.#snapshot());
+  }
+
+  // --- appearance -----------------------------------------------------------
+
+  /**
+   * Merges `appearance` over the live state, rebuilds the theme stylesheet, and
+   * applies it to the current section preserving the reading place. The paginator
+   * captures a `Position`, re-assembles the srcdoc with the new theme, and seeks
+   * back to the anchor page; a theme is colours + background only, so geometry is
+   * invariant and the exact page is restored — the content repaints, the text does
+   * not reflow. A no-op stylesheet change short-circuits inside the paginator.
+   * Before the first paint it records the appearance for the opening render.
+   */
+  async #setAppearance(appearance: Appearance): Promise<void> {
+    this.#appearance = mergeAppearance(this.#appearance, appearance);
+    const css = themeStyleSheet(this.#appearance);
+    await this.#paginator.setThemeCss(css);
+    if (this.#destroyed) return;
+    // The theme change does not move the reader; positionchange lets a host
+    // refresh anything keyed on the settled state (parity with setMode).
     this.#emit('positionchange', this.#snapshot());
   }
 

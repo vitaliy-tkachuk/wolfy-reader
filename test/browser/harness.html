@@ -331,6 +331,38 @@
       return reader.position;
     },
 
+    /** Applies a live appearance change; resolves once it settles. */
+    async readerSetAppearance(appearance) {
+      await reader.setAppearance(appearance);
+      return reader.position;
+    },
+
+    /**
+     * Renders a single synthetic section straight through the facade, so a
+     * hostile-CSS or bespoke fixture can be themed without a corpus book. Resolves
+     * once `ready` fires. Returns the initial position.
+     */
+    async createReaderWithSection(spec, options = {}) {
+      if (reader !== null) reader.destroy();
+      readerEvents = [];
+      const section = syntheticSection(spec);
+      const oneSectionBook = {
+        metadata: {},
+        toc: [],
+        sections: [section],
+        section: () => section,
+        direction: spec.direction,
+      };
+      reader = render(oneSectionBook, stage, options);
+      await new Promise((done) => {
+        const off = reader.on('ready', () => {
+          off();
+          done();
+        });
+      });
+      return reader.position;
+    },
+
     destroyReader() {
       if (reader !== null) reader.destroy();
       reader = null;

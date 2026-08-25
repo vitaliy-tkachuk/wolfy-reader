@@ -285,6 +285,32 @@ export class Paginator {
     return { ...chapter, sectionIndex, sectionCount, bookFraction, approximate: true };
   }
 
+  /**
+   * Applies a new appearance theme stylesheet (see `themeStyleSheet`) to the
+   * current section, preserving the reading position across the swap. A theme is
+   * colours + background only, so chunk geometry is invariant under it: the same
+   * markup re-lays out to the same page count and the captured `Position` resolves
+   * back to the exact same page — the reader's place is held, not reset to 0 and
+   * not drifted, and the text does not reflow. The theme lives in the srcdoc (not
+   * over the wire), so it re-assembles the document; because geometry is invariant
+   * the anchor page is restored precisely. Before the first `paginate` it only
+   * records the theme for the next render.
+   *
+   * A no-op when the stylesheet is unchanged, so re-issuing the same appearance is
+   * free.
+   */
+  async setThemeCss(themeCss: string | undefined): Promise<void> {
+    if (this.#host.themeCss === themeCss) return;
+    this.#host.setThemeCss(themeCss);
+    if (this.#section === null || this.#options === null) return;
+    const anchor = await this.positionOfPage(this.#page);
+    const state = await this.#host.paginate(this.#section, this.#options);
+    this.#state = state;
+    this.#text = null;
+    const page = await this.pageOfPosition(anchor);
+    await this.goToPage(page >= 0 ? page : 0);
+  }
+
   /** Frame-side counts, for eviction/memory checks. Eviction itself lives in-frame. */
   async diagnostics(): Promise<PaginatorDiagnostics> {
     this.#requireActive();

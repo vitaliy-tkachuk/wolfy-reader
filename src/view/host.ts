@@ -37,6 +37,12 @@ export interface ContentHostOptions {
   readonly onSwipe?: (dx: number, dy: number) => void;
   /** A tap in the frame that was not on a link; carries tap coords + frame viewport size. */
   readonly onTap?: (tap: { x: number; y: number; width: number; height: number }) => void;
+  /**
+   * The appearance theme stylesheet injected at document assembly (see
+   * {@link themeStyleSheet}). Applied to every render; update it live with
+   * {@link ContentHost.setThemeCss} and re-render. Omit for an unthemed frame.
+   */
+  readonly themeCss?: string;
   /** How long the frame has to answer, in milliseconds. Defaults to 10000. */
   readonly timeoutMs?: number;
 }
@@ -82,6 +88,8 @@ export class ContentHost {
   #nextId = 1;
   #generation = 0;
   #destroyed = false;
+  /** The theme stylesheet injected at document assembly; updated live by the facade. */
+  #themeCss: string | undefined;
 
   readonly #receive = (event: MessageEvent): void => {
     // The frame's origin is 'null' under an opaque origin, so origin checking
@@ -132,6 +140,7 @@ export class ContentHost {
 
   constructor(container: HTMLElement, options: ContentHostOptions = {}) {
     this.#options = options;
+    this.#themeCss = options.themeCss;
     const view = container.ownerDocument.defaultView;
     if (view === null) throw new ContentHostError('the container is not in a rendered document');
     this.#window = view;
@@ -152,6 +161,20 @@ export class ContentHost {
 
   async render(section: Section): Promise<RenderReport> {
     return this.#renderSection(section, (document) => document.body.innerHTML);
+  }
+
+  /**
+   * Sets the theme stylesheet injected at the next document assembly. Does not
+   * re-render on its own — the caller re-renders (or re-paginates) to apply it.
+   * The theme lands in the srcdoc, not over the wire, so this changes no protocol.
+   */
+  setThemeCss(themeCss: string | undefined): void {
+    this.#themeCss = themeCss;
+  }
+
+  /** The theme stylesheet currently applied to renders, or `undefined`. */
+  get themeCss(): string | undefined {
+    return this.#themeCss;
   }
 
   /**
@@ -200,6 +223,7 @@ export class ContentHost {
         bodyHtml: buildBody(sanitized.document),
         nonce: createNonce(),
         hostOrigin: this.#targetOrigin(),
+        ...(this.#themeCss !== undefined ? { themeCss: this.#themeCss } : {}),
       }),
     );
     this.#checkGeneration(generation);

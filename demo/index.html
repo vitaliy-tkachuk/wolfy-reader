@@ -175,6 +175,23 @@
   .pager button:disabled { color: var(--muted); cursor: default; opacity: 0.6; }
   .page-status { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 12rem; }
   .mode-toggle { margin-left: auto; color: var(--muted); cursor: pointer; }
+  .appearance {
+    display: none;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .appearance select, .appearance input[type="color"] { font: inherit; }
+  .appearance .custom-fields[hidden] { display: none; }
+  .theme-vars {
+    font-family: ui-monospace, monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
   .input-hint {
     display: none;
     margin: 0 0 0.5rem;
@@ -263,6 +280,22 @@
         <button type="button" id="back" disabled title="Back to the pre-jump position">↩ Back</button>
         <label class="mode-toggle"><input type="checkbox" id="scrolled-toggle"> Scrolled mode</label>
       </div>
+      <div id="appearance" class="appearance">
+        <label>Theme
+          <select id="theme-select">
+            <option value="">Follow OS</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="sepia">Sepia</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <label class="custom-fields" id="custom-fields" hidden>
+          bg <input type="color" id="custom-bg" value="#102030">
+          text <input type="color" id="custom-fg" value="#c8d2dc">
+        </label>
+        <span id="theme-vars" class="theme-vars" title="the resolved --wr-* variable set"></span>
+      </div>
       <p id="input-hint" class="input-hint">
         Turn pages by hand: <kbd>←</kbd> <kbd>→</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd>,
         <kbd>Home</kbd>/<kbd>End</kbd> jump to the book's start/end; swipe on touch;
@@ -296,7 +329,7 @@
   import { open } from '/src/core/index.ts';
   import { epub } from '/src/formats/index.ts';
   import { render } from '/src/reader/index.ts';
-  import { ContentHost } from '/src/view/index.ts';
+  import { ContentHost, resolveThemeProperties } from '/src/view/index.ts';
 
   const input = document.querySelector('#book-input');
   const errorEl = document.querySelector('#error');
@@ -323,6 +356,12 @@
   const backEl = document.querySelector('#back');
   const pageStatusEl = document.querySelector('#page-status');
   const scrolledToggleEl = document.querySelector('#scrolled-toggle');
+  const appearanceEl = document.querySelector('#appearance');
+  const themeSelectEl = document.querySelector('#theme-select');
+  const customFieldsEl = document.querySelector('#custom-fields');
+  const customBgEl = document.querySelector('#custom-bg');
+  const customFgEl = document.querySelector('#custom-fg');
+  const themeVarsEl = document.querySelector('#theme-vars');
   const roundtripEl = document.querySelector('#roundtrip');
   const reportEl = document.querySelector('#report');
   const reportFields = {
@@ -395,9 +434,43 @@
     inputHintEl.style.display = 'none';
     tapZonesEl.style.display = 'none';
     pagerEl.style.display = 'none';
+    appearanceEl.style.display = 'none';
     roundtripEl.style.display = 'none';
     reportEl.style.display = 'none';
     violations.length = 0;
+  }
+
+  /** The live Appearance from the theme controls: '' → follow the OS. */
+  function currentAppearance() {
+    const theme = themeSelectEl.value;
+    if (theme === '') return { theme: undefined };
+    if (theme === 'custom') {
+      return {
+        theme: 'custom',
+        customProperties: { '--wr-background': customBgEl.value, '--wr-color': customFgEl.value },
+      };
+    }
+    return { theme };
+  }
+
+  /** Shows the resolved --wr-* set so the applied theme is observable. */
+  function showThemeVars(appearance) {
+    const resolved = resolveThemeProperties(appearance);
+    themeVarsEl.textContent =
+      resolved === null
+        ? '(following prefers-color-scheme)'
+        : Object.entries(resolved)
+            .map(([name, value]) => `${name}: ${value}`)
+            .join('  ');
+  }
+
+  /** Applies the theme controls to the live reader and reflects the resolved set. */
+  function applyAppearance() {
+    if (reader === null) return;
+    const appearance = currentAppearance();
+    customFieldsEl.hidden = appearance.theme !== 'custom';
+    showThemeVars(appearance);
+    void reader.setAppearance(appearance);
   }
 
   function chips(target, entries, kind) {
@@ -621,11 +694,16 @@
       onError: () => {},
     });
     pagerEl.style.display = 'flex';
+    appearanceEl.style.display = 'flex';
     // Built-in input (keyboard / swipe / tap zones) is on by default — the demo
     // passes no `input` option so the facade wires all three straight into the
     // frame's forwarded gestures. Nothing here disables them; the reader is
     // operable by hand the moment its frame has focus.
     reader = render(book, readerEl, { mode: 'paginated' });
+    // Reflect the initial (follow-the-OS) theme in the variable readout; a picker
+    // change calls reader.setAppearance live and re-shows the resolved set.
+    customFieldsEl.hidden = themeSelectEl.value !== 'custom';
+    showThemeVars(currentAppearance());
     // Surface the input affordances and orient the tap-zone labels to the book's
     // reading direction: in RTL the left edge is the *next* page, the right the
     // previous, so the overlay labels swap to match the facade's RTL flip.
@@ -674,6 +752,13 @@
     // The facade re-lays the section in the new mode and holds the place (M1-2).
     void reader.setMode(scrolledToggleEl.checked ? 'scrolled' : 'paginated');
   });
+
+  // A live theme change: setAppearance holds the reading place and repaints the
+  // content in the sandboxed frame. The variable readout makes the applied theme
+  // observable, the way the sanitizer report makes sanitization observable.
+  themeSelectEl.addEventListener('change', applyAppearance);
+  customBgEl.addEventListener('input', applyAppearance);
+  customFgEl.addEventListener('input', applyAppearance);
 
   input.addEventListener('change', async () => {
     const file = input.files?.[0];

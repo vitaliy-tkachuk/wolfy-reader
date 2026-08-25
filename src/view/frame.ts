@@ -592,12 +592,24 @@ export interface FrameDocumentParts {
   readonly bodyHtml: string;
   readonly nonce: string;
   readonly hostOrigin: string;
+  /**
+   * The appearance theme stylesheet ({@link themeStyleSheet}). Injected before
+   * the publisher's `headHtml` so its cascade layer loses specificity fights on
+   * the properties the book sets, while the theme variables it declares stay
+   * unreachable by publisher CSS. Omit for an unthemed document.
+   */
+  readonly themeCss?: string;
 }
 
 export function assembleFrameDocument(parts: FrameDocumentParts): string {
   // The coordination script sits in the head, before any content, so violations
   // raised while the body is still parsing are already being listened for. It
   // announces readiness on DOMContentLoaded, not on evaluation.
+  //
+  // The theme stylesheet follows the minimal reset and precedes the publisher's
+  // headHtml: its `@layer` is declared first so book styles outrank it on their
+  // own properties, but the `--wr-*` variables it defines are names the book does
+  // not know and cannot clobber.
   return [
     '<!doctype html>',
     '<html>',
@@ -606,6 +618,7 @@ export function assembleFrameDocument(parts: FrameDocumentParts): string {
     '<meta charset="utf-8">',
     `<script nonce="${parts.nonce}">${coordinationScript(parts.hostOrigin)}</script>`,
     `<style>${RESET_CSS}</style>`,
+    ...(parts.themeCss !== undefined && parts.themeCss !== '' ? [`<style>${parts.themeCss}</style>`] : []),
     parts.headHtml,
     '</head>',
     '<body>',
