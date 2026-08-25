@@ -103,6 +103,33 @@
   nav.side button.active { background: #e4ecf7; font-weight: 600; }
   .section-note { color: var(--muted); font-size: 0.75rem; }
   .empty-note { color: var(--muted); font-style: italic; }
+  #search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font: inherit;
+  }
+  .search-status { color: var(--muted); font-size: 0.75rem; margin: 0.35rem 0 0; }
+  .search-results { list-style: none; margin: 0.35rem 0 0; padding: 0; }
+  .search-results li { margin: 0; }
+  .search-results button {
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: none;
+    padding: 0.3rem 0.4rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: inherit;
+  }
+  .search-results button:hover { background: #eef3fa; }
+  .search-results .hit-term { font-weight: 600; }
+  .search-results .hit-where { color: var(--muted); font-size: 0.7rem; }
   main.pane { flex: 1; min-width: 0; }
   #reader-label { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.35rem; font-family: ui-monospace, monospace; }
   #reader {
@@ -277,6 +304,12 @@
       <div id="toc"></div>
       <h2>Reading order</h2>
       <div id="reading-order"></div>
+      <h2>Search</h2>
+      <div id="search">
+        <input type="search" id="search-input" placeholder="Search the whole book…" autocomplete="off">
+        <p id="search-status" class="search-status"></p>
+        <ul id="search-results" class="search-results"></ul>
+      </div>
     </nav>
     <main class="pane">
       <p id="reader-label"></p>
@@ -355,6 +388,9 @@
   const badgesEl = document.querySelector('#badges');
   const tocEl = document.querySelector('#toc');
   const orderEl = document.querySelector('#reading-order');
+  const searchInputEl = document.querySelector('#search-input');
+  const searchStatusEl = document.querySelector('#search-status');
+  const searchResultsEl = document.querySelector('#search-results');
   const readerLabelEl = document.querySelector('#reader-label');
   const readerEl = document.querySelector('#reader');
   const inputHintEl = document.querySelector('#input-hint');
@@ -401,6 +437,11 @@
   let reporter = null;
   let reporterHostEl = null;
   let backStackDepth = 0;
+  // Bumped on every new query so an in-flight streaming scan for a stale query stops
+  // appending — the async iterator is abandoned (its generator cleans up on the next
+  // GC / the loop simply stops consuming).
+  let searchGeneration = 0;
+  let searchDebounce = 0;
   let sectionButtons = new Map();
   let activeButton = null;
   const violations = [];
@@ -443,6 +484,10 @@
       reporterHostEl = null;
     }
     backStackDepth = 0;
+    searchGeneration += 1;
+    searchInputEl.value = '';
+    searchStatusEl.textContent = '';
+    searchResultsEl.replaceChildren();
     sectionButtons = new Map();
     activeButton = null;
     readerEl.replaceChildren();
@@ -790,6 +835,64 @@
   themeSelectEl.addEventListener('change', applyAppearance);
   customBgEl.addEventListener('input', applyAppearance);
   customFgEl.addEventListener('input', applyAppearance);
+
+  /**
+   * Streams hits for `query` from reader.search into the results list as sections are
+   * scanned — the list grows live, before the whole book is scanned, which is the
+   * streaming guarantee made visible. Each row jumps to its hit's Position on click.
+   * A newer query (or a reset) bumps searchGeneration and this loop stops appending.
+   */
+  async function runSearch(query) {
+    const generation = searchGeneration;
+    searchResultsEl.replaceChildren();
+    if (reader === null || query.trim() === '') {
+      searchStatusEl.textContent = '';
+      return;
+    }
+    searchStatusEl.textContent = 'searching…';
+    let count = 0;
+    try {
+      for await (const hit of reader.search(query)) {
+        if (generation !== searchGeneration) return; // superseded — stop consuming
+        count += 1;
+        searchResultsEl.append(searchRow(hit));
+        searchStatusEl.textContent = `${count} hit${count === 1 ? '' : 's'} so far…`;
+      }
+      if (generation === searchGeneration) {
+        searchStatusEl.textContent = count === 0 ? 'no matches' : `${count} hit${count === 1 ? '' : 's'}`;
+      }
+    } catch (err) {
+      if (generation === searchGeneration) searchStatusEl.textContent = `search failed: ${err?.message ?? err}`;
+    }
+  }
+
+  /** A clickable result row: the matched term + context, jumping to the hit on click. */
+  function searchRow(hit) {
+    const row = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    const context = document.createElement('span');
+    context.textContent = hit.context;
+    const where = document.createElement('span');
+    where.className = 'hit-where';
+    const sectionId = book.sections[hit.sectionIndex]?.id ?? `#${hit.sectionIndex + 1}`;
+    where.textContent = ` — in ${sectionId}`;
+    button.append(context, where);
+    // The hit's Position is jumpable: goTo lands on its page. (A visible highlight on
+    // the landed page is a later task — this proves the jump.)
+    button.addEventListener('click', () => {
+      void reader.goTo(hit.position);
+    });
+    row.append(button);
+    return row;
+  }
+
+  searchInputEl.addEventListener('input', () => {
+    searchGeneration += 1; // cancel any in-flight stream immediately
+    const query = searchInputEl.value;
+    window.clearTimeout(searchDebounce);
+    searchDebounce = window.setTimeout(() => void runSearch(query), 180);
+  });
 
   input.addEventListener('change', async () => {
     const file = input.files?.[0];

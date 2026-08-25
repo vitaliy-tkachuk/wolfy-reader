@@ -118,7 +118,7 @@ Two negative duties matter to the paginator: zero-width anchor spans (`<span cla
 
 `render(book, element, options?): Reader` is the public reader — the top of the view stack. It lives in `src/reader`, **outside `src/core`**, because it drives both `src/layout` and `src/view` and core is headless by rule; the PLAN's `book.render(...)` shape is relocated here as a free function (see [`architecture.md`](../architecture.md)). It owns no format vocabulary and never fetches or persists: a `Book` comes in, page geometry comes from one `Paginator` (which it drives, never reaching past into frame geometry), and positions are the headless `Position` model. **Its public surface is frozen under the 0.x contract** — names, event payloads, and firing order are expensive to reverse, so review against the PLAN sketch before changing any of them.
 
-**Surface.** `ReaderOptions { mode?, theme?, customProperties?, fontSize?, fontFamily?, lineHeight?, margin?, columns?, start? }` — `mode` selects `'paginated'` (default) or `'scrolled'`; `margin` maps to the paginator's `columnGap` today; `theme`/`customProperties` drive the appearance theme and are applied at the first render (see [`appearance.md`](appearance.md)); the typography fields (`fontSize`/`fontFamily`/`lineHeight`/`columns`) are retained for the appearance system's typography half and not applied yet; `start` opens somewhere other than the book's beginning (any `GoToTarget`). The returned `Reader` exposes `next/prev` (async, page-then-section roll), `nextSection/prevSection` (async, whole-section jumps, no-op at the ends), `goTo(target)`, `back()`, `setMode(mode)`, `setAppearance(appearance)` (live theme change, position-preserving, routed through the same navigation queue), the synchronous getters `position` and `mode`, `on(event, handler)` (returns an unsubscribe fn), and `destroy()`. `ReaderPosition` is `{ section, progress, chapterProgress, page, totalPages }`, assembled from `Paginator.bookProgress` (progress/chapterProgress/page/totalPages) plus the active section index; before the first paint it reads as all-zero at the current section index.
+**Surface.** `ReaderOptions { mode?, theme?, customProperties?, fontSize?, fontFamily?, lineHeight?, margin?, columns?, start? }` — `mode` selects `'paginated'` (default) or `'scrolled'`; `margin` maps to the paginator's `columnGap` today; `theme`/`customProperties` drive the appearance theme and are applied at the first render (see [`appearance.md`](appearance.md)); the typography fields (`fontSize`/`fontFamily`/`lineHeight`/`columns`) are retained for the appearance system's typography half and not applied yet; `start` opens somewhere other than the book's beginning (any `GoToTarget`). The returned `Reader` exposes `next/prev` (async, page-then-section roll), `nextSection/prevSection` (async, whole-section jumps, no-op at the ends), `goTo(target)`, `back()`, `setMode(mode)`, `setAppearance(appearance)` (live theme change, position-preserving, routed through the same navigation queue), `search(query, options?)` (whole-book full-text search — a lazy async iterator of jumpable hits, off the navigation queue; see Search below), the synchronous getters `position` and `mode`, `on(event, handler)` (returns an unsubscribe fn), and `destroy()`. `ReaderPosition` is `{ section, progress, chapterProgress, page, totalPages }`, assembled from `Paginator.bookProgress` (progress/chapterProgress/page/totalPages) plus the active section index; before the first paint it reads as all-zero at the current section index.
 
 **Navigation is serialized through a promise queue.** Every nav method enqueues its work behind previously-issued calls so overlapping calls settle in issue order; a task failure surfaces as an `error` event and is swallowed so it never breaks the chain, and `destroy` short-circuits the queue. This is the facade's answer to the host refusing a superseded render — callers never have to serialize themselves.
 
@@ -214,5 +214,38 @@ A text selection in the reader surfaces as a first-class `selection` event carry
 **Offset computation.** For each endpoint the frame finds the enclosing `.wolfyreader-chunk` container, sums the `textContent` length of every prior chunk container, then adds the text length from that chunk's start to the endpoint via a `Range` — the same tiling the chunk `data-chunk-start` attributes encode. An endpoint outside a realized chunk container yields `-1` and the selection is dropped. Endpoints are normalized so `start <= end` regardless of selection direction.
 
 **The UTF-16-offset-range↔`Position` bridge.** `Paginator.positionOfOffsetRange(start, end)` captures the anchor at `start` with `capturePosition(text, start, sectionId)` — `capturePosition` takes a UTF-16 offset directly, so no grapheme conversion is needed on the capture leg (the grapheme↔UTF-16 conversion only matters on the *resolve* leg, `pageOfPosition`). Only the `start` anchor is needed to resolve the range back to a page; `end` rides the wire for symmetry and future decoration work. The facade attaches `text` and emits `selection`. Because the `Position` is content-addressed, a host can persist it as a bookmark/highlight anchor and `goTo` it later; it resolves back through the same soft-miss path as any other `Position`.
+
+### Search
+
+`reader.search(query, options?): AsyncIterableIterator<SearchHit>` runs full-text
+search over the whole book and streams hits as sections are scanned. It is the one
+frozen-surface addition since selection. The engine is headless and lives in
+`src/search` (see [`search.md`](search.md)); the facade is a thin delegate to
+`searchBook(book, query, options)`.
+
+- **Hit shape (FROZEN):** `SearchHit = { text, context, position, sectionIndex }` —
+  `text` is the raw matched run; `context` is the match surrounded by neighbouring
+  text, trimmed to whole words at both edges; `position` is a content-addressed
+  `Position`; `sectionIndex` is the 0-based reading-order index.
+- **Streaming guarantee (FROZEN):** the return is a **lazy async iterator**. It
+  yields the first hit before the last section is scanned and never buffers the book
+  whole; stopping early (`break`) halts the scan (no later section is loaded). This is
+  the demo's live, growing hit list.
+- **Jumpable:** `await reader.goTo(hit.position)` lands on the hit's page — the
+  content anchor resolves against the frame-measured section text, the same
+  `Position` machinery as selection and mode-switch restore.
+- **Off the navigation queue and off the frame.** `search` reads section bytes
+  headlessly (decode → strip markup → match) and drives neither the paginator nor the
+  frame, so it composes with reading rather than blocking it; only the consumer's
+  `goTo` enqueues. It does **not** route through `Paginator.sectionText()` — that is
+  the currently-painted section only and needs a browser.
+- **Matching is normalized literal substring** (case-insensitive, NFC, smart-
+  punctuation- and whitespace-folded, diacritics-sensitive); no ranking, fuzzy, or
+  regex. Rendering a *visible highlight* on a landed hit is a separate, later unit
+  (it consumes the decorations API); `search` ships the engine + jumpable hits only.
+
+**Protocol is unchanged (still v6).** Search touches no wire message — the matcher is
+headless and the scan does not cross the frame boundary — so `PROTOCOL_VERSION` stays
+`6`.
 
 **Packaging note.** `package.json` has **no `exports` map yet** — neither the reader subpath nor `core`/`epub`/`layout` are declared, so all are importable by path only (which is what the tests and demo do). Adding a partial map now would break those path imports; the public `exports` map (including the `./reader` subpath) is deferred to a later packaging milestone.

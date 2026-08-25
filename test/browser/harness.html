@@ -336,6 +336,32 @@
       return reader.position;
     },
 
+    /**
+     * Streams up to `limit` hits from reader.search(query), returning each hit's
+     * serialized Position + section index (the Position rebuilds on the host side to
+     * drive goTo). Proves the iterator is consumable across the boundary; laziness
+     * and hit shape are covered headlessly. `limit` guards a runaway scan.
+     */
+    async readerSearch(query, limit = 20) {
+      const hits = [];
+      for await (const hit of reader.search(query)) {
+        hits.push({
+          text: hit.text,
+          context: hit.context,
+          sectionIndex: hit.sectionIndex,
+          serialized: hit.position.serialized,
+        });
+        if (hits.length >= limit) break;
+      }
+      return hits;
+    },
+
+    /** Rebuilds a hit's Position from its serialized string and jumps to it. */
+    async readerGoToSearchHit(serialized) {
+      await reader.goTo(parsePosition(serialized));
+      return reader.position;
+    },
+
     async readerSetMode(mode) {
       await reader.setMode(mode);
       return reader.position;

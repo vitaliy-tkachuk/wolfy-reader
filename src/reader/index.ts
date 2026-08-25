@@ -20,6 +20,7 @@
 import type { Book, Position, ReadingDirection, Section, TocItem } from '../core/index.ts';
 import { parsePosition } from '../core/index.ts';
 import { Paginator, type BookProgress, type LayoutMode } from '../layout/index.ts';
+import { searchBook, type SearchHit, type SearchOptions } from '../search/index.ts';
 import {
   mergeAppearance,
   themeStyleSheet,
@@ -37,6 +38,7 @@ import {
 
 export type { InputConfig, TapZones } from './input.ts';
 export type { Appearance, ThemeName } from '../view/appearance.ts';
+export type { SearchHit, SearchOptions } from '../search/index.ts';
 
 /**
  * Appearance and layout options for {@link render}. All optional. `mode` selects
@@ -174,6 +176,17 @@ export interface Reader {
    * change repaints the current page in place — no text reflow.
    */
   setAppearance(appearance: Appearance): Promise<void>;
+  /**
+   * Full-text search over the whole book. Returns a **lazy async iterator** of
+   * {@link SearchHit}s, streaming each as its section is scanned — the book is never
+   * buffered whole, and stopping early (`break`) halts the scan (no later section is
+   * loaded). Each hit's `position` is jumpable: `await reader.goTo(hit.position)`
+   * lands on its page. Matching is normalized literal substring (case-insensitive,
+   * NFC, smart-punctuation- and whitespace-folded); it does not route through the
+   * frame — sections are decoded and scanned headlessly, independent of what is
+   * painted.
+   */
+  search(query: string, options?: SearchOptions): AsyncIterableIterator<SearchHit>;
   /** A synchronous snapshot of the current place in the book. */
   readonly position: ReaderPosition;
   /** The layout mode currently in effect. */
@@ -353,6 +366,16 @@ class ReaderImpl implements Reader {
 
   setAppearance(appearance: Appearance): Promise<void> {
     return this.#run(() => this.#setAppearance(appearance));
+  }
+
+  /**
+   * Streams whole-book search hits. Not enqueued behind navigation — it reads the
+   * book's section bytes headlessly (decode → strip markup → match) and never drives
+   * the paginator or the frame, so it composes with reading rather than blocking it.
+   * Delegates to the headless `searchBook` generator; `goTo(hit.position)` jumps.
+   */
+  search(query: string, options: SearchOptions = {}): AsyncIterableIterator<SearchHit> {
+    return searchBook(this.#book, query, options);
   }
 
   destroy(): void {
