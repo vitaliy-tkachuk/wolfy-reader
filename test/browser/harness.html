@@ -287,6 +287,11 @@
       return book.sections.findIndex((section) => section.id === sectionId);
     },
 
+    /** The opened book's reading direction ('ltr' | 'rtl' | undefined). */
+    bookDirection() {
+      return book.direction;
+    },
+
     readerMode() {
       return reader.mode;
     },

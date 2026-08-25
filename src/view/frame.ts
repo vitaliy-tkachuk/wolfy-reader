@@ -62,7 +62,7 @@ function escapeAttribute(value: string): string {
 export function coordinationScript(hostOrigin: string): string {
   return `(function(){
 'use strict';
-var VERSION = 4;
+var VERSION = 5;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
@@ -450,19 +450,78 @@ document.addEventListener('securitypolicyviolation', function(event){
 window.addEventListener('error', function(event){
   send({ v: VERSION, type: 'error', message: String((event && event.message) || 'error') });
 });
-document.addEventListener('click', function(event){
-  var node = event.target;
+// Walk up from a node to an enclosing <a href>, or null if none. Shared by the
+// click (link-click) path and the tap path so a link tap stays a link click.
+function linkAncestor(node){
   while (node && node.nodeType === 1) {
-    if (node.localName === 'a' && node.hasAttribute('href')) {
-      event.preventDefault();
-      // Report the raw authored href, not node.href: the opaque origin resolves
-      // the property against a null base and mangles it. The host/facade parses.
-      send({ v: VERSION, type: 'linkclick', href: String(node.getAttribute('href') || '') });
-      return;
-    }
+    if (node.localName === 'a' && node.hasAttribute('href')) return node;
     node = node.parentNode;
   }
+  return null;
+}
+document.addEventListener('click', function(event){
+  var link = linkAncestor(event.target);
+  if (link) {
+    event.preventDefault();
+    // Report the raw authored href, not node.href: the opaque origin resolves
+    // the property against a null base and mangles it. The host/facade parses.
+    send({ v: VERSION, type: 'linkclick', href: String(link.getAttribute('href') || '') });
+  }
 });
+
+// Navigation-relevant keydowns are forwarded to the host, which owns the key
+// map (direction-aware). Only the keys the reader acts on are forwarded, and
+// preventDefault is scoped to those so the frame does not scroll under them;
+// every other key is left untouched.
+var NAV_KEYS = { ArrowLeft:1, ArrowRight:1, ArrowUp:1, ArrowDown:1, PageUp:1, PageDown:1, Home:1, End:1 };
+document.addEventListener('keydown', function(event){
+  if (NAV_KEYS[event.key] === 1) {
+    event.preventDefault();
+    send({ v: VERSION, type: 'key', key: event.key });
+  }
+});
+
+// Pointer/touch: a drag that clears the threshold and is horizontal-dominant is
+// a swipe; a small movement that is not on a link is a tap. The host maps both
+// (direction-aware). A link tap is left to the click handler as a linkclick.
+var SWIPE_THRESHOLD = 30;
+var TAP_SLOP = 10;
+var gesture = null; // { x, y, target }
+function beginGesture(x, y, target){ gesture = { x: x, y: y, target: target }; }
+function endGesture(x, y){
+  if (gesture === null) return;
+  var dx = x - gesture.x;
+  var dy = y - gesture.y;
+  var start = gesture;
+  gesture = null;
+  if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+    send({ v: VERSION, type: 'swipe', dx: dx, dy: dy });
+    return;
+  }
+  if (Math.abs(dx) <= TAP_SLOP && Math.abs(dy) <= TAP_SLOP && !linkAncestor(start.target)) {
+    send({ v: VERSION, type: 'tap', x: x, y: y, width: window.innerWidth, height: window.innerHeight });
+  }
+}
+if (typeof window.PointerEvent === 'function') {
+  document.addEventListener('pointerdown', function(event){
+    if (event.isPrimary === false) return;
+    beginGesture(event.clientX, event.clientY, event.target);
+  });
+  document.addEventListener('pointerup', function(event){
+    endGesture(event.clientX, event.clientY);
+  });
+  document.addEventListener('pointercancel', function(){ gesture = null; });
+} else {
+  document.addEventListener('touchstart', function(event){
+    var t = event.changedTouches[0];
+    if (t) beginGesture(t.clientX, t.clientY, event.target);
+  });
+  document.addEventListener('touchend', function(event){
+    var t = event.changedTouches[0];
+    if (t) endGesture(t.clientX, t.clientY);
+  });
+  document.addEventListener('touchcancel', function(){ gesture = null; });
+}
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', function(){ send({ v: VERSION, type: 'ready' }); });
 } else {

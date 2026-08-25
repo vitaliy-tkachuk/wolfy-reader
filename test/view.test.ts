@@ -183,6 +183,21 @@ test('frame messages are accepted only in a known shape', () => {
     width: 10,
     height: 20,
   });
+  assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'key', key: 'ArrowRight' }), {
+    v: PROTOCOL_VERSION,
+    type: 'key',
+    key: 'ArrowRight',
+  });
+  assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'swipe', dx: -50, dy: 3 }), {
+    v: PROTOCOL_VERSION,
+    type: 'swipe',
+    dx: -50,
+    dy: 3,
+  });
+  assert.deepEqual(
+    asFrameMessage({ v: PROTOCOL_VERSION, type: 'tap', x: 10, y: 20, width: 300, height: 400 }),
+    { v: PROTOCOL_VERSION, type: 'tap', x: 10, y: 20, width: 300, height: 400 },
+  );
   for (const rejected of [
     null,
     'ready',
@@ -192,6 +207,12 @@ test('frame messages are accepted only in a known shape', () => {
     { v: PROTOCOL_VERSION, type: 'measured', id: '3', width: 1, height: 1 },
     { v: PROTOCOL_VERSION, type: 'measured', id: 3, width: 1 },
     { v: PROTOCOL_VERSION, type: 'error' },
+    { v: PROTOCOL_VERSION, type: 'key' },
+    { v: PROTOCOL_VERSION, type: 'key', key: 5 },
+    { v: PROTOCOL_VERSION, type: 'swipe', dx: 1 },
+    { v: PROTOCOL_VERSION, type: 'swipe', dx: '1', dy: 2 },
+    { v: PROTOCOL_VERSION, type: 'tap', x: 1, y: 2, width: 3 },
+    { v: PROTOCOL_VERSION, type: 'tap', x: '1', y: 2, width: 3, height: 4 },
   ]) {
     assert.equal(asFrameMessage(rejected), null, JSON.stringify(rejected));
   }

@@ -31,6 +31,12 @@ export interface ContentHostOptions {
   readonly onError?: (message: string) => void;
   /** An internal link was clicked in the frame; carries the raw authored href. */
   readonly onLinkClick?: (href: string) => void;
+  /** A navigation-relevant keydown fired in the frame; carries the `KeyboardEvent.key`. */
+  readonly onKey?: (key: string) => void;
+  /** A completed horizontal swipe in the frame; carries the net delta in CSS px. */
+  readonly onSwipe?: (dx: number, dy: number) => void;
+  /** A tap in the frame that was not on a link; carries tap coords + frame viewport size. */
+  readonly onTap?: (tap: { x: number; y: number; width: number; height: number }) => void;
   /** How long the frame has to answer, in milliseconds. Defaults to 10000. */
   readonly timeoutMs?: number;
 }
@@ -96,6 +102,15 @@ export class ContentHost {
         return;
       case 'linkclick':
         this.#options.onLinkClick?.(message.href);
+        return;
+      case 'key':
+        this.#options.onKey?.(message.key);
+        return;
+      case 'swipe':
+        this.#options.onSwipe?.(message.dx, message.dy);
+        return;
+      case 'tap':
+        this.#options.onTap?.({ x: message.x, y: message.y, width: message.width, height: message.height });
         return;
       case 'pong':
       case 'measured':

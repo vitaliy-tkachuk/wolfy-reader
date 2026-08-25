@@ -67,7 +67,7 @@ Two rules are worth stating separately because they are not obvious from the tab
 
 ## Protocol
 
-Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `1`; every message carries it as `v` and anything else is dropped.
+Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `5` today (it began at `1`; the reader facade and human-input work grew it — see the reader-facade section); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, and the `key`/`swipe`/`tap` input trio) are documented with the features that added them.
 
 Origin cannot authenticate here: the frame's origin is `'null'`, which identifies nothing. The host trusts a message only when `event.source === iframe.contentWindow` **and** it validates (`asFrameMessage`). The frame trusts a message only when `event.source === window.parent` and it validates. Everything else is ignored, never dispatched. Because the frame's origin is opaque, host→frame messages must use `'*'` as `targetOrigin`; the payloads carry nothing confidential for that reason. Frame→host messages target the host's real origin when it has one.
 
@@ -152,6 +152,40 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **`destroy()` leaves nothing behind** (idempotent): it tears down the `Paginator` (which destroys the host, the iframe, and — because resources are `data:` URLs the frame carries, not host-minted blob URLs — there is nothing to revoke; the frame's `message` listener goes with the iframe), clears all event listener sets, and drops the back-stack. Pending frame requests reject as the host tears the channel down.
 
-**Protocol is at v4.** The facade needed link-click reporting and fragment→page mapping on top of T001's paginator additions; `PROTOCOL_VERSION` is `4`, and the frame's hand-written validator is kept in step with `asHostMessage`/`asFrameMessage` by hand.
+**Protocol is at v5.** The facade needed link-click reporting and fragment→page mapping on top of T001's paginator additions (v4), then human input (v5 — see below); `PROTOCOL_VERSION` is `5`, and the frame's hand-written validator is kept in step with `asHostMessage`/`asFrameMessage` by hand.
+
+### Human input — keyboard, swipe, tap zones (T003)
+
+The reader is operable by hand: keyboard, touch swipe, and configurable tap zones turn pages, all direction-aware. The mapping logic lives in `src/reader/input.ts` — a pure, DOM-free, unit-checkable module of a key table plus swipe/tap geometry — and the facade wires it to navigation.
+
+**Capture site: forwarded from the frame, not caught on the host** (the one real decision). Once the reader frame has focus, its key and pointer events fire *inside the opaque-origin frame's document* and never bubble to the host — a separate document behind the sandbox. Catching them on the host container would only see events while the container, not the frame, held focus, i.e. almost never during reading. So the coordination script (`frame.ts`) listens in the frame and forwards *semantic* gestures over the protocol; the host is the only party that can act on them. This is the same reasoning that already forwards `linkclick`. The frame `preventDefault`s exactly the keys it forwards (so the frame does not scroll under them) and leaves every other key untouched.
+
+**Three new frame→host messages (unsolicited, protocol v5):**
+
+| message | payload | when |
+|---|---|---|
+| `key` | `key` | a navigation-relevant `keydown` in the frame (`ArrowLeft/Right/Up/Down`, `PageUp/PageDown`, `Home`, `End` — the frame's `NAV_KEYS` allowlist; nothing else is forwarded) |
+| `swipe` | `dx`, `dy` | a completed pointer/touch drag clearing the frame's `SWIPE_THRESHOLD` (30px) and horizontal-dominant (`|dx| > |dy|`) |
+| `tap` | `x`, `y`, `width`, `height` | a pointer/touch press-release within `TAP_SLOP` (10px) that is **not** on a link — a link tap stays a `linkclick`, shared through the same `linkAncestor` walk |
+
+The host relays these through `ContentHostOptions.onKey(key)` / `onSwipe(dx, dy)` / `onTap({x, y, width, height})`, which the facade supplies.
+
+**Key map (LTR).** `ArrowRight` / `PageDown` / `ArrowDown` → next; `ArrowLeft` / `PageUp` / `ArrowUp` → prev; `Home` → `goTo('start')`; `End` → `goTo('end')`.
+
+**Swipe (LTR).** `dx < 0` (leftward, contents move left) → next; `dx > 0` (rightward) → prev.
+
+**Tap zones.** The tap's `x/width` is normalized to a fraction; `fraction < left` → left-edge page, `fraction >= right` → right-edge page, the band between is inert. Defaults are the left third (`left = 1/3`) and right third (`right = 2/3`). Directions are *visual* — left-edge page is prev, right-edge is next — under LTR.
+
+**The RTL flip (`Book.direction === 'rtl'`) touches the horizontal axis only.** In RTL the visual right edge is the *earlier* page, so every horizontal gesture reverses: `ArrowRight` → prev, `ArrowLeft` → next; a leftward swipe → prev, rightward → next; the left tap zone → next, the right tap zone → prev. What does **not** flip: `PageUp`/`PageDown` and the vertical arrows stay reading-order neutral (PageDown always advances), and `Home`/`End` are always book start/end. RTL is easy to get right for keyboard and wrong for swipe/tap, so it is centralized in `edgeIntent(edge, direction)` and every mode routes through it. The mapping resolves to a `NavIntent` (`next | prev | nextSection | prevSection | start | end | none`); the facade dispatches each through the *same serialized navigation queue* as programmatic calls, so hand input interleaves in issue order and never races a render.
+
+**Config (`ReaderOptions.input`).** Optional and additive — omit it and all three modes are on with defaults:
+
+- `keyboard?: boolean` (default `true`)
+- `swipe?: boolean` (default `true`)
+- `tapZones?: { left?: number; right?: number } | false` (default enabled at 1/3 & 2/3; `false` disables tap zones, an object overrides the zone fractions)
+
+Each mode is gated independently in the facade, so a consumer can turn any one off; the frame still forwards all three (the wire is not conditional), the facade simply ignores a disabled mode.
+
+**`prefers-reduced-motion` is a documented no-op for now.** There is no page-turn animation in the reader yet, so nothing gates on the preference — pages simply turn. When an animated turn lands (M3 appearance), gate the *animation* on `matchMedia('(prefers-reduced-motion: reduce)')`, never on input: input must always turn the page. `#dispatchIntent` in `src/reader/index.ts` carries the marker comment for where that gate goes.
 
 **Packaging note.** `package.json` has **no `exports` map yet** — neither the reader subpath nor `core`/`epub`/`layout` are declared, so all are importable by path only (which is what the tests and demo do). Adding a partial map now would break those path imports; the public `exports` map (including the `./reader` subpath) is deferred to a later packaging milestone.

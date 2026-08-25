@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export interface Measurement {
   readonly width: number;
@@ -110,7 +110,17 @@ export type FrameMessage =
       readonly blockedUri: string;
     }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'error'; readonly message: string }
-  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'linkclick'; readonly href: string };
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'linkclick'; readonly href: string }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'key'; readonly key: string }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'swipe'; readonly dx: number; readonly dy: number }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'tap';
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+    };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
@@ -205,6 +215,31 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
     case 'linkclick': {
       const href = message['href'];
       return typeof href === 'string' ? { v: PROTOCOL_VERSION, type: 'linkclick', href } : null;
+    }
+    case 'key': {
+      const key = message['key'];
+      return typeof key === 'string' ? { v: PROTOCOL_VERSION, type: 'key', key } : null;
+    }
+    case 'swipe': {
+      const dx = message['dx'];
+      const dy = message['dy'];
+      if (typeof dx !== 'number' || typeof dy !== 'number') return null;
+      return { v: PROTOCOL_VERSION, type: 'swipe', dx, dy };
+    }
+    case 'tap': {
+      const x = message['x'];
+      const y = message['y'];
+      const width = message['width'];
+      const height = message['height'];
+      if (
+        typeof x !== 'number' ||
+        typeof y !== 'number' ||
+        typeof width !== 'number' ||
+        typeof height !== 'number'
+      ) {
+        return null;
+      }
+      return { v: PROTOCOL_VERSION, type: 'tap', x, y, width, height };
     }
     default:
       return null;

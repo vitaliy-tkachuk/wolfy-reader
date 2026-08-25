@@ -175,6 +175,46 @@
   .pager button:disabled { color: var(--muted); cursor: default; opacity: 0.6; }
   .page-status { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 12rem; }
   .mode-toggle { margin-left: auto; color: var(--muted); cursor: pointer; }
+  .input-hint {
+    display: none;
+    margin: 0 0 0.5rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .input-hint kbd {
+    font-family: ui-monospace, monospace;
+    background: #f0f0f0;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 0.3rem;
+  }
+  /* A cheap overlay of the tap zones over the reader frame, purely as a hand-
+     testing aid: click the left third → prev, the right third → next. Its own
+     clicks pass through to the frame so it never intercepts the gesture. */
+  .reader-wrap { position: relative; }
+  .tap-zones {
+    display: none;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .tap-zones span {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 0.4rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .tap-zones .zone-left { left: 0; width: 33.333%; border-right: 1px dashed var(--border); }
+  .tap-zones .zone-right { right: 0; width: 33.333%; border-left: 1px dashed var(--border); }
+  .reader-wrap:hover .tap-zones { display: block; }
   .roundtrip {
     display: none;
     margin: 0.5rem 0 0;
@@ -223,7 +263,19 @@
         <button type="button" id="back" disabled title="Back to the pre-jump position">↩ Back</button>
         <label class="mode-toggle"><input type="checkbox" id="scrolled-toggle"> Scrolled mode</label>
       </div>
-      <div id="reader"></div>
+      <p id="input-hint" class="input-hint">
+        Turn pages by hand: <kbd>←</kbd> <kbd>→</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd>,
+        <kbd>Home</kbd>/<kbd>End</kbd> jump to the book's start/end; swipe on touch;
+        or tap the left / right third of the page (hover to see the zones).
+        RTL books flip left/right. Click into the page first so it has focus.
+      </p>
+      <div class="reader-wrap">
+        <div id="reader"></div>
+        <div id="tap-zones" class="tap-zones">
+          <span class="zone-left" id="zone-left">prev</span>
+          <span class="zone-right" id="zone-right">next</span>
+        </div>
+      </div>
       <p id="roundtrip" class="roundtrip"></p>
       <section id="report">
         <h2>What the host did to this section</h2>
@@ -259,6 +311,10 @@
   const orderEl = document.querySelector('#reading-order');
   const readerLabelEl = document.querySelector('#reader-label');
   const readerEl = document.querySelector('#reader');
+  const inputHintEl = document.querySelector('#input-hint');
+  const tapZonesEl = document.querySelector('#tap-zones');
+  const zoneLeftEl = document.querySelector('#zone-left');
+  const zoneRightEl = document.querySelector('#zone-right');
   const pagerEl = document.querySelector('#pager');
   const prevSectionEl = document.querySelector('#prev-section');
   const prevPageEl = document.querySelector('#prev-page');
@@ -331,6 +387,8 @@
     activeButton = null;
     readerEl.replaceChildren();
     readerLabelEl.textContent = '';
+    inputHintEl.style.display = 'none';
+    tapZonesEl.style.display = 'none';
     pagerEl.style.display = 'none';
     roundtripEl.style.display = 'none';
     reportEl.style.display = 'none';
@@ -558,7 +616,19 @@
       onError: () => {},
     });
     pagerEl.style.display = 'flex';
+    // Built-in input (keyboard / swipe / tap zones) is on by default — the demo
+    // passes no `input` option so the facade wires all three straight into the
+    // frame's forwarded gestures. Nothing here disables them; the reader is
+    // operable by hand the moment its frame has focus.
     reader = render(book, readerEl, { mode: 'paginated' });
+    // Surface the input affordances and orient the tap-zone labels to the book's
+    // reading direction: in RTL the left edge is the *next* page, the right the
+    // previous, so the overlay labels swap to match the facade's RTL flip.
+    inputHintEl.style.display = 'block';
+    tapZonesEl.style.display = 'block';
+    const rtl = book.direction === 'rtl';
+    zoneLeftEl.textContent = rtl ? 'next' : 'prev';
+    zoneRightEl.textContent = rtl ? 'prev' : 'next';
     reader.on('error', (err) => showError(err));
     reader.on('sectionchange', ({ index }) => {
       // The report reflects the section the reader just entered.

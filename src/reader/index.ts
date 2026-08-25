@@ -17,9 +17,19 @@
  * positions are the headless `Position` model from core. It drives the paginator
  * and reads the book; it never reaches past the paginator into frame geometry.
  */
-import type { Book, Position, Section, TocItem } from '../core/index.ts';
+import type { Book, Position, ReadingDirection, Section, TocItem } from '../core/index.ts';
 import { parsePosition } from '../core/index.ts';
 import { Paginator, type BookProgress, type LayoutMode } from '../layout/index.ts';
+import {
+  keyIntent,
+  swipeIntent,
+  tapIntent,
+  type InputConfig,
+  type NavIntent,
+  type TapZones,
+} from './input.ts';
+
+export type { InputConfig, TapZones } from './input.ts';
 
 /**
  * Appearance and layout options for {@link render}. All optional. `mode` selects
@@ -44,6 +54,12 @@ export interface ReaderOptions {
   readonly columns?: number;
   /** Where to open. Any {@link GoToTarget}; defaults to the book's start. */
   readonly start?: GoToTarget;
+  /**
+   * Human-input configuration: keyboard, swipe, tap zones. Additive and optional
+   * — omitting it enables all three with defaults. See {@link InputConfig}. Input
+   * is direction-aware: `Book.direction === 'rtl'` flips the horizontal axis.
+   */
+  readonly input?: InputConfig;
 }
 
 /**
@@ -198,6 +214,12 @@ class ReaderImpl implements Reader {
   #mode: LayoutMode;
   #destroyed = false;
   #ready = false;
+  /** Reading direction; drives the RTL flip in every input mode. */
+  readonly #direction: ReadingDirection;
+  /** Resolved input config: which modes are on and the tap-zone geometry. */
+  readonly #keyboard: boolean;
+  readonly #swipe: boolean;
+  readonly #tapZones: TapZones | null;
   /** Serializes navigation so overlapping calls settle in order. */
   #queue: Promise<unknown> = Promise.resolve();
 
@@ -206,12 +228,28 @@ class ReaderImpl implements Reader {
     this.#sections = book.sections;
     this.#options = options;
     this.#mode = options.mode ?? 'paginated';
+    this.#direction = book.direction ?? 'ltr';
+    const input = options.input ?? {};
+    this.#keyboard = input.keyboard ?? true;
+    this.#swipe = input.swipe ?? true;
+    this.#tapZones = input.tapZones === false ? null : (input.tapZones ?? {});
     this.#paginator = new Paginator(element, {
       onLinkClick: (href) => {
         void this.#onLinkClick(href);
       },
       onError: (message) => {
         this.#emit('error', new ReaderError(message));
+      },
+      onKey: (key) => {
+        if (this.#keyboard) this.#dispatchIntent(keyIntent(key, this.#direction));
+      },
+      onSwipe: (dx, dy) => {
+        if (this.#swipe) this.#dispatchIntent(swipeIntent(dx, dy, this.#direction));
+      },
+      onTap: (tap) => {
+        if (this.#tapZones !== null) {
+          this.#dispatchIntent(tapIntent(tap, this.#tapZones, this.#direction));
+        }
       },
     });
     // Kick off the initial render; `ready` fires when it settles.
@@ -270,6 +308,44 @@ class ReaderImpl implements Reader {
       this.#listeners[event].clear();
     }
     this.#backStack = [];
+  }
+
+  // --- Input dispatch -------------------------------------------------------
+
+  /**
+   * Route a resolved {@link NavIntent} (from keyboard/swipe/tap, already made
+   * direction-aware in `input.ts`) to the matching public navigation method. Each
+   * goes through the same serialized queue as programmatic navigation, so hand
+   * input interleaves in issue order. `none` is a no-op.
+   *
+   * There is no page-turn animation in the reader yet, so nothing here animates
+   * and there is nothing to gate on `prefers-reduced-motion`: pages simply turn.
+   * When an animated turn lands (M3 appearance), gate it on
+   * `matchMedia('(prefers-reduced-motion: reduce)')` — never against the setting.
+   */
+  #dispatchIntent(intent: NavIntent): void {
+    switch (intent) {
+      case 'next':
+        void this.next();
+        return;
+      case 'prev':
+        void this.prev();
+        return;
+      case 'nextSection':
+        void this.nextSection();
+        return;
+      case 'prevSection':
+        void this.prevSection();
+        return;
+      case 'start':
+        void this.goTo('start');
+        return;
+      case 'end':
+        void this.goTo('end');
+        return;
+      case 'none':
+        return;
+    }
   }
 
   // --- Navigation queue -----------------------------------------------------
