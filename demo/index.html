@@ -351,6 +351,11 @@
   const violations = [];
 
   function showError(err) {
+    // A superseded render is an intentional cancellation, not a failure: the
+    // reporter host bumps its generation on the next render and the in-flight
+    // one rejects by design (see ContentHost). Rapid navigation triggers it
+    // routinely, so it must never reach the error banner.
+    if (err instanceof Error && err.message === 'the render was superseded by a later one') return;
     errorEl.replaceChildren();
     const name = document.createElement('strong');
     name.textContent = err instanceof Error ? err.name : 'Error';
