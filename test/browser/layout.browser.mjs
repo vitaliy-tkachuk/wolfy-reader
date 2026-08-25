@@ -144,6 +144,44 @@ describe('page ↔ Position round-trip', { ...skipAll }, () => {
   });
 });
 
+describe('paginated pages paint their content', { ...skipAll }, () => {
+  // Regression: a chunk with overflow:hidden clips its own multi-column overflow,
+  // so translating it to reveal a later column paints nothing — every page after
+  // the first is blank. getClientRects still reports laid-out positions for the
+  // clipped columns, so only a paint-aware probe (elementFromPoint respects the
+  // clip) catches it. Assert real text is painted at the viewport centre on more
+  // than the first page, and that the pages actually differ.
+  test('the second and third pages render text, not blank columns', async () => {
+    const state = await paginateSynthetic(longSection(50), {
+      mode: 'paginated',
+      pageWidth: 700,
+      pageHeight: 560,
+    });
+    await page.evaluate(() => window.harness.refine());
+    assert.ok(state.pageCount >= 3, `need a multi-page section, got ${state.pageCount}`);
+
+    const frame = contentFrame();
+    const paintedAtCentre = () =>
+      frame.evaluate(() => {
+        const root = document.getElementById('wolfyreader-content');
+        const box = root.getBoundingClientRect();
+        const el = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return el ? (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+      });
+
+    const painted = [];
+    for (const p of [0, 1, 2]) {
+      await page.evaluate((n) => window.harness.goToPage(n), p);
+      painted.push(await paintedAtCentre());
+    }
+    painted.forEach((text, p) => {
+      assert.ok(text.length > 0, `page ${p} painted no text at its centre — the column was clipped or blank`);
+    });
+    assert.notEqual(painted[1], painted[0], 'page 2 shows the same text as page 1 — the turn painted nothing new');
+    assert.notEqual(painted[2], painted[1], 'page 3 shows the same text as page 2 — the turn painted nothing new');
+  });
+});
+
 describe('scrolled-mode parity', { ...skipAll }, () => {
   test('scrolled mode renders the same text as paginated, with no clipping', async () => {
     const spec = longSection(30);

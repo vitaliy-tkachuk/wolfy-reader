@@ -102,6 +102,16 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
 - **Each chunk is its own multi-column context, absolutely positioned.** Forced by
   layout containment (Gotchas). Every chunk boundary is a forced page break —
   accepted, and it is what the page-count cost below buys.
+- **The chunk box must be `overflow: visible`; only the root box clips.** A page
+  turn reveals a later column by translating the whole chunk left, so its
+  multi-column overflow (columns 2, 3, …, which lay out to the right) has to
+  stay paintable. `overflow: hidden` on the chunk travels with the box under the
+  translate and paints only the first column — every page after the first goes
+  blank while `getClientRects` still reports laid-out positions for the clipped
+  columns, so the blank is invisible to a layout-only probe. The viewport clip
+  lives on the `#wolfyreader-content` root. Regression:
+  `test/browser/layout.browser.mjs` "paginated pages paint their content" probes
+  with `elementFromPoint` (which honours the clip) rather than rects.
 - **`content-visibility: auto` is kept, for re-layout only.** It makes bulk
   realization ~4× slower (93.4 ms vs 22.1 ms to resolve the exact page count on the
   synthetic fixture). It earns its place because appearance changes are frequent

@@ -201,7 +201,12 @@ function relayout(){
     c.style.columnGap = layout.columnGap + 'px';
     c.style.columnFill = 'auto';
     c.style.width = layout.pageWidth + 'px';
-    c.style.overflow = 'hidden';
+    // The chunk must NOT clip: its multi-column overflow (columns 2, 3, …) lays
+    // out to the right, and a page turn reveals a later column by translating the
+    // whole chunk left. A clip here would travel with the box and paint only the
+    // first column — every page after the first would be blank. The root box owns
+    // the viewport clip; the chunk stays visible so its columns can scroll in.
+    c.style.overflow = 'visible';
     c.style.contentVisibility = 'visible';
     var cw = measureChunkWidth(c);
     var pages = cw <= 0 ? 1 : Math.max(1, Math.ceil((cw + layout.columnGap) / pageStride));
