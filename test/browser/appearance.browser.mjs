@@ -622,19 +622,43 @@ describe('typography knobs each change the rendered content', { ...skipAll }, ()
     }
   });
 
-  test('margin sets the per-chunk column-gap (the page margin)', async () => {
+  test('margin insets the text from both page edges and is also the column gap', async () => {
     const p = await freshPage('light');
     try {
       await openThemed(p, longSection(), { margin: 40 });
-      const before = await contentFrame(p).evaluate(
-        () => parseFloat(getComputedStyle(document.querySelector('.wolfyreader-chunk')).columnGap),
+      // The edge margin is positional: the chunk is inset by `margin` on the left and
+      // its width is the page minus both margins, so text shows `margin` on each edge.
+      // It doubles as the inter-column gutter (still read off `column-gap`).
+      const geom = () =>
+        contentFrame(p).evaluate(() => {
+          const chunk = document.querySelector('.wolfyreader-chunk');
+          const root = document.getElementById('wolfyreader-content') || document.body;
+          const style = getComputedStyle(chunk);
+          return {
+            left: parseFloat(style.left),
+            width: parseFloat(style.width),
+            columnGap: parseFloat(style.columnGap),
+            pageWidth: root.getBoundingClientRect().width,
+          };
+        });
+
+      const before = await geom();
+      assert.equal(before.left, 40, 'the initial margin did not inset the chunk from the left edge');
+      assert.equal(before.columnGap, 40, 'the initial margin did not apply as the column gap');
+      assert.ok(
+        Math.abs(before.width - (before.pageWidth - 2 * 40)) < 1,
+        `chunk width ${before.width} is not the page ${before.pageWidth} minus both 40px margins`,
       );
+
       await p.evaluate(() => window.harness.readerSetAppearance({ margin: 96 }));
-      const after = await contentFrame(p).evaluate(
-        () => parseFloat(getComputedStyle(document.querySelector('.wolfyreader-chunk')).columnGap),
+      const after = await geom();
+      assert.equal(after.left, 96, 'a larger margin did not widen the left inset');
+      assert.equal(after.columnGap, 96, 'a larger margin did not widen the column gap');
+      assert.ok(
+        Math.abs(after.width - (after.pageWidth - 2 * 96)) < 1,
+        `chunk width ${after.width} is not the page ${after.pageWidth} minus both 96px margins`,
       );
-      assert.equal(before, 40, 'the initial margin did not apply as column-gap');
-      assert.equal(after, 96, 'margin did not change the column-gap');
+      assert.ok(after.width < before.width, 'a larger margin did not narrow the text column');
     } finally {
       await p.context().close();
     }

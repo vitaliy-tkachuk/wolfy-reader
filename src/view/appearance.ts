@@ -52,9 +52,11 @@ export interface Appearance {
   /** Body line height, a unitless multiplier. Reflows. */
   readonly lineHeight?: number;
   /**
-   * Page margin in CSS px — the gap between text columns (the paginator's
-   * `columnGap`). It is not a `--wr-*` variable: column geometry belongs to the
-   * paginator, so it rides `PaginateOptions` and reflows the layout. Reflows.
+   * Page margin in CSS px — the whitespace framing the text on both page edges,
+   * which also serves as the gutter between columns (a page reads
+   * margin/col/margin/col/margin). It is not a `--wr-*` variable: page geometry
+   * belongs to the paginator, so it rides `PaginateOptions` (as `columnGap`) and
+   * reflows the layout. Reflows.
    */
   readonly margin?: number;
   /** Text alignment: `'start'` (publisher default) or `'justify'`. May reflow. */

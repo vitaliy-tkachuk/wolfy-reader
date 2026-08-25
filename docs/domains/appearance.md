@@ -159,7 +159,15 @@ after. A same-text resolution miss (rare) degrades to page 0.
 - **`margin` and `columns` are paginator geometry, not `--wr-*` variables.** They
   do not emit a stylesheet variable (`resolveTypographyProperties` skips them);
   they thread through `PaginateOptions` (`columnGap`, `columnCount`) and are applied
-  frame-side. `margin` maps to the column gap; `columns` (1 or 2) splits each page
+  frame-side. `margin` is the reader's one spacing unit: it insets the text from
+  **both page edges** *and* is the gutter between columns, so a page reads
+  margin/col/margin/col/margin (2026-08-26 — it previously mapped to the inter-column
+  gap alone, which was invisible in the default single-column layout, so the knob
+  appeared to do nothing). Frame-side the chunk is positioned at `left: margin` with
+  `width: pageWidth − 2·margin` (paginated) or given symmetric horizontal padding
+  (scrolled); `column-gap` stays `margin` for the 2-column gutter. The stride and
+  offset↔page mapping read live box positions, so the edge inset needs no term of
+  its own — see [`docs/domains/view.md`](view.md). `columns` (1 or 2) splits each page
   into that many CSS columns, so a 2-column page paints twice the text before a
   turn. Everything else (font/size/line-height/alignment/hyphenation) is a `--wr-*`
   variable in the srcdoc stylesheet.

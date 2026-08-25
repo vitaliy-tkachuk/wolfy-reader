@@ -68,7 +68,7 @@ export interface ReaderOptions {
   readonly fontFamily?: string;
   /** Body line height (unitless multiplier). Applied at the first render. */
   readonly lineHeight?: number;
-  /** Column gap in CSS px, passed through to the paginator as the page margin. */
+  /** Page-edge margin in CSS px (also the inter-column gutter), threaded to the paginator as `columnGap`. */
   readonly margin?: number;
   /** Body text alignment: `'start'` (publisher default) or `'justify'`. */
   readonly textAlign?: TextAlign;

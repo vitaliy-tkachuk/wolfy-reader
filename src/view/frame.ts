@@ -162,17 +162,22 @@ function measureChunkWidth(el){
   }
 }
 
-// The width of a single CSS column. With one column per page a column fills the
-// page; with N columns per page, N columns and (N-1) gaps share the page width.
+// The width of a single CSS column. columnGap is the reader's one spacing unit:
+// it is the page-edge margin AND the gutter between columns, so a page reads
+// margin, col, margin, col, ..., margin. The text area is the page minus its two
+// edge margins; N columns and (N-1) inter-column gaps then share that inner width.
 function colWidth(){
   var n = layout.columnCount > 0 ? layout.columnCount : 1;
-  if (n <= 1) return layout.pageWidth;
-  return (layout.pageWidth - (n - 1) * layout.columnGap) / n;
+  var inner = layout.pageWidth - 2 * layout.columnGap;
+  if (n <= 1) return inner;
+  return (inner - (n - 1) * layout.columnGap) / n;
 }
 // The horizontal distance one page-turn translates the active chunk: N column
 // strides. Each column stride is its width plus the gap that follows it, so N
-// columns advance by N * (colWidth + columnGap) — the width of one page plus its
-// trailing gap, independent of column count.
+// columns advance by N * (colWidth + columnGap). With the edge-margin geometry this
+// equals pageWidth - columnGap, which lands every page's columns inside the same
+// left/right margins — the mapping math (offsetOfPage/pageOfOffset) reads live box
+// positions and this stride, so it needs no edge-margin term of its own.
 function stride(){
   var n = layout.columnCount > 0 ? layout.columnCount : 1;
   return n * (colWidth() + layout.columnGap);
@@ -221,6 +226,10 @@ function relayout(){
       el.style.position = 'static';
       el.style.columnWidth = 'auto';
       el.style.width = layout.pageWidth ? (layout.pageWidth + 'px') : 'auto';
+      // Scrolled text gets the same left/right edge margins as a page (box-sizing is
+      // border-box, so the padding eats into pageWidth rather than overflowing it).
+      el.style.paddingLeft = layout.columnGap + 'px';
+      el.style.paddingRight = layout.columnGap + 'px';
       el.style.height = 'auto';
       el.style.contentVisibility = '';
       var h = el.offsetHeight;
@@ -249,15 +258,21 @@ function relayout(){
     var c = els[j];
     c.style.position = 'absolute';
     c.style.top = '0';
-    c.style.left = '0';
+    // Inset the chunk by one margin so every page shows a left edge margin; the
+    // width is the page minus both edge margins, so a right margin falls out too.
+    // The edge margin here is positional (left/width), not padding — a chunk that
+    // was scrolled carries padding, which must be cleared so it is not inset twice.
+    c.style.left = layout.columnGap + 'px';
+    c.style.paddingLeft = '0';
+    c.style.paddingRight = '0';
     c.style.height = layout.pageHeight + 'px';
     // Each chunk is its own multi-column context. The CSS column width is one
-    // reader column (a fraction of the page for a 2-column layout); the page turn
-    // translates by stride() (N columns), so a page paints N columns at once.
+    // reader column (a fraction of the inner width for a 2-column layout); the page
+    // turn translates by stride() (N columns), so a page paints N columns at once.
     c.style.columnWidth = colWidth() + 'px';
     c.style.columnGap = layout.columnGap + 'px';
     c.style.columnFill = 'auto';
-    c.style.width = layout.pageWidth + 'px';
+    c.style.width = (layout.pageWidth - 2 * layout.columnGap) + 'px';
     // The chunk must NOT clip: its multi-column overflow (columns 2, 3, …) lays
     // out to the right, and a page turn reveals a later column by translating the
     // whole chunk left. A clip here would travel with the box and paint only the
