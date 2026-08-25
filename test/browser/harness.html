@@ -14,6 +14,7 @@
   import { open } from '/src/core/index.ts';
   import { epub } from '/src/formats/index.ts';
   import { ContentHost } from '/src/view/index.ts';
+  import { Paginator } from '/src/layout/index.ts';
 
   // The host must mint no object URLs at all: an opaque-origin frame cannot
   // read the creating origin's blob store, so any that appeared would be both
@@ -37,6 +38,7 @@
   const fromFrame = [];
   let host = null;
   let book = null;
+  let paginator = null;
 
   window.addEventListener('message', (event) => {
     if (host !== null && event.source === host.frame.contentWindow) fromFrame.push(event.data);
@@ -175,6 +177,64 @@
     destroy() {
       host.destroy();
       host = null;
+    },
+
+    // --- Paginator surface (T001). A separate Paginator over its own stage so
+    // the pagination tests do not disturb the isolation/sanitize harness above.
+
+    /** (Re)creates a Paginator over the stage at the given page geometry. */
+    createPaginator() {
+      if (paginator !== null) paginator.destroy();
+      paginator = new Paginator(stage, { timeoutMs: 15000 });
+    },
+
+    /** Paginates a real book section under the given request; returns the state. */
+    async paginateSection(sectionId, request) {
+      return paginator.paginate(book.section(sectionId), request);
+    },
+
+    /** Paginates a synthetic in-memory section (no corpus needed). */
+    async paginateSynthetic(spec, request) {
+      return paginator.paginate(syntheticSection(spec), request);
+    },
+
+    async refine() {
+      return paginator.refine();
+    },
+
+    async goToPage(page) {
+      return paginator.goToPage(page);
+    },
+
+    get page() {
+      return paginator.page;
+    },
+
+    async positionOfPage(page) {
+      const position = await paginator.positionOfPage(page);
+      return { serialized: position.serialized, sectionId: position.sectionId };
+    },
+
+    async pageOfPositionAt(page) {
+      const position = await paginator.positionOfPage(page);
+      return paginator.pageOfPosition(position);
+    },
+
+    chapterProgress() {
+      return paginator.chapterProgress();
+    },
+
+    async paginatorDiagnostics() {
+      return paginator.diagnostics();
+    },
+
+    async paginatorSectionText() {
+      return paginator.sectionText();
+    },
+
+    destroyPaginator() {
+      if (paginator !== null) paginator.destroy();
+      paginator = null;
     },
   };
 

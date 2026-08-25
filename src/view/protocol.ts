@@ -5,17 +5,69 @@
  * do that job here: the frame has an opaque origin, so its messages arrive with
  * an origin of `'null'`, which authenticates nothing. What the host trusts is
  * the message *source* (it must be this frame's window) plus the shape below.
+ *
+ * The frame's copy of the host-message validator lives inside a template string
+ * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
+ * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export interface Measurement {
   readonly width: number;
   readonly height: number;
 }
 
+/** The paginator's flow mode. */
+export type LayoutMode = 'paginated' | 'scrolled';
+
+export interface PaginateOptions {
+  readonly mode: LayoutMode;
+  readonly pageWidth: number;
+  readonly pageHeight: number;
+  readonly columnGap: number;
+  readonly chunkChars: number;
+  /** How many chunks either side of the active one stay realized. */
+  readonly windowChunks: number;
+}
+
+/** What the frame reports after (re-)paginating. Page count may be an estimate. */
+export interface PaginationState {
+  readonly pageCount: number;
+  /** True once every chunk has been measured; false while the count is an estimate. */
+  readonly firm: boolean;
+  readonly realizedChunks: number;
+  readonly totalChunks: number;
+  /** Content scroll size in scrolled mode; page geometry otherwise. */
+  readonly contentWidth: number;
+  readonly contentHeight: number;
+}
+
+/** A character offset within the section's concatenated chunk text. */
+export interface PageAnchor {
+  /** Character offset of the first glyph painted on the page, or -1 if none. */
+  readonly offset: number;
+}
+
 export type HostMessage =
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'ping'; readonly id: number }
-  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'measure'; readonly id: number };
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'measure'; readonly id: number }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'paginate';
+      readonly id: number;
+      readonly options: PaginateOptions;
+    }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'relayout'; readonly id: number }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'goToPage'; readonly id: number; readonly page: number }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'offsetOfPage'; readonly id: number; readonly page: number }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'pageOfOffset';
+      readonly id: number;
+      readonly offset: number;
+    }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'sectionText'; readonly id: number }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'diagnostics'; readonly id: number };
 
 export type FrameMessage =
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'ready' }
@@ -29,6 +81,24 @@ export type FrameMessage =
     }
   | {
       readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'paginated';
+      readonly id: number;
+      readonly state: PaginationState;
+    }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'movedToPage'; readonly id: number; readonly page: number }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'offset'; readonly id: number; readonly offset: number }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'page'; readonly id: number; readonly page: number }
+  | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'text'; readonly id: number; readonly text: string }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'diagnosticsReport';
+      readonly id: number;
+      readonly domNodes: number;
+      readonly realizedChunks: number;
+      readonly totalChunks: number;
+    }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
       readonly type: 'violation';
       readonly directive: string;
       readonly blockedUri: string;
@@ -37,6 +107,28 @@ export type FrameMessage =
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function asPaginationState(value: unknown): PaginationState | null {
+  const state = asRecord(value);
+  if (state === null) return null;
+  const pageCount = state['pageCount'];
+  const firm = state['firm'];
+  const realizedChunks = state['realizedChunks'];
+  const totalChunks = state['totalChunks'];
+  const contentWidth = state['contentWidth'];
+  const contentHeight = state['contentHeight'];
+  if (
+    typeof pageCount !== 'number' ||
+    typeof firm !== 'boolean' ||
+    typeof realizedChunks !== 'number' ||
+    typeof totalChunks !== 'number' ||
+    typeof contentWidth !== 'number' ||
+    typeof contentHeight !== 'number'
+  ) {
+    return null;
+  }
+  return { pageCount, firm, realizedChunks, totalChunks, contentWidth, contentHeight };
 }
 
 export function asFrameMessage(data: unknown): FrameMessage | null {
@@ -54,6 +146,45 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
       if (typeof id !== 'number' || typeof width !== 'number' || typeof height !== 'number') return null;
       return { v: PROTOCOL_VERSION, type: 'measured', id, width, height };
     }
+    case 'paginated': {
+      if (typeof id !== 'number') return null;
+      const state = asPaginationState(message['state']);
+      return state === null ? null : { v: PROTOCOL_VERSION, type: 'paginated', id, state };
+    }
+    case 'movedToPage': {
+      const page = message['page'];
+      if (typeof id !== 'number' || typeof page !== 'number') return null;
+      return { v: PROTOCOL_VERSION, type: 'movedToPage', id, page };
+    }
+    case 'offset': {
+      const offset = message['offset'];
+      if (typeof id !== 'number' || typeof offset !== 'number') return null;
+      return { v: PROTOCOL_VERSION, type: 'offset', id, offset };
+    }
+    case 'page': {
+      const page = message['page'];
+      if (typeof id !== 'number' || typeof page !== 'number') return null;
+      return { v: PROTOCOL_VERSION, type: 'page', id, page };
+    }
+    case 'text': {
+      const text = message['text'];
+      if (typeof id !== 'number' || typeof text !== 'string') return null;
+      return { v: PROTOCOL_VERSION, type: 'text', id, text };
+    }
+    case 'diagnosticsReport': {
+      const domNodes = message['domNodes'];
+      const realizedChunks = message['realizedChunks'];
+      const totalChunks = message['totalChunks'];
+      if (
+        typeof id !== 'number' ||
+        typeof domNodes !== 'number' ||
+        typeof realizedChunks !== 'number' ||
+        typeof totalChunks !== 'number'
+      ) {
+        return null;
+      }
+      return { v: PROTOCOL_VERSION, type: 'diagnosticsReport', id, domNodes, realizedChunks, totalChunks };
+    }
     case 'violation': {
       const directive = message['directive'];
       const blockedUri = message['blockedUri'];
@@ -69,12 +200,61 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
   }
 }
 
+function asPaginateOptions(value: unknown): PaginateOptions | null {
+  const options = asRecord(value);
+  if (options === null) return null;
+  const mode = options['mode'];
+  const pageWidth = options['pageWidth'];
+  const pageHeight = options['pageHeight'];
+  const columnGap = options['columnGap'];
+  const chunkChars = options['chunkChars'];
+  const windowChunks = options['windowChunks'];
+  if (
+    (mode !== 'paginated' && mode !== 'scrolled') ||
+    typeof pageWidth !== 'number' ||
+    typeof pageHeight !== 'number' ||
+    typeof columnGap !== 'number' ||
+    typeof chunkChars !== 'number' ||
+    typeof windowChunks !== 'number'
+  ) {
+    return null;
+  }
+  return { mode, pageWidth, pageHeight, columnGap, chunkChars, windowChunks };
+}
+
 export function asHostMessage(data: unknown): HostMessage | null {
   const message = asRecord(data);
   if (message === null || message['v'] !== PROTOCOL_VERSION) return null;
   const id = message['id'];
   if (typeof id !== 'number') return null;
-  const type = message['type'];
-  if (type !== 'ping' && type !== 'measure') return null;
-  return { v: PROTOCOL_VERSION, type, id };
+  switch (message['type']) {
+    case 'ping':
+      return { v: PROTOCOL_VERSION, type: 'ping', id };
+    case 'measure':
+      return { v: PROTOCOL_VERSION, type: 'measure', id };
+    case 'paginate': {
+      const options = asPaginateOptions(message['options']);
+      return options === null ? null : { v: PROTOCOL_VERSION, type: 'paginate', id, options };
+    }
+    case 'relayout':
+      return { v: PROTOCOL_VERSION, type: 'relayout', id };
+    case 'goToPage': {
+      const page = message['page'];
+      return typeof page === 'number' ? { v: PROTOCOL_VERSION, type: 'goToPage', id, page } : null;
+    }
+    case 'offsetOfPage': {
+      const page = message['page'];
+      return typeof page === 'number' ? { v: PROTOCOL_VERSION, type: 'offsetOfPage', id, page } : null;
+    }
+    case 'pageOfOffset': {
+      const offset = message['offset'];
+      return typeof offset === 'number' ? { v: PROTOCOL_VERSION, type: 'pageOfOffset', id, offset } : null;
+    }
+    case 'sectionText':
+      return { v: PROTOCOL_VERSION, type: 'sectionText', id };
+    case 'diagnostics':
+      return { v: PROTOCOL_VERSION, type: 'diagnostics', id };
+    default:
+      return null;
+  }
 }

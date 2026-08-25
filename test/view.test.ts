@@ -172,9 +172,12 @@ test('a resource that resolves is still refused when its media type is executabl
 });
 
 test('frame messages are accepted only in a known shape', () => {
-  assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'ready' }), { v: 1, type: 'ready' });
+  assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'ready' }), {
+    v: PROTOCOL_VERSION,
+    type: 'ready',
+  });
   assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'measured', id: 3, width: 10, height: 20 }), {
-    v: 1,
+    v: PROTOCOL_VERSION,
     type: 'measured',
     id: 3,
     width: 10,
@@ -195,7 +198,11 @@ test('frame messages are accepted only in a known shape', () => {
 });
 
 test('host messages are accepted only in a known shape', () => {
-  assert.deepEqual(asHostMessage({ v: PROTOCOL_VERSION, type: 'ping', id: 1 }), { v: 1, type: 'ping', id: 1 });
+  assert.deepEqual(asHostMessage({ v: PROTOCOL_VERSION, type: 'ping', id: 1 }), {
+    v: PROTOCOL_VERSION,
+    type: 'ping',
+    id: 1,
+  });
   assert.equal(asHostMessage({ v: PROTOCOL_VERSION, type: 'ping' }), null);
   assert.equal(asHostMessage({ v: PROTOCOL_VERSION, type: 'evaluate', id: 1 }), null);
 });

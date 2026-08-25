@@ -1,6 +1,14 @@
 import type { Section } from '../core/index.ts';
-import { assembleFrameDocument, createNonce } from './frame.ts';
-import { asFrameMessage, PROTOCOL_VERSION, type FrameMessage, type Measurement } from './protocol.ts';
+import { chunkElement } from '../layout/chunk.ts';
+import { assembleChunkedBody, assembleFrameDocument, createNonce } from './frame.ts';
+import {
+  asFrameMessage,
+  PROTOCOL_VERSION,
+  type FrameMessage,
+  type Measurement,
+  type PaginateOptions,
+  type PaginationState,
+} from './protocol.ts';
 import { applyResources, ResourceRegistry, type ResourceSummary } from './resources.ts';
 import { sanitizeSection, type SanitizationSummary } from './sanitize.ts';
 import { decodeText } from './text.ts';
@@ -85,7 +93,13 @@ export class ContentHost {
         this.#options.onError?.(message.message);
         return;
       case 'pong':
-      case 'measured': {
+      case 'measured':
+      case 'paginated':
+      case 'movedToPage':
+      case 'offset':
+      case 'page':
+      case 'text':
+      case 'diagnosticsReport': {
         const pending = this.#pending.get(message.id);
         if (pending === undefined) return;
         this.#pending.delete(message.id);
@@ -117,6 +131,33 @@ export class ContentHost {
   }
 
   async render(section: Section): Promise<RenderReport> {
+    return this.#renderSection(section, (document) => document.body.innerHTML);
+  }
+
+  /**
+   * Renders a section chunked for pagination: each top-level chunk becomes its
+   * own container element carrying the character range it covers, so the frame
+   * can build a per-chunk multi-column context and map pages to offsets. The
+   * sanitize + resources pipeline is identical to {@link render}; only the body
+   * assembly differs. Call {@link paginate} afterward to lay it out.
+   */
+  async renderChunked(section: Section, chunkChars?: number): Promise<RenderReport> {
+    return this.#renderSection(section, (document) => {
+      const { chunks } = chunkElement(document.body, chunkChars);
+      return assembleChunkedBody(chunks.map((chunk) => ({ html: chunk.html, chars: chunk.chars })));
+    });
+  }
+
+  /**
+   * The shared render path: bump the generation, run the sanitize + resources
+   * pipeline, then hand the sanitized document's body to `buildBody` to produce
+   * the frame body markup. `render` passes it through verbatim; `renderChunked`
+   * re-wraps it in chunk containers.
+   */
+  async #renderSection(
+    section: Section,
+    buildBody: (document: Document) => string,
+  ): Promise<RenderReport> {
     if (this.#destroyed) throw new ContentHostError('the host has been destroyed');
     const generation = (this.#generation += 1);
     this.#registry?.release();
@@ -136,7 +177,7 @@ export class ContentHost {
     await this.#load(
       assembleFrameDocument({
         headHtml: sanitized.document.head.innerHTML,
-        bodyHtml: sanitized.document.body.innerHTML,
+        bodyHtml: buildBody(sanitized.document),
         nonce: createNonce(),
         hostOrigin: this.#targetOrigin(),
       }),
@@ -148,6 +189,80 @@ export class ContentHost {
       declaredScripted: section.scripted === true,
       sanitization: sanitized.summary,
       resources,
+    };
+  }
+
+  /**
+   * Lays the currently-rendered chunked section out under `options` and returns
+   * the resulting pagination state. In paginated mode each chunk becomes an
+   * absolutely-positioned multi-column context and the page count is the sum of
+   * per-chunk page counts; in scrolled mode chunks stack with no paging. Requires
+   * a prior {@link renderChunked}.
+   */
+  async paginate(section: Section, options: PaginateOptions): Promise<PaginationState> {
+    await this.renderChunked(section, options.chunkChars);
+    const reply = await this.#request('paginate', { options });
+    if (reply.type !== 'paginated') {
+      throw new ContentHostError('the frame answered paginate with the wrong message');
+    }
+    return reply.state;
+  }
+
+  /** Re-measures the current layout (e.g. after a viewport or typography change). */
+  async relayout(): Promise<PaginationState> {
+    const reply = await this.#request('relayout');
+    if (reply.type !== 'paginated') {
+      throw new ContentHostError('the frame answered relayout with the wrong message');
+    }
+    return reply.state;
+  }
+
+  /** Scrolls to a page (0-based). Returns the page actually shown after clamping. */
+  async goToPage(page: number): Promise<number> {
+    const reply = await this.#request('goToPage', { page });
+    if (reply.type !== 'movedToPage') {
+      throw new ContentHostError('the frame answered goToPage with the wrong message');
+    }
+    return reply.page;
+  }
+
+  /** Character offset of the first glyph painted on a page, or -1 if none. */
+  async offsetOfPage(page: number): Promise<number> {
+    const reply = await this.#request('offsetOfPage', { page });
+    if (reply.type !== 'offset') {
+      throw new ContentHostError('the frame answered offsetOfPage with the wrong message');
+    }
+    return reply.offset;
+  }
+
+  /** The page (0-based) painting the glyph at a section-text character offset. */
+  async pageOfOffset(offset: number): Promise<number> {
+    const reply = await this.#request('pageOfOffset', { offset });
+    if (reply.type !== 'page') {
+      throw new ContentHostError('the frame answered pageOfOffset with the wrong message');
+    }
+    return reply.page;
+  }
+
+  /** The section's concatenated chunk text, as the frame measures it. */
+  async sectionText(): Promise<string> {
+    const reply = await this.#request('sectionText');
+    if (reply.type !== 'text') {
+      throw new ContentHostError('the frame answered sectionText with the wrong message');
+    }
+    return reply.text;
+  }
+
+  /** Frame-side counts for eviction/memory checks. */
+  async diagnostics(): Promise<{ domNodes: number; realizedChunks: number; totalChunks: number }> {
+    const reply = await this.#request('diagnostics');
+    if (reply.type !== 'diagnosticsReport') {
+      throw new ContentHostError('the frame answered diagnostics with the wrong message');
+    }
+    return {
+      domNodes: reply.domNodes,
+      realizedChunks: reply.realizedChunks,
+      totalChunks: reply.totalChunks,
     };
   }
 
@@ -208,7 +323,13 @@ export class ContentHost {
     });
   }
 
-  #request(type: 'measure' | 'ping'): Promise<FrameMessage> {
+  #request(
+    type: 'measure' | 'ping' | 'relayout' | 'sectionText' | 'diagnostics',
+  ): Promise<FrameMessage>;
+  #request(type: 'paginate', extras: { options: PaginateOptions }): Promise<FrameMessage>;
+  #request(type: 'goToPage' | 'offsetOfPage', extras: { page: number }): Promise<FrameMessage>;
+  #request(type: 'pageOfOffset', extras: { offset: number }): Promise<FrameMessage>;
+  #request(type: string, extras: Record<string, unknown> = {}): Promise<FrameMessage> {
     if (this.#destroyed) return Promise.reject(new ContentHostError('the host has been destroyed'));
     const target = this.frame.contentWindow;
     if (target === null) return Promise.reject(new ContentHostError('the frame has no document yet'));
@@ -221,7 +342,7 @@ export class ContentHost {
       this.#pending.set(id, { settle, fail, timer });
       // The frame's origin is opaque, so '*' is the only targetOrigin that can
       // reach it. The payload carries nothing confidential for that reason.
-      target.postMessage({ v: PROTOCOL_VERSION, type, id }, '*');
+      target.postMessage({ v: PROTOCOL_VERSION, type, id, ...extras }, '*');
     });
   }
 }

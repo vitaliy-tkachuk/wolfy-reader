@@ -156,6 +156,35 @@
   .chip.kept { background: #e6f4ea; color: #14682c; }
   .chip.blocked { background: #fdf1e0; color: #9a5b00; }
   .none { color: var(--muted); font-style: italic; }
+  .pager {
+    display: none;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+  }
+  .pager button {
+    font: inherit;
+    padding: 0.2rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .pager button:disabled { color: var(--muted); cursor: default; opacity: 0.6; }
+  .page-status { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 12rem; }
+  .mode-toggle { margin-left: auto; color: var(--muted); cursor: pointer; }
+  .roundtrip {
+    display: none;
+    margin: 0.5rem 0 0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .roundtrip.ok { color: #14682c; }
+  .roundtrip.bad { color: var(--error); }
 </style>
 </head>
 <body>
@@ -185,7 +214,14 @@
     </nav>
     <main class="pane">
       <p id="reader-label"></p>
+      <div id="pager" class="pager">
+        <button type="button" id="prev-page" disabled>◀ Prev</button>
+        <span id="page-status" class="page-status">—</span>
+        <button type="button" id="next-page" disabled>Next ▶</button>
+        <label class="mode-toggle"><input type="checkbox" id="scrolled-toggle"> Scrolled mode</label>
+      </div>
       <div id="reader"></div>
+      <p id="roundtrip" class="roundtrip"></p>
       <section id="report">
         <h2>What the host did to this section</h2>
         <dl>
@@ -204,7 +240,7 @@
 <script type="module">
   import { open } from '/src/core/index.ts';
   import { epub } from '/src/formats/index.ts';
-  import { ContentHost } from '/src/view/index.ts';
+  import { Paginator } from '/src/layout/index.ts';
 
   const input = document.querySelector('#book-input');
   const errorEl = document.querySelector('#error');
@@ -219,6 +255,12 @@
   const orderEl = document.querySelector('#reading-order');
   const readerLabelEl = document.querySelector('#reader-label');
   const readerEl = document.querySelector('#reader');
+  const pagerEl = document.querySelector('#pager');
+  const prevPageEl = document.querySelector('#prev-page');
+  const nextPageEl = document.querySelector('#next-page');
+  const pageStatusEl = document.querySelector('#page-status');
+  const scrolledToggleEl = document.querySelector('#scrolled-toggle');
+  const roundtripEl = document.querySelector('#roundtrip');
   const reportEl = document.querySelector('#report');
   const reportFields = {
     parse: document.querySelector('#report-parse'),
@@ -233,7 +275,9 @@
   let book = null;
   let coverUrl = null;
   let generation = 0;
-  let host = null;
+  let paginator = null;
+  let currentSection = null;
+  let currentButton = null;
   let queue = Promise.resolve();
   const violations = [];
 
@@ -257,12 +301,16 @@
     badgesEl.replaceChildren();
     tocEl.replaceChildren();
     orderEl.replaceChildren();
-    if (host !== null) {
-      host.destroy();
-      host = null;
+    if (paginator !== null) {
+      paginator.destroy();
+      paginator = null;
     }
+    currentSection = null;
+    currentButton = null;
     readerEl.replaceChildren();
     readerLabelEl.textContent = '';
+    pagerEl.style.display = 'none';
+    roundtripEl.style.display = 'none';
     reportEl.style.display = 'none';
     violations.length = 0;
   }
@@ -333,6 +381,70 @@
     queue = queue.then(() => renderSection(sectionId, fragment, button)).catch(() => {});
   }
 
+  function ensurePaginator() {
+    if (paginator !== null) return paginator;
+    paginator = new Paginator(readerEl, {
+      onViolation: (violation) => {
+        violations.push(violation);
+        showViolations();
+      },
+      onError: (message) => showError(new Error(`inside the frame: ${message}`)),
+    });
+    return paginator;
+  }
+
+  function pageMode() {
+    return scrolledToggleEl.checked ? 'scrolled' : 'paginated';
+  }
+
+  /** Renders the current page count + within-chapter progress into the pager. */
+  function showPageStatus() {
+    const progress = paginator.chapterProgress();
+    const percent = Math.round(progress.fraction * 100);
+    const count = progress.firm ? `${progress.totalPages}` : `≈ ${progress.totalPages}`;
+    if (progress.mode === 'scrolled') {
+      pageStatusEl.textContent = `scrolled · ${count} pages · ${progress.realizedChunks}/${progress.totalChunks} chunks`;
+      prevPageEl.disabled = true;
+      nextPageEl.disabled = true;
+    } else {
+      pageStatusEl.textContent =
+        `page ${progress.page + 1} of ${count} · ${percent}%` +
+        (progress.firm ? '' : ' (estimate)');
+      prevPageEl.disabled = progress.page <= 0;
+      nextPageEl.disabled = progress.page >= progress.totalPages - 1;
+    }
+  }
+
+  /**
+   * Proves the engine works end to end: capture a Position at the current page,
+   * resolve it back to a page, and report whether the round-trip lands home.
+   */
+  async function showRoundTrip() {
+    roundtripEl.className = 'roundtrip';
+    if (pageMode() === 'scrolled') {
+      roundtripEl.style.display = 'none';
+      return;
+    }
+    try {
+      const page = paginator.page;
+      const position = await paginator.positionOfPage(page);
+      const resolvedPage = await paginator.pageOfPosition(position);
+      const ok = resolvedPage === page;
+      roundtripEl.className = `roundtrip ${ok ? 'ok' : 'bad'}`;
+      roundtripEl.textContent =
+        `page↔Position round-trip: page ${page} → ${position.serialized.slice(0, 48)}… ` +
+        `→ page ${resolvedPage} ${ok ? '✓ lands home' : '✗ drifted'}`;
+      roundtripEl.style.display = 'block';
+    } catch (err) {
+      roundtripEl.style.display = 'none';
+    }
+  }
+
+  async function refresh() {
+    showPageStatus();
+    await showRoundTrip();
+  }
+
   async function renderSection(sectionId, fragment, button) {
     const current = generation;
     const section = book.section(sectionId);
@@ -341,24 +453,24 @@
       return;
     }
     try {
-      if (host === null) {
-        host = new ContentHost(readerEl, {
-          onViolation: (violation) => {
-            violations.push(violation);
-            showViolations();
-          },
-          onError: (message) => showError(new Error(`inside the frame: ${message}`)),
-        });
-      }
+      ensurePaginator();
       violations.length = 0;
-      const report = await host.render(section);
+      // renderChunked returns the sanitize/resource report the panel below shows;
+      // paginate then lays that same chunked section out into pages.
+      const report = await paginator.host.renderChunked(section);
       if (current !== generation) return;
+      await paginator.paginate(section, { mode: pageMode() });
+      if (current !== generation) return;
+      currentSection = section;
+      currentButton = button;
       readerLabelEl.textContent =
         `section "${section.id}" (${section.mediaType})` +
         (fragment !== undefined ? ` — target fragment #${fragment}` : '') +
         (report.declaredScripted ? ' — declares scripted content' : '');
       showReport(report);
+      pagerEl.style.display = 'flex';
       markActive(button);
+      await refresh();
     } catch (err) {
       if (current !== generation) return;
       showError(err);
@@ -433,6 +545,25 @@
       }
     }
   }
+
+  function turnPage(delta) {
+    if (paginator === null || currentSection === null) return;
+    queue = queue
+      .then(async () => {
+        await (delta > 0 ? paginator.nextPage() : paginator.previousPage());
+        await refresh();
+      })
+      .catch(() => {});
+  }
+
+  prevPageEl.addEventListener('click', () => turnPage(-1));
+  nextPageEl.addEventListener('click', () => turnPage(1));
+
+  scrolledToggleEl.addEventListener('change', () => {
+    if (paginator === null || currentSection === null) return;
+    // Re-paginate through the same chunk pipeline in the new mode.
+    loadSection(currentSection.id, undefined, currentButton);
+  });
 
   input.addEventListener('change', async () => {
     const file = input.files?.[0];

@@ -467,13 +467,13 @@ describe('protocol', { ...skipAll, ...skipVectors }, () => {
 
   test('unknown message shapes are ignored rather than dispatched', async () => {
     await renderSection('preserve');
-    const before = (await page.evaluate(() => window.harness.observed())).fromFrame.length;
     await page.evaluate(() => {
       const frame = document.querySelector('iframe');
       for (const payload of [
         'measure',
         { type: 'measure', id: 1 },
-        { v: 2, type: 'measure', id: 1 },
+        // A wrong protocol version is ignored (99 is not the current version).
+        { v: 99, type: 'measure', id: 1 },
         { v: 1, type: 'evaluate', id: 1, code: 'window.__x = 1' },
         { v: 1, type: 'measure' },
       ]) {
@@ -482,7 +482,11 @@ describe('protocol', { ...skipAll, ...skipVectors }, () => {
     });
     await new Promise((done) => setTimeout(done, 300));
     const observed = await page.evaluate(() => window.harness.observed());
-    assert.equal(observed.fromFrame.length, before, 'the frame replied to an unknown message');
+    // Replies to these payloads would carry the id they used; unsolicited frame
+    // messages (ready, an async CSP violation from the section) do not. Assert no
+    // reply was dispatched, without coupling to those async notifications.
+    const replies = observed.fromFrame.filter((message) => message !== null && 'id' in message);
+    assert.deepEqual(replies, [], 'the frame replied to an unknown message');
     // The channel is still live afterwards.
     const measurement = await page.evaluate(() => window.harness.measure());
     assert.ok(measurement.height > 0);
