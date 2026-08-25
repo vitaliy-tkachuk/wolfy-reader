@@ -17,12 +17,20 @@ wolfyReader renders ebooks in the browser — EPUB, FB2 and plain text today, MO
 
 ```bash
 npm install
-npm test             # node:test suite, headless
+npm run fetch-corpus # download the gitignored test corpus (Gutenberg + Standard Ebooks + W3C)
+npm test             # node:test suite, headless — includes the differential decode suite
 npm run test:browser # Playwright suites for the sandboxed frame
 npm run typecheck    # tsc --noEmit
 npm run check:core   # fail if src/core reaches src/layout or src/view
 npm run bench        # pagination benchmark (needs the corpus)
 ```
+
+The differential decode suite (`test/differential.test.ts`) proves the decoders
+agree: for each title shipped as both EPUB and TXT, it decodes each, strips
+boilerplate, normalizes, and asserts the prose matches across formats. It is
+headless and **skips gracefully when the corpus is absent** — run `npm run
+fetch-corpus` first to exercise it. This is the safety net MOBI/AZW3 will be
+built against.
 
 ### Setup on a new machine
 

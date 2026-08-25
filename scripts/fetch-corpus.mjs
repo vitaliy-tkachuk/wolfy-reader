@@ -55,6 +55,8 @@ const downloads = [
   ...gutenberg(84, 'frankenstein'),
   ...gutenberg(1342, 'pride-and-prejudice'),
   ...gutenberg(2701, 'moby-dick'),
+  ...gutenberg(11, 'alice-in-wonderland'),
+  ...gutenberg(1661, 'sherlock-holmes'),
   {
     // Without ?source=download Standard Ebooks serves an HTML interstitial instead of the file.
     url: 'https://standardebooks.org/ebooks/mary-shelley/frankenstein/downloads/mary-shelley_frankenstein.epub?source=download',
