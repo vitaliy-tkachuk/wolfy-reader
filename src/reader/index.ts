@@ -351,6 +351,9 @@ class ReaderImpl implements Reader {
     if (options.columns !== undefined) this.#appearance = { ...this.#appearance, columns: options.columns };
     this.#paginator = new Paginator(element, {
       themeCss: themeStyleSheet(this.#appearance),
+      // Baked into the frame's coordination script: with keyboard input off the
+      // frame stops preventDefault'ing nav keys it would forward to a deaf host.
+      keyboardNav: this.#keyboard,
       onLinkClick: (href) => {
         void this.#onLinkClick(href);
       },
@@ -746,21 +749,26 @@ class ReaderImpl implements Reader {
    *   3. the href carries a fragment that a `TocItem` also carries — borrow that
    *      item's `sectionId`.
    * A pure-fragment href (`#note`) seeks within the current section.
+   *
+   * Returns whether the href resolved and navigation happened — `false` on a
+   * soft miss — so the link-click path can decide whether a back-stack entry is
+   * warranted. `goTo` ignores the value.
    */
-  async #gotoHref(href: string): Promise<void> {
+  async #gotoHref(href: string): Promise<boolean> {
     const { path, fragment } = splitFragment(href);
     if (path === '') {
       // Pure fragment: within the current section.
       if (fragment !== undefined) await this.#seekFragment(fragment);
       this.#emit('positionchange', this.#snapshot());
-      return;
+      return fragment !== undefined;
     }
     const index = this.#resolveHrefToSection(path, fragment);
-    if (index === -1) return; // soft miss
+    if (index === -1) return false; // soft miss
     await this.#gotoSection(index, 'first');
-    if (this.#destroyed) return;
+    if (this.#destroyed) return false;
     if (fragment !== undefined) await this.#seekFragment(fragment);
     this.#emit('positionchange', this.#snapshot());
+    return true;
   }
 
   /** Heuristic href-path → section index; -1 when nothing matches (soft miss). */
@@ -838,12 +846,16 @@ class ReaderImpl implements Reader {
   async #onLinkClick(href: string): Promise<void> {
     if (this.#destroyed) return;
     this.#emit('linkclick', { href });
-    // Push the pre-jump position, then follow the link. Queued so it settles in
-    // order with any concurrent navigation.
+    // Capture the pre-jump position, follow the link, and push only if the href
+    // actually resolved and navigated. An external (https:) or otherwise
+    // unresolvable href is a soft miss that moves nothing — pushing it would
+    // make the next back() a no-op "return" to where the user already is
+    // instead of the genuinely prior position. Queued so it settles in order
+    // with any concurrent navigation.
     await this.#run(async () => {
       const here = await this.#currentPosition();
-      if (here !== null) this.#backStack.push(here);
-      await this.#gotoHref(href);
+      const navigated = await this.#gotoHref(href);
+      if (navigated && here !== null) this.#backStack.push(here);
     });
   }
 

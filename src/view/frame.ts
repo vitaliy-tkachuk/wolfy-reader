@@ -67,12 +67,17 @@ function escapeAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
-export function coordinationScript(hostOrigin: string): string {
+export function coordinationScript(hostOrigin: string, keyboardNav: boolean = true): string {
   return `(function(){
 'use strict';
 var VERSION = 9;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
+// Whether the host acts on forwarded nav keys. Baked in at document assembly
+// (like the theme stylesheet), never sent over the wire, so it is not a
+// protocol field and needs no version bump. It gates only preventDefault —
+// forwarding stays unconditional and the host ignores what it has disabled.
+var KEYBOARD_NAV = ${JSON.stringify(keyboardNav)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
 var CHUNK_CLASS = ${JSON.stringify(CHUNK_CLASS)};
 var START_ATTR = ${JSON.stringify(CHUNK_START_ATTR)};
@@ -662,27 +667,35 @@ document.addEventListener('click', function(event){
 });
 
 // Navigation-relevant keydowns are forwarded to the host, which owns the key
-// map (direction-aware). Only the keys the reader acts on are forwarded, and
-// preventDefault is scoped to those so the frame does not scroll under them;
-// every other key is left untouched.
+// map (direction-aware). Only the keys the reader acts on are forwarded. The
+// forwarding is unconditional (the wire is not gated), but preventDefault is:
+// KEYBOARD_NAV is the host's keyboard-input setting baked in at document
+// assembly, and when the host has keyboard input disabled it will ignore the
+// message, so suppressing the key's default action too would leave it dead.
+// Space is Space/Shift+Space paging (a near-universal reader convention); it is
+// forwarded as the normalized tokens 'Space' / 'Shift+Space' because event.key
+// is ' ' for both and the wire carries no modifier field. Every other key is
+// left untouched.
 var NAV_KEYS = { ArrowLeft:1, ArrowRight:1, ArrowUp:1, ArrowDown:1, PageUp:1, PageDown:1, Home:1, End:1 };
 document.addEventListener('keydown', function(event){
-  if (NAV_KEYS[event.key] === 1) {
-    event.preventDefault();
-    send({ v: VERSION, type: 'key', key: event.key });
-    return;
-  }
+  var isSpace = event.key === ' ' || event.key === 'Spacebar';
   // Keyboard equivalent of a figure tap: Enter/Space on a focused image opens the
   // same host-side zoom overlay a pointer tap does, so zoom is reachable without a
-  // pointer. Images are made focusable below (markImages); imageAncestor also
-  // catches Enter fired on a wrapper the image sits inside.
-  if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+  // pointer. Checked before paging so Space-to-activate wins on a focused image.
+  // Images are made focusable below (markImages); imageAncestor also catches
+  // Enter fired on a wrapper the image sits inside.
+  if (event.key === 'Enter' || isSpace) {
     var img = imageAncestor(event.target);
     if (img) {
       event.preventDefault();
       var isrc = img.getAttribute('src') || img.getAttribute('href') || img.getAttribute('xlink:href') || '';
       send({ v: VERSION, type: 'imagetap', src: String(isrc), alt: String(img.getAttribute('alt') || '') });
+      return;
     }
+  }
+  if (NAV_KEYS[event.key] === 1 || isSpace) {
+    if (KEYBOARD_NAV) event.preventDefault();
+    send({ v: VERSION, type: 'key', key: isSpace ? (event.shiftKey ? 'Shift+Space' : 'Space') : event.key });
   }
 });
 
@@ -898,6 +911,14 @@ export interface FrameDocumentParts {
    * unreachable by publisher CSS. Omit for an unthemed document.
    */
   readonly themeCss?: string;
+  /**
+   * Whether the host acts on forwarded navigation keydowns. Baked into the
+   * coordination script (not a wire message — no protocol change): when `false`
+   * the frame still forwards nav keys but no longer `preventDefault`s them, so
+   * a key the host will ignore keeps its default action instead of going dead.
+   * Defaults to `true`.
+   */
+  readonly keyboardNav?: boolean;
 }
 
 export function assembleFrameDocument(parts: FrameDocumentParts): string {
@@ -915,7 +936,7 @@ export function assembleFrameDocument(parts: FrameDocumentParts): string {
     '<head>',
     `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(contentSecurityPolicy(parts.nonce))}">`,
     '<meta charset="utf-8">',
-    `<script nonce="${parts.nonce}">${coordinationScript(parts.hostOrigin)}</script>`,
+    `<script nonce="${parts.nonce}">${coordinationScript(parts.hostOrigin, parts.keyboardNav !== false)}</script>`,
     `<style>${RESET_CSS}</style>`,
     ...(parts.themeCss !== undefined && parts.themeCss !== '' ? [`<style>${parts.themeCss}</style>`] : []),
     parts.headHtml,

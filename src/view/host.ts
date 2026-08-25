@@ -31,7 +31,12 @@ export interface ContentHostOptions {
   readonly onError?: (message: string) => void;
   /** An internal link was clicked in the frame; carries the raw authored href. */
   readonly onLinkClick?: (href: string) => void;
-  /** A navigation-relevant keydown fired in the frame; carries the `KeyboardEvent.key`. */
+  /**
+   * A navigation-relevant keydown fired in the frame; carries the
+   * `KeyboardEvent.key`, except Space, which arrives as the normalized tokens
+   * `'Space'` / `'Shift+Space'` (the key is `' '` for both and the wire carries
+   * no modifier field).
+   */
   readonly onKey?: (key: string) => void;
   /** A completed horizontal swipe in the frame; carries the net delta in CSS px. */
   readonly onSwipe?: (dx: number, dy: number) => void;
@@ -55,6 +60,14 @@ export interface ContentHostOptions {
    * {@link ContentHost.setThemeCss} and re-render. Omit for an unthemed frame.
    */
   readonly themeCss?: string;
+  /**
+   * Whether the consumer acts on the nav keydowns the frame forwards (`onKey`).
+   * Baked into the coordination script at document assembly — not a wire
+   * message, so no protocol change. When `false` the frame still forwards nav
+   * keys (the wire is unconditional) but stops `preventDefault`ing them, so a
+   * key the host will ignore keeps its default action. Defaults to `true`.
+   */
+  readonly keyboardNav?: boolean;
   /** How long the frame has to answer, in milliseconds. Defaults to 10000. */
   readonly timeoutMs?: number;
 }
@@ -243,6 +256,7 @@ export class ContentHost {
         nonce: createNonce(),
         hostOrigin: this.#targetOrigin(),
         ...(this.#themeCss !== undefined ? { themeCss: this.#themeCss } : {}),
+        ...(this.#options.keyboardNav !== undefined ? { keyboardNav: this.#options.keyboardNav } : {}),
       }),
     );
     this.#checkGeneration(generation);

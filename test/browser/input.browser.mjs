@@ -110,12 +110,20 @@ async function openReader(url, options = {}) {
   return page.evaluate((o) => window.harness.createReader(o), options);
 }
 
-/** Dispatch a keydown carrying `key` on the frame's document, as the user would. */
-async function pressKey(key) {
+/**
+ * Dispatch a keydown carrying `key` on the frame's document, as the user would.
+ * Returns whether the frame `preventDefault`'d it (the dispatchEvent return is
+ * false when the default action was cancelled).
+ */
+async function pressKey(key, { shift = false } = {}) {
   const frame = contentFrame();
-  await frame.evaluate((k) => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-  }, key);
+  return frame.evaluate(
+    ([k, s]) => {
+      const event = new KeyboardEvent('keydown', { key: k, shiftKey: s, bubbles: true, cancelable: true });
+      return !document.dispatchEvent(event);
+    },
+    [key, shift],
+  );
 }
 
 /**
@@ -220,6 +228,120 @@ describe('keyboard navigation (LTR)', { ...skipAll }, () => {
         pos.section < before.section || (pos.section === before.section && pos.page < before.page);
       assert.ok(retreated, `${key} did not retreat reading order (from ${before.section}/${before.page})`);
     }
+  });
+});
+
+describe('Space paging (T004)', { ...skipAll }, () => {
+  test('Space pages forward, Shift+Space pages back', async () => {
+    await openReader(HOSTILE);
+    await landOnMultiPage();
+    // Advance one so Shift+Space has room to go back.
+    await page.evaluate(() => window.harness.readerNext());
+    const start = await position();
+
+    const afterSpace = await afterGesture(start, () => pressKey(' '));
+    const advanced =
+      afterSpace.section > start.section || (afterSpace.section === start.section && afterSpace.page > start.page);
+    assert.ok(advanced, 'Space did not advance reading order');
+
+    const afterShiftSpace = await afterGesture(afterSpace, () => pressKey(' ', { shift: true }));
+    const retreated =
+      afterShiftSpace.section < afterSpace.section ||
+      (afterShiftSpace.section === afterSpace.section && afterShiftSpace.page < afterSpace.page);
+    assert.ok(retreated, 'Shift+Space did not retreat reading order');
+  });
+
+  test('Space on a focused image activates the zoom overlay, not a page turn', async () => {
+    await openReader(HOSTILE);
+    await landOnMultiPage();
+    const start = await position();
+    const frame = contentFrame();
+    // Give the frame an activatable image (tiny data: gif) and fire Space *on it* —
+    // the focused-image case. Image activation must win over Space paging.
+    await frame.evaluate(() => {
+      const img = document.createElement('img');
+      img.src =
+        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      img.alt = 'zoom target';
+      document.body.append(img);
+      img.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    });
+    // The imagetap crosses the wire and the host opens its dialog overlay.
+    await page.waitForFunction(() => document.querySelector('[role="dialog"]') !== null, null, {
+      timeout: 5000,
+    });
+    // And Space must not also have turned the page.
+    const after = await afterGesture(start, async () => {}, { expectMove: false });
+    assert.equal(after.section, start.section, 'Space on a focused image changed the section');
+    assert.equal(after.page, start.page, 'Space on a focused image turned the page');
+    // Close the overlay so later tests see a clean host document.
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('[role="dialog"]') === null);
+  });
+});
+
+describe('back-stack on link clicks (T004)', { ...skipAll }, () => {
+  test('an external/unresolvable link click pushes nothing — back() stays put', async () => {
+    await openReader(HOSTILE);
+    const start = await page.evaluate(() => window.harness.readerGoTo('start'));
+    await page.evaluate(() => window.harness.clearReaderEvents());
+
+    // Click an external https: link inside the frame. The frame reports it as a
+    // linkclick; the facade cannot resolve it to a section (soft miss, no move).
+    const frame = contentFrame();
+    await frame.evaluate(() => {
+      const anchor = document.createElement('a');
+      anchor.setAttribute('href', 'https://example.com/outside');
+      anchor.textContent = 'external';
+      document.body.append(anchor);
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await new Promise((done) => setTimeout(done, 200));
+
+    const events = await page.evaluate(() => window.harness.readerEvents());
+    assert.ok(
+      events.some((e) => e.type === 'linkclick' && e.payload.href === 'https://example.com/outside'),
+      'the external click did not surface as a linkclick',
+    );
+    const held = await position();
+    assert.equal(held.section, start.section, 'an unresolvable link moved the section');
+    assert.equal(held.page, start.page, 'an unresolvable link turned the page');
+
+    // Navigate away, then back(). Had the external click pushed an entry, back()
+    // would "return" to the pre-click position; with an empty stack it must be a
+    // no-op that stays exactly where we are.
+    const away = await page.evaluate(() => window.harness.readerNext());
+    assert.ok(
+      away.section !== start.section || away.page !== start.page,
+      'readerNext did not move — the back() assertion below would be vacuous',
+    );
+    const afterBack = await page.evaluate(() => window.harness.readerBack());
+    assert.equal(afterBack.section, away.section, 'back() navigated: the external click pushed a stack entry');
+    assert.equal(afterBack.page, away.page, 'back() turned the page: the external click pushed a stack entry');
+  });
+});
+
+describe('keyboard gating (input.keyboard: false, T004)', { ...skipAll }, () => {
+  test('nav keys are neither acted on nor preventDefaulted when keyboard input is off', async () => {
+    await openReader(HOSTILE, { input: { keyboard: false } });
+    await page.evaluate(() => window.harness.readerGoTo('start'));
+    const start = await position();
+
+    // The frame must leave the key's default action alone: a dead key that the
+    // host will ignore anyway is worse than no handling at all.
+    for (const key of ['ArrowRight', 'ArrowDown', 'PageDown', ' ']) {
+      const prevented = await pressKey(key);
+      assert.equal(prevented, false, `${JSON.stringify(key)} was preventDefault'd with keyboard input off`);
+    }
+    // And no navigation happened.
+    const held = await afterGesture(start, async () => {}, { expectMove: false });
+    assert.equal(held.section, start.section, 'a nav key moved the section with keyboard input off');
+    assert.equal(held.page, start.page, 'a nav key turned the page with keyboard input off');
+
+    // Control: with keyboard input on (default), the same keys are consumed.
+    await openReader(HOSTILE);
+    const prevented = await pressKey('ArrowRight');
+    assert.equal(prevented, true, 'ArrowRight was not preventDefault\'d with keyboard input on');
   });
 });
 

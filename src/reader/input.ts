@@ -58,8 +58,12 @@ function edgeIntent(edge: 'left' | 'right', direction: ReadingDirection): NavInt
 
 /**
  * Map a `KeyboardEvent.key` to a nav intent, direction-aware. Horizontal arrows
- * flip under RTL; PageUp/PageDown and vertical arrows are reading-order neutral;
- * Home/End are always book start/end.
+ * flip under RTL; PageUp/PageDown, vertical arrows and Space are reading-order
+ * neutral (Space always advances, Shift+Space always retreats — the near-universal
+ * reader/browser convention); Home/End are always book start/end. The frame
+ * forwards Space as the normalized tokens `'Space'` / `'Shift+Space'` because
+ * `KeyboardEvent.key` is `' '` for both and the wire carries no modifier field;
+ * the raw `' '` spelling is accepted too for host-side callers.
  */
 export function keyIntent(key: string, direction: ReadingDirection): NavIntent {
   switch (key) {
@@ -69,9 +73,13 @@ export function keyIntent(key: string, direction: ReadingDirection): NavIntent {
       return edgeIntent('left', direction);
     case 'ArrowDown':
     case 'PageDown':
+    case ' ':
+    case 'Space':
       return 'next';
     case 'ArrowUp':
     case 'PageUp':
+    case 'Shift+ ':
+    case 'Shift+Space':
       return 'prev';
     case 'Home':
       return 'start';

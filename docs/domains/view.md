@@ -152,7 +152,7 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **Fragment anchoring uses the v4 seam.** A fragment (from a `TocItem` or an href) is turned into a page by `Paginator.pageOfElementId`, which the frame answers via `offsetOfElementId` → `pageOfOffset` (protocol v4). A resolved id lands on that element's page; an unresolvable id is a soft miss that lands on the section's first page.
 
-**Internal-link back-stack.** The paginator/host cancels the in-frame default and reports the click through `ContentHostOptions.onLinkClick`; the facade emits `linkclick`, pushes the current `Position` onto its back-stack, then follows the href — all enqueued so it settles in order. `back()` pops and restores via `goTo(Position)`; empty-stack `back()` is a no-op.
+**Internal-link back-stack — push only after the href resolves.** The paginator/host cancels the in-frame default and reports the click through `ContentHostOptions.onLinkClick`; the facade emits `linkclick`, captures the current `Position`, follows the href, and pushes the captured position **only if the href actually resolved and navigated** — all enqueued so it settles in order. An external (`https:`) or otherwise unresolvable href is a soft miss that moves nothing and pushes **nothing**: pushing it would make the next `back()` a bogus "return" to where the user already is instead of the genuinely prior position (`#gotoHref` returns whether it navigated for exactly this reason). `back()` pops and restores via `goTo(Position)`; empty-stack `back()` is a no-op.
 
 **Mode switch preserves position.** `setMode` delegates to `Paginator.switchMode`, which captures a `Position` for the current page, re-paginates in the new mode, and seeks back to the page that `Position` now resolves to (M1-2 capture→re-layout→resolve→restore) — no reload. A same-session same-text miss degrades to page 0. Switching before the first paint just records the mode. **Caveat (engine, not facade):** scrolled mode collapses paging to a single page, so a `Position` captured at a *mid-section* page while scrolled resolves back to that section's first page — a paginated→scrolled→paginated round trip from a mid-section page can therefore drift toward page 0. Exact mid-scroll capture is the M3-2 appearance-invariant's job; the facade only guarantees the switch composes, holds the section, and preserves the page when the anchor page survives the collapse (e.g. a page-0 round trip lands home).
 
@@ -170,13 +170,13 @@ The reader is operable by hand: keyboard, touch swipe, and configurable tap zone
 
 | message | payload | when |
 |---|---|---|
-| `key` | `key` | a navigation-relevant `keydown` in the frame (`ArrowLeft/Right/Up/Down`, `PageUp/PageDown`, `Home`, `End` — the frame's `NAV_KEYS` allowlist; nothing else is forwarded) |
+| `key` | `key` | a navigation-relevant `keydown` in the frame (`ArrowLeft/Right/Up/Down`, `PageUp/PageDown`, `Home`, `End` — the frame's `NAV_KEYS` allowlist — plus Space, forwarded as the normalized tokens `'Space'` / `'Shift+Space'` because `event.key` is `' '` for both and the wire carries no modifier field; nothing else is forwarded) |
 | `swipe` | `dx`, `dy` | a completed pointer/touch drag clearing the frame's `SWIPE_THRESHOLD` (30px) and horizontal-dominant (`|dx| > |dy|`) |
 | `tap` | `x`, `y`, `width`, `height` | a pointer/touch press-release within `TAP_SLOP` (10px) that is **not** on a link and **not** on an image — a link tap stays a `linkclick` and an image tap becomes an `imagetap` (see the image-zoom section), each shared through its own ancestor walk |
 
 The host relays these through `ContentHostOptions.onKey(key)` / `onSwipe(dx, dy)` / `onTap({x, y, width, height})`, which the facade supplies.
 
-**Key map (LTR).** `ArrowRight` / `PageDown` / `ArrowDown` → next; `ArrowLeft` / `PageUp` / `ArrowUp` → prev; `Home` → `goTo('start')`; `End` → `goTo('end')`.
+**Key map (LTR).** `ArrowRight` / `PageDown` / `ArrowDown` / Space → next; `ArrowLeft` / `PageUp` / `ArrowUp` / Shift+Space → prev; `Home` → `goTo('start')`; `End` → `goTo('end')`. Space/Shift+Space are reading-order neutral like PageDown/PageUp (they do not flip under RTL) — the near-universal reader convention. **Space-to-activate on a focused image wins over Space paging**: the frame's keydown handler checks the image-activation case (`imageAncestor`) before the nav-key forward, so Space on a focused figure opens the zoom overlay and turns no page.
 
 **Swipe (LTR).** `dx < 0` (leftward, contents move left) → next; `dx > 0` (rightward) → prev.
 
@@ -190,7 +190,7 @@ The host relays these through `ContentHostOptions.onKey(key)` / `onSwipe(dx, dy)
 - `swipe?: boolean` (default `true`)
 - `tapZones?: { left?: number; right?: number } | false` (default enabled at 1/3 & 2/3; `false` disables tap zones, an object overrides the zone fractions)
 
-Each mode is gated independently in the facade, so a consumer can turn any one off; the frame still forwards all three (the wire is not conditional), the facade simply ignores a disabled mode.
+Each mode is gated independently in the facade, so a consumer can turn any one off; the frame still forwards all three (the wire is not conditional), the facade simply ignores a disabled mode. **One frame-side consequence of `keyboard: false`: the frame stops `preventDefault`ing nav keys.** A key the host will ignore must keep its default action (scrolling, Space's page-down) rather than going dead, so the frame's nav-key `preventDefault` is gated on the host's keyboard setting. The flag reaches the frame **baked into the coordination script at document assembly** (`ContentHostOptions.keyboardNav` → `FrameDocumentParts.keyboardNav`, the same srcdoc route as `themeCss`) — it is not a wire message, so it is not a protocol field and needed no version bump; forwarding itself stays unconditional.
 
 **`prefers-reduced-motion` gates the zoom overlay, never input.** The reader's only animation is the image-zoom overlay's open/close fade (see the image-zoom section); it is gated on `matchMedia('(prefers-reduced-motion: reduce)')` and appears/disappears instantly under the preference. Page-turning is never gated — `#dispatchIntent` in `src/reader/index.ts` dispatches every navigation intent regardless of the preference, because input must always turn the page. There is still no page-turn animation; when one lands (M3 appearance), gate that animation the same way, never the input.
 
