@@ -148,6 +148,30 @@ function stride(){
   return layout.pageWidth + layout.columnGap;
 }
 
+// The chunk (and its local page) that paints a given global page, or null. Shared
+// by every page→chunk seam so the [firstPage, firstPage+pages) test lives once.
+function chunkAtPage(page){
+  for (var i = 0; i < layout.chunks.length; i++){
+    var ch = layout.chunks[i];
+    if (page >= ch.firstPage && page < ch.firstPage + ch.pages) return ch;
+  }
+  return null;
+}
+
+// The chunk covering a section-text character offset, or null.
+function chunkAtOffset(offset){
+  for (var i = 0; i < layout.chunks.length; i++){
+    var ch = layout.chunks[i];
+    if (offset >= ch.start && offset < ch.end) return ch;
+  }
+  return null;
+}
+
+// Realize a chunk so a Range can measure its real text even if it was evicted
+// (content-visibility:auto skips layout for off-screen chunks). Every measuring
+// seam calls this rather than poking the style ad hoc.
+function realize(el){ el.style.contentVisibility = 'visible'; }
+
 // (Re)apply geometry to every chunk container and recompute the page map. In
 // paginated mode each chunk is an absolutely-positioned multi-column context and
 // contributes ceil(contentWidth / pageStride) pages; boundaries are forced page
@@ -273,11 +297,8 @@ function goToPage(page){
   if (layout.pageCount <= 0) return 0;
   if (page < 0) page = 0;
   if (page >= layout.pageCount) page = layout.pageCount - 1;
-  var target = null, localPage = 0;
-  for (var i = 0; i < layout.chunks.length; i++){
-    var ch = layout.chunks[i];
-    if (page >= ch.firstPage && page < ch.firstPage + ch.pages){ target = ch; localPage = page - ch.firstPage; break; }
-  }
+  var target = chunkAtPage(page);
+  var localPage = target === null ? 0 : page - target.firstPage;
   applyWindow(page);
   for (var j = 0; j < layout.chunks.length; j++){
     var c = layout.chunks[j];
@@ -297,27 +318,29 @@ function goToPage(page){
 // on this page's column band, and add the chunk's cumulative start offset.
 function offsetOfPage(page){
   if (page < 0 || page >= layout.pageCount) return -1;
-  var chunk = null, localPage = 0;
-  for (var i = 0; i < layout.chunks.length; i++){
-    var ch = layout.chunks[i];
-    if (page >= ch.firstPage && page < ch.firstPage + ch.pages){ chunk = ch; localPage = page - ch.firstPage; break; }
-  }
+  var chunk = chunkAtPage(page);
   if (chunk === null) return -1;
-  chunk.el.style.contentVisibility = 'visible';
+  realize(chunk.el);
+  var localPage = page - chunk.firstPage;
   var bandLeft = localPage * stride();
   var bandRight = bandLeft + layout.pageWidth;
+  // Hoist the box origin and reuse one Range across the walk: calling
+  // getBoundingClientRect or createRange per character forces a fresh layout
+  // each time and dominated this seam. getClientRects on the reused range still
+  // flushes, but only one flush per character, over a chunk (<= ~8000 chars).
+  var boxLeft = chunk.el.getBoundingClientRect().left;
   var walker = document.createTreeWalker(chunk.el, NodeFilter.SHOW_TEXT, null);
+  var range = document.createRange();
   var textOffset = 0;
   var node;
   while ((node = walker.nextNode())){
     var len = node.data.length;
     for (var p = 0; p < len; p++){
-      var range = document.createRange();
       range.setStart(node, p);
       range.setEnd(node, p + 1);
       var rects = range.getClientRects();
       if (rects.length > 0){
-        var left = rects[0].left - chunk.el.getBoundingClientRect().left;
+        var left = rects[0].left - boxLeft;
         if (left >= bandLeft - 1 && left < bandRight){
           return chunk.start + textOffset + p;
         }
@@ -330,17 +353,13 @@ function offsetOfPage(page){
 
 // Inverse: which page paints the glyph at this section-text offset.
 function pageOfOffset(offset){
-  var chunk = null;
-  for (var i = 0; i < layout.chunks.length; i++){
-    var ch = layout.chunks[i];
-    if (offset >= ch.start && offset < ch.end){ chunk = ch; break; }
-  }
+  var chunk = chunkAtOffset(offset);
   if (chunk === null){
     // Past the end: last page. Before the start: first page.
     if (layout.chunks.length === 0) return 0;
     return offset < layout.chunks[0].start ? 0 : layout.pageCount - 1;
   }
-  chunk.el.style.contentVisibility = 'visible';
+  realize(chunk.el);
   var local = offset - chunk.start;
   var walker = document.createTreeWalker(chunk.el, NodeFilter.SHOW_TEXT, null);
   var acc = 0, node;
@@ -382,7 +401,7 @@ function offsetOfElementId(elementId){
   if (!chunkEl || chunkEl.nodeType !== 1) return -1;
   // The element (or its chunk) may be un-realized; force it visible so the Range
   // measures real text, mirroring offsetOfPage/pageOfOffset.
-  chunkEl.style.contentVisibility = 'visible';
+  realize(chunkEl);
   var chunkStart = numAttr(chunkEl, START_ATTR);
   var range = document.createRange();
   try {
@@ -400,13 +419,12 @@ function offsetOfElementId(elementId){
 
 function sectionText(){
   var text = '';
-  for (var i = 0; i < layout.chunks.length; i++) text += layout.chunks[i].el.textContent || '';
-  if (layout.chunks.length === 0){
-    var root = document.getElementById(ROOT_ID);
-    if (root){
-      var found = root.getElementsByClassName(CHUNK_CLASS);
-      for (var j = 0; j < found.length; j++) text += found[j].textContent || '';
-    }
+  if (layout.chunks.length > 0){
+    for (var i = 0; i < layout.chunks.length; i++) text += layout.chunks[i].el.textContent || '';
+  } else {
+    // Before the first paginate the layout is empty; read the containers directly.
+    var els = chunkContainers();
+    for (var j = 0; j < els.length; j++) text += els[j].textContent || '';
   }
   return text;
 }

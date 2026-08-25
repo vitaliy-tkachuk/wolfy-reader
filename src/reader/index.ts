@@ -396,12 +396,23 @@ class ReaderImpl implements Reader {
     if (index < 0 || index >= this.#sections.length) return;
     const section = this.#sections[index]!;
     const changed = this.#paginator.section === null || this.#sectionIndex !== index;
-    await this.#paginator.paginate(section, { mode: this.#mode, ...this.#requestExtras() });
-    this.#sectionIndex = index;
+    // Re-paginating is the expensive step (sanitize + chunk + measure). Skip it
+    // when we are already on this section — back(), a same-section fragment jump,
+    // or a Position within the current chapter — and just seek within the layout
+    // already in place.
+    if (changed) {
+      await this.#paginator.paginate(section, { mode: this.#mode, ...this.#requestExtras() });
+      this.#sectionIndex = index;
+    }
+    // Always establish the landing page explicitly. A multi-chunk section paints
+    // its chunks stacked until a page is selected, so entering on 'first' must
+    // seek page 0, not assume paginate left it there.
     if (land === 'last') {
       await this.#paginator.refine();
       const state = this.#paginator.state;
-      if (state !== null) await this.#paginator.goToPage(Math.max(0, state.pageCount - 1));
+      await this.#paginator.goToPage(state === null ? 0 : Math.max(0, state.pageCount - 1));
+    } else {
+      await this.#paginator.goToPage(0);
     }
     if (changed) this.#emit('sectionchange', { index, sectionId: section.id });
     this.#emit('positionchange', this.#snapshot());

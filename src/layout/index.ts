@@ -351,10 +351,12 @@ function clamp(value: number, low: number, high: number): number {
  * pairs, combining sequences, and emoji clusters. An index at or past the end
  * maps to the text length.
  */
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
 function graphemeIndexToCodeUnitOffset(text: string, graphemeIndex: number): number {
   if (graphemeIndex <= 0) return 0;
   let index = 0;
-  for (const segment of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)) {
+  for (const segment of GRAPHEME_SEGMENTER.segment(text)) {
     if (index === graphemeIndex) return segment.index;
     index += 1;
   }
