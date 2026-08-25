@@ -12,7 +12,7 @@
 <div id="stage"></div>
 <script type="module">
   import { open, capturePosition, serializePosition } from '/src/core/index.ts';
-  import { epub } from '/src/formats/index.ts';
+  import { epub, fb2, text } from '/src/formats/index.ts';
   import { ContentHost } from '/src/view/index.ts';
   import { Paginator } from '/src/layout/index.ts';
   import { render, parsePosition } from '/src/reader/index.ts';
@@ -75,7 +75,7 @@
     async openBook(url) {
       const response = await fetch(url);
       if (!response.ok) return null;
-      book = await open(await response.arrayBuffer(), { formats: [epub] });
+      book = await open(await response.arrayBuffer(), { formats: [epub, fb2, text] });
       return book.sections.map((section) => ({
         id: section.id,
         mediaType: section.mediaType,

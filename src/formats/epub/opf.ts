@@ -5,7 +5,7 @@ import {
   firstChildNamed,
   parseXml,
   type XmlElement,
-} from './xml.ts';
+} from '../xml.ts';
 
 export interface ManifestItem {
   readonly id: string;

@@ -13,8 +13,13 @@ claim wins, so richer formats are listed before catch-all ones.
 
 Code:
 
-- `src/formats/index.ts` — the public barrel: `export { epub, text }`.
-- `src/formats/text/index.ts` — the plain-text decoder (this doc's subject).
+- `src/formats/index.ts` — the public barrel: `export { epub, fb2, text }`.
+- `src/formats/text/index.ts` — the plain-text decoder.
+- `src/formats/fb2/index.ts` — the FictionBook 2 decoder.
+- `src/formats/xml.ts` — the shared headless XML parser (`parseXml` + helpers +
+  `decodeXml`), used by both `epub` and `fb2`. It lives at the `formats` root, not
+  under `epub`, precisely because it is cross-format infrastructure; neither format
+  reaches into the other.
 
 ## Key decisions
 
@@ -44,6 +49,37 @@ Code:
   omits `Section.resolve` entirely (the model allows it to be absent) and the book's
   `resources` map is empty — a concrete demonstration that those parts of the model
   are genuinely optional, not EPUB assumptions.
+
+### FB2 (FictionBook 2)
+
+- **The whole book is one XML file, and the model fit it without bending** (2026-08-25,
+  PLAN M4-2). No container, no manifest, cross-references by element id — the second
+  seam probe. `description/title-info` → metadata; each top-level `<section>` of the
+  main `<body>` → one Book section (`s0`, `s1`, …); each named `<body name="notes">`
+  → one section (`nb0`, …); inline base64 `<binary>` → resources resolved by
+  `Section.resolve`; cover from `title-info/coverpage`. Zero core/layout/view diff.
+- **In-book links are rewritten to `sectionId#elementId` so the reader can follow
+  them across sections.** The reader resolves a `goTo(href)` by matching the href
+  *path* to a `section.id`, and a bare `#id` only seeks the *current* section. So at
+  decode time every FB2 element id is mapped to the Book section that renders it, and
+  every authored `#id` link is rewritten to `<sectionId>#id`. This is what makes a
+  footnote — whose body lives in a separate `notes` section — jump correctly and
+  return via the reader's existing back-stack, with **no** view or reader change.
+- **Images reference the binary by a *bare* id, not `#id`.** The view classifies a
+  `#…` reference as an in-page fragment and will not serve it as a resource, so
+  `<image l:href="#pic1"/>` renders as `<img src="pic1"/>` and `Section.resolve`
+  maps the bare id (and, defensively, `#id`) to the `<binary>`. The view then serves
+  it as a `data:` URL like any other resource.
+- **XML parsing reuses the shared headless parser, never `DOMParser`.** Node has no
+  `DOMParser` and decoder tests must run headless (the recorded epub-domain rule), so
+  FB2 uses `src/formats/xml.ts`. `decodeXml` honors the XML `encoding` declaration —
+  real FB2 is frequently **windows-1251**, and assuming UTF-8 would mojibake every
+  Cyrillic character; a BOM still wins over the declaration, and an unknown label
+  falls back to UTF-8.
+- **Unknown FB2 elements render transparently** (their children only), so content is
+  never dropped even for tags the renderer does not explicitly map. Known inline tags
+  (`emphasis`→`em`, `strong`, `sub`/`sup`, …) and block tags (`section`, `title`→`h2..h6`
+  by depth, `poem`/`stanza`/`v`, `cite`→`blockquote`, `epigraph`) map to XHTML.
 
 ## Implementation notes
 
@@ -85,3 +121,11 @@ Code:
   that skips gracefully when the gitignored corpus is absent. Rendering rides the
   existing view's browser coverage. This mirrors the epub domain's headless-decoder
   rule.
+- **FB2 the same, plus one load-bearing browser test.** `test/fb2.test.ts` covers
+  decode headlessly — metadata, section/TOC structure, the footnote href rewrite,
+  image/`Section.resolve` mapping, and the windows-1251 encoding path (payload
+  asserted). The single behavior that cannot be headless — a real footnote *click*
+  jumping to the notes section and `back()` returning — is `test/browser/fb2.browser.mjs`,
+  because the link-click interception, postMessage round-trip, and back-stack live in
+  the real reader and the opaque-origin frame. The browser harness (`harness.html`)
+  opens with `formats: [epub, fb2, text]`.

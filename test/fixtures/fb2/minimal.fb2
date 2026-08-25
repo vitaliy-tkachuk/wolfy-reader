@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <description>
+    <title-info>
+      <book-title>Minimal</book-title>
+      <lang>en</lang>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <p>A single unnamed section with one paragraph and no id.</p>
+    </section>
+  </body>
+</FictionBook>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>sf</genre>
+      <author>
+        <first-name>Ada</first-name>
+        <last-name>Writer</last-name>
+      </author>
+      <book-title>A Test FB2 Book</book-title>
+      <lang>en</lang>
+      <coverpage>
+        <image l:href="#cover.png"/>
+      </coverpage>
+    </title-info>
+  </description>
+  <body>
+    <section id="ch1">
+      <title><p>Chapter One</p></title>
+      <p>The opening paragraph has a footnote<a l:href="#note1" type="note">1</a> right here.</p>
+      <p>A second paragraph with <emphasis>emphasis</emphasis> and <strong>strength</strong>.</p>
+    </section>
+    <section id="ch2">
+      <title><p>Chapter Two</p></title>
+      <p>This chapter shows an inline image.</p>
+      <image l:href="#pic1"/>
+      <section id="ch2a">
+        <title><p>A Subsection</p></title>
+        <p>Nested prose under chapter two.</p>
+      </section>
+    </section>
+  </body>
+  <body name="notes">
+    <section id="note1">
+      <title><p>1</p></title>
+      <p>This is the footnote body, living in the notes section.</p>
+    </section>
+  </body>
+  <binary id="cover.png" content-type="image/png">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAoGY2s0AAAAASUVORK5CYII=</binary>
+  <binary id="pic1" content-type="image/png">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAoGY2s0AAAAASUVORK5CYII=</binary>
+</FictionBook>

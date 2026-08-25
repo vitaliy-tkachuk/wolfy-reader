@@ -303,7 +303,7 @@
 <body>
 <h1>wolfyReader demo</h1>
 <p class="tagline">Decoder proof: pick a book, see exactly what the library produced. Chapters render as live markup inside the hardened sandboxed frame, with a report of everything the sanitizer took out.</p>
-<input type="file" id="book-input" accept=".epub,.txt,application/epub+zip,text/plain">
+<input type="file" id="book-input" accept=".epub,.fb2,.txt,application/epub+zip,text/plain">
 <div id="error"></div>
 <div id="book">
   <div class="meta-card">
@@ -431,7 +431,7 @@
 </div>
 <script type="module">
   import { open } from '/src/core/index.ts';
-  import { epub, text } from '/src/formats/index.ts';
+  import { epub, fb2, text } from '/src/formats/index.ts';
   import { render } from '/src/reader/index.ts';
   import { ContentHost, resolveThemeProperties, resolveTypographyProperties } from '/src/view/index.ts';
 
@@ -1052,7 +1052,7 @@
     resetUi();
     book = null;
     try {
-      const loaded = await open(file, { formats: [epub, text] });
+      const loaded = await open(file, { formats: [epub, fb2, text] });
       if (current !== generation) return;
       await showBook(loaded);
     } catch (err) {

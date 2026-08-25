@@ -12,7 +12,7 @@ import { openZip, ZipEncryptedEntryError, ZipError, type ZipArchive } from '../.
 import { directoryOf, resolveHref } from './href.ts';
 import { opfPathFromContainer, parseOpf, type ManifestItem, type OpfPackage } from './opf.ts';
 import { parseNavToc, parseNcxToc, type SectionByPath } from './toc.ts';
-import { decodeXml } from './xml.ts';
+import { decodeXml } from '../xml.ts';
 
 const EPUB_MIMETYPE = 'application/epub+zip';
 const CONTAINER_PATH = 'META-INF/container.xml';

@@ -8,7 +8,7 @@ import {
   firstChildNamed,
   parseXml,
   type XmlElement,
-} from './xml.ts';
+} from '../xml.ts';
 
 /** Resolved zip entry name → section id, for turning TOC targets into section references. */
 export type SectionByPath = ReadonlyMap<string, string>;

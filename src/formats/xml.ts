@@ -23,7 +23,31 @@ export function decodeXml(bytes: Uint8Array): string {
     if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
     if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
   }
+  // A BOM decides outright; otherwise honor the XML declaration's encoding label
+  // for non-Unicode codepages — real FB2 is frequently windows-1251, and assuming
+  // UTF-8 would mojibake every Cyrillic character. The label is read from the
+  // prolog as Latin-1 (one byte → one char) so it is legible before the true
+  // encoding is known. An unknown label falls back to UTF-8.
+  const label = encodingFromProlog(bytes);
+  if (label !== undefined && !/^utf-?8$/i.test(label) && !/^utf-?16/i.test(label)) {
+    try {
+      return new TextDecoder(label).decode(bytes);
+    } catch {
+      // Unsupported label — fall through to UTF-8.
+    }
+  }
   return new TextDecoder().decode(bytes);
+}
+
+function encodingFromProlog(bytes: Uint8Array): string | undefined {
+  const head = bytes.subarray(0, Math.min(bytes.length, 200));
+  let prolog = '';
+  for (let i = 0; i < head.length; i += 1) prolog += String.fromCharCode(head[i]!);
+  if (!prolog.startsWith('<?xml')) return undefined;
+  const end = prolog.indexOf('?>');
+  if (end === -1) return undefined;
+  const match = prolog.slice(0, end).match(/encoding\s*=\s*["']([^"']+)["']/i);
+  return match?.[1];
 }
 
 export function localNameOf(name: string): string {
