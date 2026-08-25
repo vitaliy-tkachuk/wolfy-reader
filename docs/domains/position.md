@@ -89,3 +89,12 @@ caller-supplied plain text and UTF-16 offsets — no DOM, HTML, or Range.
 - `parsePosition` throwing (not returning `undefined`) is intentional and is the one
   place in the position domain that raises: a corrupt/foreign string is a structural
   fault, whereas a live-content match failure is a value-level miss.
+- **The appearance invariant is the payoff of this resolver.** `setAppearance`/
+  `setMode` capture a `Position` for the page start, re-lay out, and resolve it back —
+  content-addressed, so the reading place survives a reflow that moves every page
+  number. The tolerance is stated over the paragraph at the *top* of the page (the
+  restore anchors on the page-start offset), tested as a parameterized invariant in
+  `test/browser/appearance.browser.mjs`; the cross-cutting decision lives in
+  [`docs/architecture.md`](../architecture.md) and the mechanism in
+  [`appearance`](appearance.md). A same-text resolution miss degrades soft to page 0,
+  exactly the soft-miss contract this domain guarantees.

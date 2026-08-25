@@ -210,3 +210,36 @@ after. A same-text resolution miss (rare) degrades to page 0.
   inside the opaque-origin frame — are Playwright
   (`test/browser/appearance.browser.mjs`, one assertion per knob). This mirrors the
   layout domain's split.
+
+## The position-preserving invariant (tested)
+
+- **`setAppearance`/`setMode` are position-preserving by contract, and the contract
+  is a tested invariant, not a hope.** `test/browser/appearance.browser.mjs` runs a
+  parameterized suite: every reflowing knob (`fontSize`, `fontFamily`, `lineHeight`,
+  `margin`, `columns`) **and** the paginated↔scrolled mode switch, across **two
+  corpus books** (`gutenberg-frankenstein`, `gutenberg-moby-dick`) and **two starting
+  positions** (section start and mid-section). Corpus-backed cases skip gracefully
+  when the gitignored corpus is absent.
+- **The stated tolerance is the paragraph at the TOP of the page.** The restore
+  anchors on the page-*start* offset (`Paginator.positionOfPage` → frame
+  `offsetOfPage(page)`), so the assertion is: the top-most substantial paragraph
+  (≥ 120 chars, for unambiguous content resolution) visible *before* the change is
+  still visible *after* it. It is deliberately **not** the longest paragraph on the
+  page — a longest-anywhere paragraph can sit at the bottom and legitimately fall
+  onto an adjacent page when the column count changes, even though the reading place
+  (the top) is held. Anchoring the test on "longest" rather than "top-most" is the one
+  bug that surfaced building this suite; `pageAnchor` returns the top-most.
+- **The suite is falsifiable.** A deliberate-regression case captures a mid-section
+  anchor, lands on page 0 (exactly where `#reapply` lands when the anchor fails to
+  resolve — the restore did nothing), and asserts the invariant assertion *throws*
+  there (`assert.throws(/tolerance violated/)`). Encoded as `assert.throws` so nothing
+  is left permanently red, it proves the mechanism — not a vacuous assertion — is what
+  holds the place.
+- **Scrolled mode holds to section granularity only.** Paging collapses in scrolled
+  mode, so a mid-section anchor resolves to the section's first page; the mode-switch
+  cases assert the weaker, honest guarantee (the section is preserved and the anchor
+  paragraph is still present in the rendered content), a documented drift, not a
+  violation.
+- The cross-cutting decision is recorded in
+  [`docs/architecture.md`](../architecture.md) (2026-08-25); the anchor machinery it
+  stands on is the [`position`](position.md) domain.

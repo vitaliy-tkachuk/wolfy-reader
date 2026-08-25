@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { access } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -6,15 +7,38 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * Browser tests for the appearance system's theme half. Themes, the cascade fight
- * with publisher CSS, and `prefers-color-scheme` are computed-style / rendering
+ * Browser tests for the appearance system. Themes, the cascade fight with publisher
+ * CSS, `prefers-color-scheme`, per-knob computed styles, and — the core of this
+ * suite — the position-preserving invariant are all computed-style / rendering
  * behaviour inside the opaque-origin sandboxed frame that only a real browser can
- * assert — hence full Chromium. The pure mapping/merge/serialization logic lives
- * in the headless test/appearance.test.ts.
+ * assert, hence full Chromium. The pure mapping/merge/serialization logic lives in
+ * the headless test/appearance.test.ts.
  *
- * Mirrors reader.browser.mjs: same serve-demo mounts, same harness.html, and a
- * graceful skip when playwright is absent. These cases render a synthetic in-memory
- * section straight through the facade, so no corpus book is needed.
+ * Mirrors reader.browser.mjs: same serve-demo mounts, same harness.html, a graceful
+ * skip when playwright is absent and — for the corpus-backed invariant cases — when
+ * the gitignored corpus books are absent. The synthetic-section cases below need no
+ * corpus book; the invariant suite exercises real Gutenberg EPUBs.
+ *
+ * ## The position-preserving invariant
+ *
+ * `setAppearance` and `setMode` are position-preserving *by contract*: after any
+ * appearance knob changes (fontSize, fontFamily, lineHeight, margin, columns) or the
+ * mode switches paginated↔scrolled, the reader's place is preserved. The mechanism
+ * is the content anchor (an exact quote + context, not a page number): capture a
+ * `Position` for the current page → re-lay out → resolve that `Position` against the
+ * new layout → seek back to the page it now lands on.
+ *
+ * The stated tolerance is the anchor paragraph, not a page number:
+ *
+ *   TOLERANCE — the paragraph that anchored the top of the page *before* the change
+ *   is visible on the page *after* the change.
+ *
+ * Page numbers shift when text reflows (a bigger font makes more pages); the anchor
+ * paragraph does not. In scrolled mode paging collapses, so a mid-section anchor
+ * resolves to the section's first page — a documented drift, not a violation — so the
+ * mode-switch cases assert the weaker guarantee scrolled mode actually offers: the
+ * section is preserved and the anchor paragraph is still present in the rendered
+ * content, i.e. the reading place is not lost even though the exact page is.
  */
 
 const browserDir = dirname(fileURLToPath(import.meta.url));
@@ -22,11 +46,32 @@ const repoRoot = resolve(browserDir, '..', '..');
 const fixtureDir = resolve(repoRoot, 'test', 'fixtures', 'epub');
 const corpusDir = resolve(repoRoot, 'test', 'corpus');
 
+// Two corpus books, so the invariant is proven against more than one publisher's
+// markup. Each is checked for presence independently; a book that is absent skips
+// its own cases (the corpus is gitignored and downloaded).
+const CORPUS_BOOKS = [
+  { label: 'frankenstein', url: '/corpus/gutenberg-frankenstein.epub' },
+  { label: 'moby-dick', url: '/corpus/gutenberg-moby-dick.epub' },
+];
+
 let playwright = null;
 try {
   playwright = await import('playwright');
 } catch {
   console.log('appearance.browser: playwright is not installed — skipping. Run `npm install` first.');
+}
+
+const corpusPresent = new Map();
+for (const book of CORPUS_BOOKS) {
+  try {
+    await access(resolve(corpusDir, book.url.replace('/corpus/', '')));
+    corpusPresent.set(book.url, true);
+  } catch {
+    corpusPresent.set(book.url, false);
+    console.log(
+      `appearance.browser: ${book.label} corpus book absent — its invariant cases skipped (run \`npm run fetch-corpus\`).`,
+    );
+  }
 }
 
 const skipAll = playwright === null ? { skip: 'playwright is not installed' } : {};
@@ -275,7 +320,12 @@ function longSection() {
   };
 }
 
-/** The text painted on the current page (the visible reading anchor). */
+/**
+ * The paragraph texts painted on the *current page* in paginated mode. A paragraph
+ * is on the page when its chunk is visible and its box overlaps the root viewport
+ * box horizontally (paginated pages scroll horizontally by column stride). This is
+ * the "visible reading anchor" the tolerance is stated over.
+ */
 async function visiblePageText(p) {
   return contentFrame(p).evaluate(() => {
     const root = document.getElementById('wolfyreader-content');
@@ -292,6 +342,214 @@ async function visiblePageText(p) {
     return out;
   });
 }
+
+/** Every paragraph text rendered in the section, regardless of the current page. */
+async function allSectionText(p) {
+  return contentFrame(p).evaluate(() =>
+    [...document.querySelectorAll('.wolfyreader-chunk p')].map((el) => el.textContent),
+  );
+}
+
+/**
+ * Whether the rendered section is genuine prose — several long-bodied paragraphs —
+ * rather than a table of contents or a heading list (whose near-identical short
+ * lines make no honest reading anchor). Requires enough paragraphs whose text is
+ * long enough to be a real paragraph.
+ */
+async function isProseSection(p) {
+  const paras = await allSectionText(p);
+  const long = paras.filter((text) => text.trim().length >= 200);
+  return long.length >= 4;
+}
+
+/**
+ * The invariant, as one falsifiable assertion: the anchor paragraph visible before
+ * the change is among the paragraphs visible after it. Shared by every knob case and
+ * by the deliberate-regression proof (which asserts it *throws* when the restore is
+ * skipped), so the suite guards the invariant rather than passing vacuously.
+ */
+function assertAnchorPreserved(anchor, afterVisible, label) {
+  assert.ok(afterVisible.length > 0, `${label}: expected visible text after the change`);
+  assert.ok(
+    afterVisible.includes(anchor),
+    `${label}: the anchored paragraph was lost — tolerance violated: ${JSON.stringify(anchor).slice(0, 70)}`,
+  );
+}
+
+// The appearance knobs under test. Each names the setAppearance patch that drives
+// it; every reflowing knob (fontSize, fontFamily, lineHeight, margin, columns) is
+// covered — none is skipped.
+const KNOBS = [
+  { name: 'fontSize', patch: { fontSize: 26 } },
+  { name: 'fontFamily', patch: { fontFamily: 'Georgia, serif' } },
+  { name: 'lineHeight', patch: { lineHeight: 2 } },
+  { name: 'margin', patch: { margin: 96 } },
+  { name: 'columns', patch: { columns: 2 } },
+];
+
+/**
+ * The TOP-MOST substantial prose paragraph visible on the current page (>= 120
+ * chars), or null when no substantial paragraph is on the page. This is the reading
+ * place the reader actually promises: the restore anchors on the page-START offset
+ * (`positionOfPage` → `offsetOfPage(page)`), so the tolerance is stated over the
+ * paragraph at the TOP of the page, not the longest one — a longest-anywhere
+ * paragraph can sit at the bottom of the page and legitimately fall onto an adjacent
+ * page when the column count changes, even though the reading place is held. The
+ * >= 120-char floor keeps the anchor unambiguous to resolve (a bare chapter heading
+ * can be a near-duplicate of a table-of-contents entry); `visiblePageText` returns
+ * paragraphs in document order, so the first that clears the floor is the top-most.
+ */
+async function pageAnchor(p) {
+  const visible = await visiblePageText(p);
+  for (const text of visible) {
+    if (typeof text !== 'string') continue;
+    if (text.trim().length < 120) continue;
+    return text;
+  }
+  return null;
+}
+
+/**
+ * Positions the reader `pages` into the active section and returns the anchor
+ * paragraph on that page — a long prose paragraph, so the anchor is genuinely
+ * mid-section and unambiguous. When the initial page carries no such paragraph
+ * (front matter, a heading list), it advances page by page until one appears
+ * (bounded). Returns null when the section never yields a prose page — the caller
+ * skips that combination rather than asserting over a degenerate anchor.
+ */
+async function seekMidSection(p, pages) {
+  for (let i = 0; i < pages; i += 1) await p.evaluate(() => window.harness.readerNext());
+  for (let extra = 0; extra < 20; extra += 1) {
+    const anchor = await pageAnchor(p);
+    if (anchor !== null) return anchor;
+    const before = await p.evaluate(() => window.harness.readerPosition());
+    const after = await p.evaluate(() => window.harness.readerNext());
+    // Reached the section's end without finding a prose page.
+    if (after.page === before.page) return null;
+  }
+  return null;
+}
+
+describe('the appearance invariant — position preserved across every knob', { ...skipAll }, () => {
+  for (const book of CORPUS_BOOKS) {
+    const skipBook = corpusPresent.get(book.url) ? {} : { skip: 'the corpus book is absent' };
+    // Two starting positions per book: the section start (page 0) and a mid-section
+    // page. The invariant must hold from both.
+    for (const start of [
+      { label: 'section start', pages: 0 },
+      { label: 'mid-section', pages: 4 },
+    ]) {
+      for (const knob of KNOBS) {
+        test(`${book.label} @ ${start.label}: ${knob.name} preserves the reading place`, { ...skipBook }, async () => {
+          const p = await freshPage('light');
+          try {
+            await openCorpusReaderOnLongSection(p, book.url);
+            const anchor = await seekMidSection(p, start.pages);
+            if (anchor === null) {
+              // Section too short to hold a mid-section anchor — nothing to assert.
+              return;
+            }
+            await p.evaluate((patch) => window.harness.readerSetAppearance(patch), knob.patch);
+            const after = await visiblePageText(p);
+            assertAnchorPreserved(anchor, after, `${book.label}/${start.label}/${knob.name}`);
+          } finally {
+            await p.context().close();
+          }
+        });
+      }
+
+      test(`${book.label} @ ${start.label}: paginated↔scrolled preserves the reading place`, { ...skipBook }, async () => {
+        const p = await freshPage('light');
+        try {
+          await openCorpusReaderOnLongSection(p, book.url);
+          const anchor = await seekMidSection(p, start.pages);
+          if (anchor === null) return;
+          const before = await p.evaluate(() => window.harness.readerPosition());
+
+          // paginated → scrolled. Paging collapses in scrolled mode, so a mid-section
+          // anchor resolves to the section's first page — a documented drift. The
+          // guarantee scrolled mode offers is section-level: the section is held and
+          // the anchor paragraph is still present in the rendered content, so the
+          // reading place is not lost even though the exact page is.
+          const scrolled = await p.evaluate(() => window.harness.readerSetMode('scrolled'));
+          assert.equal(scrolled.section, before.section, 'the mode switch left the section');
+          const rendered = await allSectionText(p);
+          assert.ok(
+            rendered.includes(anchor),
+            `scrolled render dropped the anchor paragraph: ${JSON.stringify(anchor).slice(0, 70)}`,
+          );
+
+          // scrolled → paginated. The section is preserved across the round trip.
+          const back = await p.evaluate(() => window.harness.readerSetMode('paginated'));
+          assert.equal(back.section, before.section, 'the round-trip switch left the section');
+        } finally {
+          await p.context().close();
+        }
+      });
+    }
+  }
+});
+
+/**
+ * Opens `url` through the facade and lands on a section long enough to hold a
+ * mid-section anchor (several pages of body paragraphs). Throws if the book has no
+ * such section, which would make the invariant vacuous.
+ */
+async function openCorpusReaderOnLongSection(p, url) {
+  const sections = await p.evaluate((u) => window.harness.openBook(u), url);
+  assert.ok(sections !== null, `${url} could not be fetched`);
+  await p.evaluate(() => window.harness.createReader({ fontSize: 16 }));
+  for (const section of sections) {
+    // Jump to the section by its id (a TocItem-shaped goTo target), then require it
+    // to be genuine prose spanning several pages so a mid-section anchor exists —
+    // skipping tables of contents / heading lists, whose near-identical short lines
+    // make no honest reading anchor.
+    await p.evaluate((id) => window.harness.readerGoTo({ sectionId: id, children: [] }), section.id);
+    const state = await p.evaluate(() => window.harness.readerPosition());
+    if (state.totalPages >= 3 && (await isProseSection(p))) return;
+  }
+  throw new assert.AssertionError({ message: `${url} has no section long enough for a mid-section anchor` });
+}
+
+describe('the deliberate-regression proof — the invariant assertion is falsifiable', { ...skipAll }, () => {
+  test('skipping the restore (landing on page 0) makes the invariant assertion fail', async () => {
+    const p = await freshPage('light');
+    try {
+      await openThemed(p, longSection(), { fontSize: 14 });
+      // Move several pages in so the anchor is genuinely mid-section.
+      await p.evaluate(async () => {
+        for (let i = 0; i < 5; i += 1) await window.harness.readerNext();
+      });
+      const before = await visiblePageText(p);
+      assert.ok(before.length > 0, 'expected visible text before the reflow');
+      const anchor = before[0];
+
+      // 1. Restore INTACT: setAppearance re-lays out and seeks back to the anchor's
+      //    new page. The invariant holds — the anchor paragraph survives the reflow.
+      await p.evaluate(() => window.harness.readerSetAppearance({ fontSize: 24 }));
+      const afterRestored = await visiblePageText(p);
+      assertAnchorPreserved(anchor, afterRestored, 'restore-intact');
+      assert.equal((await rootTypography(p)).fontSize, '24px', 'the reflow did not resize the text');
+
+      // 2. Restore SKIPPED: page 0 is exactly where `#reapply` lands when the anchor
+      //    fails to resolve (`goToPage(page >= 0 ? page : 0)`), i.e. the restore leg
+      //    did nothing. Land there deliberately and feed that page's text to the SAME
+      //    invariant assertion — it MUST throw, proving the assertion is falsifiable
+      //    and the mechanism (not the assertion) is what preserves the place. This is
+      //    encoded as assert.throws so nothing is left permanently failing in the tree.
+      await p.evaluate(() => window.harness.readerGoTo('start'));
+      const page0 = await visiblePageText(p);
+      assert.notEqual(page0[0], anchor, 'page 0 unexpectedly still holds the mid-section anchor');
+      assert.throws(
+        () => assertAnchorPreserved(anchor, page0, 'restore-skipped'),
+        /tolerance violated/,
+        'the invariant assertion did not fail when the restore was skipped — the suite could pass vacuously',
+      );
+    } finally {
+      await p.context().close();
+    }
+  });
+});
 
 describe('typography knobs each change the rendered content', { ...skipAll }, () => {
   test('fontFamily sets the content root font-family', async () => {
@@ -433,13 +691,7 @@ describe('a reflowing knob preserves the reading place', { ...skipAll }, () => {
       await p.evaluate(() => window.harness.readerSetAppearance({ fontSize: 24 }));
 
       const after = await visiblePageText(p);
-      assert.ok(after.length > 0, 'expected visible text after the reflow');
-      // The reflow changes the page geometry, but the reading place is held: the
-      // paragraph that anchored the page before is still on the page after.
-      assert.ok(
-        after.includes(anchor),
-        `the anchored paragraph was lost across the reflow: ${JSON.stringify(anchor).slice(0, 60)}`,
-      );
+      assertAnchorPreserved(anchor, after, 'synthetic fontSize reflow');
       // And the reflow really did resize the text.
       assert.equal((await rootTypography(p)).fontSize, '24px', 'the fontSize change did not apply');
     } finally {
