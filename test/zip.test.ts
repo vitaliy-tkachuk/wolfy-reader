@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { crc32 } from '../src/zip/crc32.ts';
 import {
   openZip,
+  ZipCrcMismatchError,
   ZipEncryptedEntryError,
   ZipEntryNotFoundError,
+  ZipError,
   ZipFormatError,
   ZipUnsupportedMethodError,
 } from '../src/zip/index.ts';
@@ -104,6 +107,36 @@ test('mixed archive: plain entries read, encrypted and unsupported methods rejec
   });
   await assert.rejects(zip.read('weird.bin'), ZipUnsupportedMethodError);
   await assert.rejects(zip.read('missing.txt'), ZipEntryNotFoundError);
+});
+
+test('crc32 matches the standard check vector', () => {
+  // "123456789" → 0xCBF43926 is the published check value for the zip/ISO 3309
+  // CRC-32; the empty input is 0 (which is why a zero central-directory CRC
+  // needs no special case — an empty payload trivially matches it).
+  assert.equal(crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
+  assert.equal(crc32(new Uint8Array(0)), 0);
+});
+
+test('a corrupted payload with the right length rejects with the typed CRC error', async () => {
+  // Flip one byte inside a stored entry's payload: the compressed and
+  // decompressed lengths are untouched, so only the CRC check can catch it.
+  const bytes = (await fixture('node-stored.zip')).slice();
+  const payload = await content('alpha.txt');
+  const at = Buffer.from(bytes).indexOf(Buffer.from(payload));
+  assert.ok(at >= 0, 'stored payload must appear verbatim in the archive');
+  const target = at + 1;
+  bytes[target] = bytes[target]! ^ 0xff;
+
+  const zip = await openZip(bytes);
+  await assert.rejects(zip.read('alpha.txt'), (err: unknown) => {
+    assert.ok(err instanceof ZipCrcMismatchError);
+    assert.ok(err instanceof ZipFormatError, 'CRC mismatch is a format-level corruption');
+    assert.ok(err instanceof ZipError);
+    assert.equal((err as Error).name, 'ZipCrcMismatchError');
+    return true;
+  });
+  // The untouched sibling entry in the same archive still reads clean.
+  assert.deepEqual(await zip.read('data.bin'), await content('data.bin'));
 });
 
 test('non-zip and truncated inputs reject with the typed format error', async () => {

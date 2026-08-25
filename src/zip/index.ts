@@ -1,6 +1,8 @@
 import { parseCentralDirectory, type CentralRecord } from './central.ts';
+import { crc32 } from './crc32.ts';
 import { locateCentralDirectory } from './eocd.ts';
 import {
+  ZipCrcMismatchError,
   ZipEncryptedEntryError,
   ZipEntryNotFoundError,
   ZipError,
@@ -10,11 +12,22 @@ import {
 import { decompress } from './inflate.ts';
 import { readExact, toByteSource, view, type ByteSource, type ZipSource } from './source.ts';
 
-export { ZipEncryptedEntryError, ZipEntryNotFoundError, ZipError, ZipFormatError, ZipUnsupportedMethodError };
+export {
+  ZipCrcMismatchError,
+  ZipEncryptedEntryError,
+  ZipEntryNotFoundError,
+  ZipError,
+  ZipFormatError,
+  ZipUnsupportedMethodError,
+};
 export type { RangeReader, RangeReaderSource, ZipSource } from './source.ts';
 
 const LOCAL_SIG = 0x04034b50;
 const LOCAL_HEADER_SIZE = 30;
+
+function hex32(value: number): string {
+  return `0x${value.toString(16).padStart(8, '0')}`;
+}
 
 export interface ZipEntry {
   readonly name: string;
@@ -77,6 +90,18 @@ async function readEntry(src: ByteSource, record: CentralRecord): Promise<Uint8A
   if (out.byteLength !== record.uncompressedSize) {
     throw new ZipFormatError(
       `entry ${record.name}: expected ${record.uncompressedSize} bytes, decompressed to ${out.byteLength}`,
+    );
+  }
+  // Verify against the central directory's CRC-32, unconditionally. The
+  // data-descriptor exemption (APPNOTE 4.4.7) zeroes the CRC only in the
+  // *local* header of a flag-bit-3 entry — "the correct value is put in the
+  // data descriptor and in the central directory" — so the central copy is
+  // always the real checksum and there is no CRC==0 skip: 0 is simply the
+  // legitimate CRC of an empty payload, which trivially matches.
+  const actual = crc32(out);
+  if (actual !== record.crc32) {
+    throw new ZipCrcMismatchError(
+      `entry ${record.name}: CRC-32 mismatch (expected ${hex32(record.crc32)}, computed ${hex32(actual)})`,
     );
   }
   return out;

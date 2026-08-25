@@ -12,6 +12,13 @@ export class ZipFormatError extends ZipError {
   }
 }
 
+export class ZipCrcMismatchError extends ZipFormatError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ZipCrcMismatchError';
+  }
+}
+
 export class ZipEncryptedEntryError extends ZipError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
