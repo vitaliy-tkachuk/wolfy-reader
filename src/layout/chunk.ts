@@ -13,6 +13,7 @@
  * rather than the DOM directly, so they are pure and unit-testable under
  * `node:test`. `chunkElement` adapts a real DOM element to that view.
  */
+import { escapeXmlText } from '../core/text.ts';
 
 /** The minimal shape the boundary rules read from each top-level node. */
 export interface ChunkNode {
@@ -161,12 +162,8 @@ export function chunkElement(body: Element, targetChars = DEFAULT_CHUNK_CHARS): 
     } else if (node.nodeType === TEXT_NODE) {
       const text = node.textContent ?? '';
       if (text.trim().length === 0) continue;
-      nodes.push({ tag: '#text', chars: text.length, html: escapeHtmlText(text) });
+      nodes.push({ tag: '#text', chars: text.length, html: escapeXmlText(text) });
     }
   }
   return chunkNodes(nodes, targetChars);
-}
-
-function escapeHtmlText(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -1,4 +1,5 @@
 import type { TocItem } from '../../core/index.ts';
+import { collapseWhitespace as collapse } from '../../core/text.ts';
 import { directoryOf, resolveHref, type HrefTarget } from './href.ts';
 import {
   attribute,
@@ -116,8 +117,4 @@ function tocEntry(
   const first = children[0];
   if (first === undefined) return undefined;
   return { label, sectionId: first.sectionId, children };
-}
-
-function collapse(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
 }

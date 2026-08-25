@@ -12,11 +12,6 @@ Modules:
   view of a top-level node list (`chunkNodes`), plus `chunkElement` to adapt a
   live DOM body. DOM-free by design so the rules are unit-testable under
   `node:test`. Default budget `DEFAULT_CHUNK_CHARS = 8000`.
-- `src/layout/normalize.ts` — pure string transforms applied before chunking on
-  the raw-markup path: `normalizeSelfClosing` (XHTML non-void self-close →
-  open+close), `substituteDropCapAlt` (`<img alt>` → text), and
-  `normalizeSectionMarkup` (both, in order). The `ContentHost` render path already
-  does the DOM-side equivalents in its sanitizer; these cover the raw-markup path.
 - `src/layout/index.ts` — the `Paginator` class: the public engine surface.
 - `src/view/{protocol,frame,host}.ts` — the frame-side layout, measurement,
   chunking, and eviction the paginator drives over the postMessage protocol.
@@ -291,12 +286,15 @@ asserts `textContent` matches paginated mode modulo whitespace with no clipping.
 - **XHTML self-closing non-void tags are a correctness trap in an HTML context.**
   `<a id="CHAPTER_XLVIII"/>` appears 13 times in `item8`; an HTML parser ignores
   the slash, so injecting it as `innerHTML` lets the anchor swallow the rest of the
-  section. `normalizeSelfClosing` rewrites it before chunking on the raw-markup
-  path; the `ContentHost` sanitizer does the DOM-side equivalent on the render
-  path.
+  section. The `ContentHost` sanitizer handles it on the render path by re-importing
+  XHTML into an HTML document. (A string-level `src/layout/normalize.ts` once
+  duplicated this for a "raw-markup path" that no longer exists — every section now
+  reaches the paginator through the host, so the module was deleted as dead code,
+  2026-08-26, T007.)
 - **In this corpus, image policy is text policy.** Gutenberg sets each chapter's
   drop cap as `<img alt="T">`. A naive strip deletes the first letter of every
-  chapter. `substituteDropCapAlt` puts the `alt` back as text.
+  chapter. The resource layer substitutes the `alt` text for an image it cannot
+  serve (`applyResources` in `src/view/resources.ts`).
 - **Double-rAF page-turn timing is frame-quantized and proves nothing.** Every
   strategy reads 16.7–16.8 ms because that is the frame interval. Real separation
   lives only in the CPU measure.

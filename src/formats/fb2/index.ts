@@ -1,9 +1,12 @@
 import type { Book, BookFormat, BookMetadata, ByteSource, Resource, Section, TocItem } from '../../core/index.ts';
 import { CorruptContainerError } from '../../core/index.ts';
+import { sectionLookup } from '../../core/lookup.ts';
+import { collapseWhitespace, escapeXmlAttribute, escapeXmlText } from '../../core/text.ts';
 import {
   attribute,
   childrenNamed,
   decodeXml,
+  deepText,
   firstChildNamed,
   parseXml,
   type XmlElement,
@@ -133,7 +136,7 @@ function buildBook(root: XmlElement): Book {
     metadata: readMetadata(root, binaries),
     toc: buildToc(mainSections, planned),
     sections,
-    section: (id) => sections.find((s) => s.id === id),
+    section: sectionLookup(sections),
     resources: resourceMap(binaries),
   };
 }
@@ -206,7 +209,7 @@ function coverResource(titleInfo: XmlElement, binaries: ReadonlyMap<string, Bina
 
 function textOf(element: XmlElement | undefined): string | undefined {
   if (element === undefined) return undefined;
-  const text = collapse(deepTextOf(element));
+  const text = collapseWhitespace(deepText(element));
   return text.length === 0 ? undefined : text;
 }
 
@@ -259,14 +262,14 @@ function renderDocument(root: XmlElement, headingLevel: number, idToSection: Rea
 function renderChildren(el: XmlElement, headingLevel: number, idToSection: ReadonlyMap<string, string>): string {
   let out = '';
   for (const node of el.content) {
-    out += typeof node === 'string' ? escapeXml(node) : renderElement(node, headingLevel, idToSection);
+    out += typeof node === 'string' ? escapeXmlText(node) : renderElement(node, headingLevel, idToSection);
   }
   return out;
 }
 
 function renderElement(el: XmlElement, headingLevel: number, idToSection: ReadonlyMap<string, string>): string {
   const id = attribute(el, 'id');
-  const idAttr = id === undefined ? '' : ` id="${escapeAttr(id)}"`;
+  const idAttr = id === undefined ? '' : ` id="${escapeXmlAttribute(id)}"`;
 
   switch (el.localName) {
     case 'section': {
@@ -285,14 +288,14 @@ function renderElement(el: XmlElement, headingLevel: number, idToSection: Readon
       return `<p class="fb2-empty-line"${idAttr}></p>`;
     case 'a': {
       const href = rewriteHref(attribute(el, 'href'), idToSection);
-      const hrefAttr = href === undefined ? '' : ` href="${escapeAttr(href)}"`;
+      const hrefAttr = href === undefined ? '' : ` href="${escapeXmlAttribute(href)}"`;
       return `<a${hrefAttr}${idAttr}>${renderChildren(el, headingLevel, idToSection)}</a>`;
     }
     case 'image': {
       const href = attribute(el, 'href');
       const src = href === undefined ? '' : href.startsWith('#') ? href.slice(1) : href;
       const alt = attribute(el, 'alt') ?? '';
-      return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}"${idAttr}/>`;
+      return `<img src="${escapeXmlAttribute(src)}" alt="${escapeXmlAttribute(alt)}"${idAttr}/>`;
     }
     case 'epigraph':
       return `<div class="fb2-epigraph"${idAttr}>${renderChildren(el, headingLevel, idToSection)}</div>`;
@@ -343,24 +346,3 @@ function rewriteHref(href: string | undefined, idToSection: ReadonlyMap<string, 
   return sectionId === undefined ? href : `${sectionId}#${id}`;
 }
 
-// --- text utils -------------------------------------------------------------
-
-function deepTextOf(element: XmlElement): string {
-  let out = '';
-  for (const node of element.content) {
-    out += typeof node === 'string' ? node : deepTextOf(node);
-  }
-  return out;
-}
-
-function collapse(s: string): string {
-  return s.replace(/\s+/g, ' ').trim();
-}
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function escapeAttr(s: string): string {
-  return escapeXml(s).replace(/"/g, '&quot;');
-}

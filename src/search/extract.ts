@@ -39,19 +39,12 @@ import {
   imageReadingText,
   type ReadingResolver,
 } from '../core/reading-text.ts';
+import { decodeText } from '../core/text.ts';
 
 export type { ReadingResolver } from '../core/reading-text.ts';
 
 /** Decodes section bytes honouring the byte-order marks EPUB allows. */
-export function decodeSectionBytes(bytes: Uint8Array): string {
-  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
-    return new TextDecoder('utf-16le').decode(bytes.subarray(2));
-  }
-  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
-    return new TextDecoder('utf-16be').decode(bytes.subarray(2));
-  }
-  return new TextDecoder().decode(bytes);
-}
+export { decodeText as decodeSectionBytes } from '../core/text.ts';
 
 /**
  * Elements whose content the HTML parser reads as raw text (a `<` in `1<2` inside
@@ -256,7 +249,7 @@ export function extractText(markup: string, resolve?: ReadingResolver): string {
 
 /** Decode + extract a section from its raw bytes. */
 export function extractSectionText(bytes: Uint8Array, resolve?: ReadingResolver): string {
-  return extractText(decodeSectionBytes(bytes), resolve);
+  return extractText(decodeText(bytes), resolve);
 }
 
 /**

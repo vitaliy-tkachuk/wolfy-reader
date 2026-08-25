@@ -58,10 +58,16 @@ export async function openZip(source: ZipSource): Promise<ZipArchive> {
     uncompressedSize: record.uncompressedSize,
     encrypted: record.encrypted,
   }));
+  // First entry wins on a duplicate name, preserving the Array.find semantics
+  // this Map lookup replaced.
+  const entryByName = new Map<string, ZipEntry>();
+  for (const entry of entries) {
+    if (!entryByName.has(entry.name)) entryByName.set(entry.name, entry);
+  }
 
   return {
     entries,
-    entry: (name) => entries.find((e) => e.name === name),
+    entry: (name) => entryByName.get(name),
     read: async (name) => {
       const record = byName.get(name);
       if (!record) throw new ZipEntryNotFoundError(`no entry named ${name}`);

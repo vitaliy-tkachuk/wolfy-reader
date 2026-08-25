@@ -1,3 +1,5 @@
+import { escapeXmlAttribute } from '../core/text.ts';
+
 export const CONTENT_ROOT_ID = 'wolfyreader-content';
 
 /** Class marking each per-chunk container the host emits into the frame body. */
@@ -61,10 +63,6 @@ export function createNonce(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function escapeAttribute(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 export function coordinationScript(hostOrigin: string, keyboardNav: boolean = true): string {
@@ -971,7 +969,7 @@ export function assembleFrameDocument(parts: FrameDocumentParts): string {
     '<!doctype html>',
     '<html>',
     '<head>',
-    `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(contentSecurityPolicy(parts.nonce))}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${escapeXmlAttribute(contentSecurityPolicy(parts.nonce))}">`,
     '<meta charset="utf-8">',
     `<script nonce="${parts.nonce}">${coordinationScript(parts.hostOrigin, parts.keyboardNav !== false)}</script>`,
     `<style>${RESET_CSS}</style>`,

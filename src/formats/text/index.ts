@@ -1,4 +1,6 @@
 import type { Book, BookFormat, BookMetadata, ByteSource, Section, TocItem } from '../../core/index.ts';
+import { sectionLookup } from '../../core/lookup.ts';
+import { collapseWhitespace, escapeXmlText } from '../../core/text.ts';
 
 /**
  * Plain-text format. The seam probe (PLAN M4-1): TXT synthesizes everything the
@@ -33,13 +35,14 @@ export const text: BookFormat = {
     const raw = decodeText(bytes);
     const normalized = raw.replace(/\r\n?/g, '\n');
     const metadata = readGutenbergMetadata(normalized);
-    const sections = buildSections(normalized);
-    const toc = buildToc(sections);
+    const built = buildSections(normalized);
+    const toc = buildToc(built);
+    const sections = built.map((s) => s.section);
     return {
       metadata,
       toc,
-      sections: sections.map((s) => s.section),
-      section: (id) => sections.find((s) => s.section.id === id)?.section,
+      sections,
+      section: sectionLookup(sections),
       resources: new Map(),
     } satisfies Book;
   },
@@ -121,7 +124,7 @@ function buildSections(normalized: string): BuiltSection[] {
   for (const block of blocks) {
     if (isHeading(block)) {
       flush();
-      heading = collapse(block);
+      heading = collapseWhitespace(block);
     } else {
       paragraphs.push(block);
     }
@@ -172,14 +175,14 @@ function readGutenbergMetadata(normalized: string): BookMetadata {
   let author: string | undefined;
 
   const titleField = head.match(/^Title:\s*(.+)$/im);
-  if (titleField?.[1] !== undefined) title = collapse(titleField[1]);
+  if (titleField?.[1] !== undefined) title = collapseWhitespace(titleField[1]);
   const authorField = head.match(/^Author:\s*(.+)$/im);
-  if (authorField?.[1] !== undefined) author = collapse(authorField[1]);
+  if (authorField?.[1] !== undefined) author = collapseWhitespace(authorField[1]);
 
   if (title === undefined) {
     const banner = head.match(/Project Gutenberg eBook of\s+(.+?)(?:,\s*by\s+(.+?))?[\r\n]/i);
-    if (banner?.[1] !== undefined) title = collapse(banner[1]);
-    if (author === undefined && banner?.[2] !== undefined) author = collapse(banner[2]);
+    if (banner?.[1] !== undefined) title = collapseWhitespace(banner[1]);
+    if (author === undefined && banner?.[2] !== undefined) author = collapseWhitespace(banner[2]);
   }
 
   return {
@@ -192,25 +195,14 @@ function readGutenbergMetadata(normalized: string): BookMetadata {
 
 function renderXhtml(heading: string | undefined, paragraphs: readonly string[]): string {
   const body: string[] = [];
-  if (heading !== undefined) body.push(`<h2>${escapeXml(heading)}</h2>`);
+  if (heading !== undefined) body.push(`<h2>${escapeXmlText(heading)}</h2>`);
   for (const p of paragraphs) {
     // A block's internal newlines are soft line breaks within one paragraph.
-    body.push(`<p>${escapeXml(collapseParagraph(p))}</p>`);
+    body.push(`<p>${escapeXmlText(collapseParagraph(p))}</p>`);
   }
   return `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="UTF-8"/></head><body>${body.join('')}</body></html>`;
 }
 
-function collapse(s: string): string {
-  return s.replace(/\s+/g, ' ').trim();
-}
-
 function collapseParagraph(s: string): string {
   return s.replace(/\s*\n\s*/g, ' ').replace(/[ \t]+/g, ' ').trim();
-}
-
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }

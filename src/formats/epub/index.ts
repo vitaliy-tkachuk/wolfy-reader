@@ -8,6 +8,7 @@ import type {
   TocItem,
 } from '../../core/index.ts';
 import { CorruptContainerError, EncryptedContentError } from '../../core/index.ts';
+import { sectionLookup } from '../../core/lookup.ts';
 import { openZip, ZipEncryptedEntryError, ZipError, type ZipArchive } from '../../zip/index.ts';
 import { directoryOf, resolveHref } from './href.ts';
 import { opfPathFromContainer, parseOpf, type ManifestItem, type OpfPackage } from './opf.ts';
@@ -171,7 +172,7 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
     metadata,
     toc: await buildToc(zip, pkg, baseDir, sectionByPath),
     sections,
-    section: (id) => sections.find((section) => section.id === id),
+    section: sectionLookup(sections),
     resources,
     ...(pkg.direction === undefined ? {} : { direction: pkg.direction }),
     ...(pkg.fixedLayout === undefined ? {} : { fixedLayout: pkg.fixedLayout }),

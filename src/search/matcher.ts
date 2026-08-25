@@ -9,6 +9,7 @@
  * consumer that `break`s stops the scan (the generator's cleanup runs on return).
  */
 import { capturePosition, type Book, type Position, type Section } from '../core/index.ts';
+import { collapseWhitespace as collapse } from '../core/text.ts';
 
 import { extractSectionText } from './extract.ts';
 import { normalizeQuery, normalizeText } from './normalize.ts';
@@ -136,11 +137,6 @@ function trimToWords(
     if (segStart < end && segEnd > end) tail = Math.max(matchEnd, segStart);
   }
   return collapse(text.slice(head, tail));
-}
-
-/** Collapse internal whitespace and trim the ends, for a compact one-line context. */
-function collapse(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
 }
 
 /** Pull `end` back past any trailing whitespace, never before `start`. */

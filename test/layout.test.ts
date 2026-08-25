@@ -3,16 +3,11 @@ import { test } from 'node:test';
 
 import { capturePosition, resolvePosition } from '../src/core/index.ts';
 import { chunkNodes, DEFAULT_CHUNK_CHARS, type ChunkNode } from '../src/layout/chunk.ts';
-import {
-  normalizeSectionMarkup,
-  normalizeSelfClosing,
-  substituteDropCapAlt,
-} from '../src/layout/normalize.ts';
 
 /**
- * Headless unit tests for the paginator's pure transforms — chunk-boundary rules
- * and markup normalization. Geometry (getClientRects, multi-column fragmentation,
- * eviction) is not exercised here; it needs a real layout engine and lives in
+ * Headless unit tests for the paginator's pure transforms — the chunk-boundary
+ * rules. Geometry (getClientRects, multi-column fragmentation, eviction) is not
+ * exercised here; it needs a real layout engine and lives in
  * test/browser/layout.browser.mjs. These transforms are DOM-free by design so the
  * boundary rules they feed can be pinned without a browser (see layout.md).
  */
@@ -107,49 +102,6 @@ test('the default budget is 8000 characters', () => {
   const { chunks } = chunkNodes(nodes);
   // 10000 > 8000 default, so the two do not pack together.
   assert.equal(chunks.length, 2);
-});
-
-test('normalizeSelfClosing closes a non-void tag but leaves void tags alone', () => {
-  const markup = '<a id="CHAPTER_XLVIII"/><p>after</p><br/><img src="x"/>';
-  const out = normalizeSelfClosing(markup);
-  assert.match(out, /<a id="CHAPTER_XLVIII"><\/a>/);
-  assert.match(out, /<br\/>/);
-  assert.match(out, /<img src="x"\/>/);
-  // The paragraph after the anchor is untouched — it is no longer swallowed.
-  assert.match(out, /<p>after<\/p>/);
-});
-
-test('normalizeSelfClosing handles attributes containing a slash without misfiring', () => {
-  const markup = '<a href="a/b"/>tail';
-  const out = normalizeSelfClosing(markup);
-  assert.equal(out, '<a href="a/b"></a>tail');
-});
-
-test('substituteDropCapAlt replaces a drop-cap image with its alt text', () => {
-  const markup = '<span class="letra"><img alt="T" src="dropcap.png"/></span>HE whole party';
-  const out = substituteDropCapAlt(markup);
-  assert.match(out, /<span class="letra">T<\/span>HE whole party/);
-  assert.doesNotMatch(out, /<img/);
-});
-
-test('substituteDropCapAlt drops an image with empty or absent alt', () => {
-  assert.equal(substituteDropCapAlt('<img alt="" src="x.png">'), '');
-  assert.equal(substituteDropCapAlt('<img src="decorative.png">'), '');
-});
-
-test('substituteDropCapAlt decodes entities and re-escapes markup-significant chars', () => {
-  const out = substituteDropCapAlt('<img alt="A &amp; B">');
-  assert.equal(out, 'A &amp; B');
-  const angle = substituteDropCapAlt('<img alt="&lt;tag&gt;">');
-  assert.equal(angle, '&lt;tag&gt;');
-});
-
-test('normalizeSectionMarkup applies both transforms in order', () => {
-  const markup = '<img alt="Q"/><a id="anchor"/><p>tail</p>';
-  const out = normalizeSectionMarkup(markup);
-  assert.match(out, /^Q/);
-  assert.match(out, /<a id="anchor"><\/a>/);
-  assert.match(out, /<p>tail<\/p>/);
 });
 
 /**

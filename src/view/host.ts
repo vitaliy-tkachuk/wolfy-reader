@@ -11,7 +11,7 @@ import {
 } from './protocol.ts';
 import { applyResources, ResourceRegistry, type ResourceSummary } from './resources.ts';
 import { sanitizeSection, type SanitizationSummary } from './sanitize.ts';
-import { decodeText } from './text.ts';
+import { decodeText } from '../core/text.ts';
 
 /** Something went wrong hosting content; never a book decoding failure. */
 export class ContentHostError extends Error {

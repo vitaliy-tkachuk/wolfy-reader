@@ -3,7 +3,7 @@ import { baseMediaType, isServableResource } from '../core/reading-text.ts';
 import { XLINK_NAMESPACE } from './allowlist.ts';
 import { rewriteCssReferences } from './css.ts';
 import { classifyReference, joinReference, normalizeReference } from './reference.ts';
-import { decodeText } from './text.ts';
+import { decodeText } from '../core/text.ts';
 
 /** What a reference that names nothing loadable is rewritten to. */
 export const UNRESOLVABLE_URL = 'about:invalid';

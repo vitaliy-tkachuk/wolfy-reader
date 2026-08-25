@@ -16,16 +16,9 @@ export interface ManifestItem {
   readonly fallback?: string;
 }
 
-export interface GuideReference {
-  readonly type: string;
-  readonly href: string;
-  readonly title?: string;
-}
-
 export interface OpfPackage {
   /** Zip entry name of the OPF; hrefs resolve relative to its directory. */
   readonly path: string;
-  readonly version: string;
   readonly title?: string;
   readonly author?: string;
   readonly language?: string;
@@ -38,7 +31,6 @@ export interface OpfPackage {
   readonly ncxId?: string;
   readonly direction?: 'ltr' | 'rtl';
   readonly fixedLayout?: boolean;
-  readonly guide: readonly GuideReference[];
 }
 
 const PACKAGE_MEDIA_TYPE = 'application/oebps-package+xml';
@@ -98,21 +90,8 @@ export function parseOpf(xml: string, path: string): OpfPackage {
   const coverItem = findCoverItem(metadataElement, manifest, itemById);
   const fixedLayout = metadataElement === undefined ? undefined : renditionLayout(metadataElement);
 
-  const guide: GuideReference[] = [];
-  const guideElement = firstChildNamed(root, 'guide');
-  if (guideElement !== undefined) {
-    for (const reference of childrenNamed(guideElement, 'reference')) {
-      const href = attribute(reference, 'href');
-      if (href === undefined) continue;
-      const type = attribute(reference, 'type') ?? '';
-      const referenceTitle = attribute(reference, 'title');
-      guide.push({ type, href, ...(referenceTitle === undefined ? {} : { title: referenceTitle }) });
-    }
-  }
-
   return {
     path,
-    version: attribute(root, 'version') ?? '',
     ...(title === undefined ? {} : { title }),
     ...(author === undefined ? {} : { author }),
     ...(language === undefined ? {} : { language }),
@@ -123,7 +102,6 @@ export function parseOpf(xml: string, path: string): OpfPackage {
     ...(ncxId === undefined || ncxId === '' ? {} : { ncxId }),
     ...(direction === undefined ? {} : { direction }),
     ...(fixedLayout === undefined ? {} : { fixedLayout }),
-    guide,
   };
 }
 
