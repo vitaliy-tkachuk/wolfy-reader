@@ -38,6 +38,12 @@ export interface ContentHostOptions {
   /** A tap in the frame that was not on a link; carries tap coords + frame viewport size. */
   readonly onTap?: (tap: { x: number; y: number; width: number; height: number }) => void;
   /**
+   * A completed text selection in the frame; carries the selected text and its
+   * UTF-16 offset range over the section text (`sectionText`). Empty and collapsed
+   * selections are dropped in the frame and never reach here.
+   */
+  readonly onSelection?: (selection: { start: number; end: number; text: string }) => void;
+  /**
    * The appearance theme stylesheet injected at document assembly (see
    * {@link themeStyleSheet}). Applied to every render; update it live with
    * {@link ContentHost.setThemeCss} and re-render. Omit for an unthemed frame.
@@ -119,6 +125,9 @@ export class ContentHost {
         return;
       case 'tap':
         this.#options.onTap?.({ x: message.x, y: message.y, width: message.width, height: message.height });
+        return;
+      case 'selection':
+        this.#options.onSelection?.({ start: message.start, end: message.end, text: message.text });
         return;
       case 'pong':
       case 'measured':

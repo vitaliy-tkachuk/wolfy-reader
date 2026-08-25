@@ -62,7 +62,7 @@ function escapeAttribute(value: string): string {
 export function coordinationScript(hostOrigin: string): string {
   return `(function(){
 'use strict';
-var VERSION = 5;
+var VERSION = 6;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
@@ -545,6 +545,69 @@ if (typeof window.PointerEvent === 'function') {
   });
   document.addEventListener('touchcancel', function(){ gesture = null; });
 }
+// Text selection is forwarded as a semantic offset range, not caught on the host:
+// the selection lives inside this opaque-origin frame's document and never reaches
+// the parent. The host cannot read the frame's Selection, so the frame computes
+// the UTF-16 offset range over the same tiled section text sectionText() reports
+// and forwards { start, end, text }. Same forwarding reasoning as link/key/tap.
+function enclosingChunk(node){
+  var el = node && node.nodeType === 1 ? node : (node ? node.parentNode : null);
+  while (el && el.nodeType === 1){
+    if (el.className && (' ' + el.className + ' ').indexOf(' ' + CHUNK_CLASS + ' ') !== -1) return el;
+    el = el.parentNode;
+  }
+  return null;
+}
+// UTF-16 offset of (node, offset) into the concatenated section text: sum every
+// prior chunk container's text length, then add the text length from this chunk's
+// start up to the boundary via a Range. Returns -1 if the point is not inside a
+// realized chunk container (a selection anchored outside the tiled text).
+function offsetOfPoint(node, offset){
+  var chunk = enclosingChunk(node);
+  if (chunk === null) return -1;
+  var chunks = chunkContainers();
+  var base = 0;
+  for (var i = 0; i < chunks.length; i++){
+    if (chunks[i] === chunk) break;
+    base += (chunks[i].textContent || '').length;
+  }
+  var range = document.createRange();
+  try {
+    range.setStart(chunk, 0);
+    range.setEnd(node, offset);
+    return base + range.toString().length;
+  } catch (error) {
+    return -1;
+  } finally {
+    range.detach && range.detach();
+  }
+}
+function forwardSelection(){
+  var selection = document.getSelection();
+  if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) return;
+  var text = selection.toString();
+  if (text.length === 0) return;
+  var range = selection.getRangeAt(0);
+  // Guard the zero-width-anchor / empty-inline gotcha: a selection whose rects are
+  // empty carries no painted geometry, so forwarding it would be a malformed range.
+  if (range.getClientRects().length === 0) return;
+  var start = offsetOfPoint(range.startContainer, range.startOffset);
+  var end = offsetOfPoint(range.endContainer, range.endOffset);
+  if (start < 0 || end < 0) return;
+  if (start > end){ var swap = start; start = end; end = swap; }
+  send({ v: VERSION, type: 'selection', start: start, end: end, text: text });
+}
+// A completed selection is a selectionchange settled by a pointer/key release, so
+// forward on release rather than on every intermediate selectionchange (which
+// fires per character during a drag). A bare click collapses the selection and is
+// dropped by the isCollapsed guard above.
+var selectionDirty = false;
+document.addEventListener('selectionchange', function(){ selectionDirty = true; });
+function flushSelection(){ if (selectionDirty){ selectionDirty = false; forwardSelection(); } }
+document.addEventListener('pointerup', flushSelection);
+document.addEventListener('keyup', flushSelection);
+document.addEventListener('mouseup', flushSelection);
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', function(){ send({ v: VERSION, type: 'ready' }); });
 } else {

@@ -113,6 +113,8 @@ export interface ReaderEventMap {
   readonly sectionchange: SectionChange;
   /** Fires when an in-frame link is clicked, before it is followed. Payload: the raw href. */
   readonly linkclick: LinkClick;
+  /** Fires when the user selects text in the frame. Payload: the text + a resolvable Position. */
+  readonly selection: SelectionEvent;
   /** Fires when a navigation or render fails. Payload: the error. */
   readonly error: Error;
 }
@@ -127,6 +129,17 @@ export interface SectionChange {
 export interface LinkClick {
   /** The raw authored href from the frame, exactly as reported. */
   readonly href: string;
+}
+
+export interface SelectionEvent {
+  /** The selected text, exactly as the frame read it. */
+  readonly text: string;
+  /**
+   * A `Position` anchored at the selection's start. Resolves back against the
+   * section via {@link Reader.goTo}/`resolvePosition`, so a host can persist it
+   * (a bookmark or highlight anchor) and navigate to it later.
+   */
+  readonly position: Position;
 }
 
 export type ReaderEvent = keyof ReaderEventMap;
@@ -229,6 +242,7 @@ class ReaderImpl implements Reader {
     positionchange: new Set(),
     sectionchange: new Set(),
     linkclick: new Set(),
+    selection: new Set(),
     error: new Set(),
   };
   /** Internal-link back-stack: positions to return to via {@link back}. */
@@ -284,6 +298,9 @@ class ReaderImpl implements Reader {
         if (this.#tapZones !== null) {
           this.#dispatchIntent(tapIntent(tap, this.#tapZones, this.#direction));
         }
+      },
+      onSelection: (selection) => {
+        void this.#onSelection(selection);
       },
     });
     // Kick off the initial render; `ready` fires when it settles.
@@ -634,6 +651,22 @@ class ReaderImpl implements Reader {
     const page = await this.#paginator.pageOfElementId(fragment);
     // Soft miss (-1): the id is absent, so stay at the section's first page.
     await this.#paginator.goToPage(page >= 0 ? page : 0);
+  }
+
+  // --- selection ------------------------------------------------------------
+
+  /**
+   * Turns a frame-forwarded selection (UTF-16 offset range + text over the section
+   * text) into a `Position` anchored at the range start and emits `selection`. The
+   * frame already dropped collapsed and empty-rect selections, so a callback here
+   * always carries real text. Position capture reads the section text but moves
+   * nothing, so it is not enqueued behind navigation.
+   */
+  async #onSelection(selection: { start: number; end: number; text: string }): Promise<void> {
+    if (this.#destroyed || this.#paginator.section === null) return;
+    const position = await this.#paginator.positionOfOffsetRange(selection.start, selection.end);
+    if (this.#destroyed) return;
+    this.#emit('selection', { text: selection.text, position });
   }
 
   // --- back-stack -----------------------------------------------------------

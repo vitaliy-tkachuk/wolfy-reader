@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { capturePosition, resolvePosition } from '../src/core/index.ts';
 import { chunkNodes, DEFAULT_CHUNK_CHARS, type ChunkNode } from '../src/layout/chunk.ts';
 import {
   normalizeSectionMarkup,
@@ -149,4 +150,40 @@ test('normalizeSectionMarkup applies both transforms in order', () => {
   assert.match(out, /^Q/);
   assert.match(out, /<a id="anchor"><\/a>/);
   assert.match(out, /<p>tail<\/p>/);
+});
+
+/**
+ * Selection bridge: a frame-supplied UTF-16 offset range over the section text is
+ * captured with `capturePosition` (the same call `Paginator.positionOfOffsetRange`
+ * makes), and the resulting `Position` must resolve back to the selected range.
+ * The frame-side range computation and page mapping are geometry and live in the
+ * browser suite; this pins the pure UTF-16-offset → `Position` → resolve leg.
+ */
+test('a UTF-16 selection offset range captures a Position that resolves back', () => {
+  const text = 'The quick brown fox jumps over the lazy dog. It was a fine morning.';
+  // Select "brown fox" — UTF-16 offsets 10..19 in this all-BMP text.
+  const start = text.indexOf('brown');
+  const position = capturePosition(text, start, 'chapter-1');
+  assert.equal(position.sectionId, 'chapter-1');
+  assert.ok(position.anchor.exact.startsWith('brown'), 'the anchor quote begins at the selection start');
+
+  const resolved = resolvePosition(position, text);
+  assert.ok(resolved !== undefined, 'the captured Position must resolve against the same text');
+  // The anchor snaps to a word start, so the resolved grapheme offset lands on the
+  // start of the selected word — the same spot the selection began.
+  assert.equal([...text.slice(0, resolved.offset)].length, start);
+});
+
+test('a selection over multi-code-unit clusters captures on grapheme boundaries', () => {
+  // An emoji (2 UTF-16 code units) precedes the selected word, so a UTF-16 offset
+  // and a grapheme index diverge. capturePosition takes the UTF-16 offset and
+  // snaps to a grapheme boundary, so the quote never splits the cluster.
+  const text = 'Look 👋 there is the target word here.';
+  const start = text.indexOf('target');
+  const position = capturePosition(text, start, 'chapter-2');
+  const resolved = resolvePosition(position, text);
+  assert.ok(resolved !== undefined);
+  assert.ok(position.anchor.exact.startsWith('target'), 'the quote begins at the selected word');
+  // The stored grapheme offset counts the emoji as one grapheme, not two units.
+  assert.equal(position.anchor.offset, [...text.slice(0, start)].length);
 });

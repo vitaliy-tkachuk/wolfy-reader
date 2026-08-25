@@ -224,6 +224,20 @@ export class Paginator {
   }
 
   /**
+   * The `Position` anchored at a frame-supplied UTF-16 offset range over the
+   * section text — the bridge behind selection reporting. The frame computes the
+   * range against the same tiled section text this measures against, so the
+   * `start` offset is captured directly with `capturePosition` (which takes a
+   * UTF-16 offset). `end` is accepted for symmetry with the wire shape; only the
+   * anchor at `start` is needed to resolve the range back to a page.
+   */
+  async positionOfOffsetRange(start: number, _end: number): Promise<Position> {
+    this.#requireActive();
+    const text = await this.#sectionText();
+    return capturePosition(text, Math.max(0, start), this.#section!.id);
+  }
+
+  /**
    * The 0-based page painting `position`: `resolvePosition` against the section
    * text yields a character offset, then `pageOfOffset` maps it to a page.
    * Returns -1 when the anchor no longer resolves (the caller degrades softly).

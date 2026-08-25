@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import type { Resource } from '../src/core/index.ts';
 import { findCssReferences, rewriteCssReferences } from '../src/view/css.ts';
+import { coordinationScript } from '../src/view/frame.ts';
 import { asFrameMessage, asHostMessage, PROTOCOL_VERSION } from '../src/view/protocol.ts';
 import { classifyReference, joinReference, normalizeReference } from '../src/view/reference.ts';
 import { ResourceRegistry, UNRESOLVABLE_URL } from '../src/view/resources.ts';
@@ -198,6 +199,10 @@ test('frame messages are accepted only in a known shape', () => {
     asFrameMessage({ v: PROTOCOL_VERSION, type: 'tap', x: 10, y: 20, width: 300, height: 400 }),
     { v: PROTOCOL_VERSION, type: 'tap', x: 10, y: 20, width: 300, height: 400 },
   );
+  assert.deepEqual(
+    asFrameMessage({ v: PROTOCOL_VERSION, type: 'selection', start: 5, end: 17, text: 'a quote' }),
+    { v: PROTOCOL_VERSION, type: 'selection', start: 5, end: 17, text: 'a quote' },
+  );
   for (const rejected of [
     null,
     'ready',
@@ -213,9 +218,23 @@ test('frame messages are accepted only in a known shape', () => {
     { v: PROTOCOL_VERSION, type: 'swipe', dx: '1', dy: 2 },
     { v: PROTOCOL_VERSION, type: 'tap', x: 1, y: 2, width: 3 },
     { v: PROTOCOL_VERSION, type: 'tap', x: '1', y: 2, width: 3, height: 4 },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2 },
+    { v: PROTOCOL_VERSION, type: 'selection', start: '1', end: 2, text: 'x' },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 5 },
+    { v: 5, type: 'selection', start: 1, end: 2, text: 'x' },
   ]) {
     assert.equal(asFrameMessage(rejected), null, JSON.stringify(rejected));
   }
+});
+
+test('the frame validator copy carries the same protocol version as protocol.ts', () => {
+  const versionInFrameScript = coordinationScript('https://example.test').match(/var VERSION = (\d+);/);
+  assert.ok(versionInFrameScript !== null, 'the frame script must declare a VERSION');
+  assert.equal(
+    Number(versionInFrameScript[1]),
+    PROTOCOL_VERSION,
+    'the frame validator copy drifted from protocol.ts PROTOCOL_VERSION',
+  );
 });
 
 test('host messages are accepted only in a known shape', () => {

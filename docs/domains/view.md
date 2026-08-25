@@ -68,7 +68,7 @@ Two rules are worth stating separately because they are not obvious from the tab
 
 ## Protocol
 
-Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `5` today (it began at `1`; the reader facade and human-input work grew it — see the reader-facade section); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, and the `key`/`swipe`/`tap` input trio) are documented with the features that added them.
+Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `6` today (it began at `1`; the reader facade, human-input, and selection work grew it — see the reader-facade section); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, and `selection`) are documented with the features that added them.
 
 Origin cannot authenticate here: the frame's origin is `'null'`, which identifies nothing. The host trusts a message only when `event.source === iframe.contentWindow` **and** it validates (`asFrameMessage`). The frame trusts a message only when `event.source === window.parent` and it validates. Everything else is ignored, never dispatched. Because the frame's origin is opaque, host→frame messages must use `'*'` as `targetOrigin`; the payloads carry nothing confidential for that reason. Frame→host messages target the host's real origin when it has one.
 
@@ -130,6 +130,7 @@ Two negative duties matter to the paginator: zero-width anchor spans (`<span cla
 | `positionchange` | `ReaderPosition` | after any navigation settles |
 | `sectionchange` | `{ index, sectionId }` | when the active section changes |
 | `linkclick` | `{ href }` | an in-frame link click, **before** it is followed |
+| `selection` | `{ text, position }` | a completed text selection in the frame; `position` is a `Position` anchored at the selection start |
 | `error` | `Error` | a navigation or render failure (also frame-reported errors) |
 
 Firing order is documented and tested:
@@ -138,6 +139,7 @@ Firing order is documented and tested:
 - **roll across a section boundary / `goTo` / `nextSection` / `prevSection`:** `sectionchange` (only if the section actually changed) → `positionchange`.
 - **link click:** `linkclick` → (`sectionchange` if it landed in a new section) → `positionchange`.
 - **`setMode`:** `positionchange`.
+- **selection:** `selection`, standalone — it reports, it does not navigate, so it fires no `positionchange` and is not enqueued behind navigation.
 
 A listener throwing is caught and swallowed (a copy of the set is iterated, so a handler unsubscribing mid-dispatch cannot skip a sibling); it never derails the emit or the navigation.
 
@@ -153,7 +155,7 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **`destroy()` leaves nothing behind** (idempotent): it tears down the `Paginator` (which destroys the host, the iframe, and — because resources are `data:` URLs the frame carries, not host-minted blob URLs — there is nothing to revoke; the frame's `message` listener goes with the iframe), clears all event listener sets, and drops the back-stack. Pending frame requests reject as the host tears the channel down.
 
-**Protocol is at v5.** The facade needed link-click reporting and fragment→page mapping on top of T001's paginator additions (v4), then human input (v5 — see below); `PROTOCOL_VERSION` is `5`, and the frame's hand-written validator is kept in step with `asHostMessage`/`asFrameMessage` by hand.
+**Protocol is at v6.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6 — see below); `PROTOCOL_VERSION` is `6`, and the frame's hand-written validator is kept in step with `asHostMessage`/`asFrameMessage` by hand.
 
 ### Human input — keyboard, swipe, tap zones (T003)
 
@@ -188,5 +190,29 @@ The host relays these through `ContentHostOptions.onKey(key)` / `onSwipe(dx, dy)
 Each mode is gated independently in the facade, so a consumer can turn any one off; the frame still forwards all three (the wire is not conditional), the facade simply ignores a disabled mode.
 
 **`prefers-reduced-motion` is a documented no-op for now.** There is no page-turn animation in the reader yet, so nothing gates on the preference — pages simply turn. When an animated turn lands (M3 appearance), gate the *animation* on `matchMedia('(prefers-reduced-motion: reduce)')`, never on input: input must always turn the page. `#dispatchIntent` in `src/reader/index.ts` carries the marker comment for where that gate goes.
+
+### Selection
+
+A text selection in the reader surfaces as a first-class `selection` event carrying the selected text plus a `Position` anchored at the selection's start. The event fires standalone — it reports, it never navigates — so it does not go through the navigation queue and emits no `positionchange`.
+
+**Capture site: the frame, forwarded — the host cannot read the frame's `Selection`.** A selection lives inside the opaque-origin frame's document and never bubbles to the host, exactly like `linkclick` / `key` / pointer gestures. The coordination script (`frame.ts`) observes it and forwards a *semantic* payload; the host cannot reach across the sandbox to read the `Selection` object.
+
+**Wire message (frame→host, unsolicited, protocol v6):**
+
+| message | payload | when |
+|---|---|---|
+| `selection` | `start`, `end`, `text` | a completed text selection in the frame — a non-collapsed selection with non-empty rects, settled on pointer/key/mouse release |
+
+`start`/`end` are UTF-16 code-unit offsets into the **tiled section text** (the same text space `sectionText` reports and the paginator measures against), so they are directly consumable by `capturePosition`. The host relays through `ContentHostOptions.onSelection`.
+
+**Completion, not every change.** `selectionchange` fires once per character during a drag, so the frame marks the selection dirty on `selectionchange` and *forwards* only on the next `pointerup`/`keyup`/`mouseup` — the release that ends a real selection gesture. A bare click collapses the selection and is dropped by the guards below.
+
+**Two guards, both in the frame:**
+- **Collapsed / empty** — an `isCollapsed` selection or empty `toString()` forwards nothing (a bare click emits no event).
+- **Empty `getClientRects()`** — the zero-width-anchor / empty-inline gotcha the paginator already lives with (114 such spans in `item8`). A selection whose range has no client rects carries no painted geometry, so forwarding it would be a malformed range; the frame length-checks the rect list and drops it.
+
+**Offset computation.** For each endpoint the frame finds the enclosing `.wolfyreader-chunk` container, sums the `textContent` length of every prior chunk container, then adds the text length from that chunk's start to the endpoint via a `Range` — the same tiling the chunk `data-chunk-start` attributes encode. An endpoint outside a realized chunk container yields `-1` and the selection is dropped. Endpoints are normalized so `start <= end` regardless of selection direction.
+
+**The UTF-16-offset-range↔`Position` bridge.** `Paginator.positionOfOffsetRange(start, end)` captures the anchor at `start` with `capturePosition(text, start, sectionId)` — `capturePosition` takes a UTF-16 offset directly, so no grapheme conversion is needed on the capture leg (the grapheme↔UTF-16 conversion only matters on the *resolve* leg, `pageOfPosition`). Only the `start` anchor is needed to resolve the range back to a page; `end` rides the wire for symmetry and future decoration work. The facade attaches `text` and emits `selection`. Because the `Position` is content-addressed, a host can persist it as a bookmark/highlight anchor and `goTo` it later; it resolves back through the same soft-miss path as any other `Position`.
 
 **Packaging note.** `package.json` has **no `exports` map yet** — neither the reader subpath nor `core`/`epub`/`layout` are declared, so all are importable by path only (which is what the tests and demo do). Adding a partial map now would break those path imports; the public `exports` map (including the `./reader` subpath) is deferred to a later packaging milestone.

@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 export interface Measurement {
   readonly width: number;
@@ -120,6 +120,16 @@ export type FrameMessage =
       readonly y: number;
       readonly width: number;
       readonly height: number;
+    }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'selection';
+      /** UTF-16 code-unit offset of the selection's start in the section text. */
+      readonly start: number;
+      /** UTF-16 code-unit offset of the selection's end in the section text. */
+      readonly end: number;
+      /** The selected text, exactly as the frame reads it. */
+      readonly text: string;
     };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -240,6 +250,15 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
         return null;
       }
       return { v: PROTOCOL_VERSION, type: 'tap', x, y, width, height };
+    }
+    case 'selection': {
+      const start = message['start'];
+      const end = message['end'];
+      const text = message['text'];
+      if (typeof start !== 'number' || typeof end !== 'number' || typeof text !== 'string') {
+        return null;
+      }
+      return { v: PROTOCOL_VERSION, type: 'selection', start, end, text };
     }
     default:
       return null;

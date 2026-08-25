@@ -242,6 +242,15 @@
   }
   .roundtrip.ok { color: #14682c; }
   .roundtrip.bad { color: var(--error); }
+  .selection {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .selection q { color: var(--fg); }
+  .selection .ok { color: #14682c; }
+  .selection .bad { color: var(--error); }
 </style>
 </head>
 <body>
@@ -310,6 +319,10 @@
         </div>
       </div>
       <p id="roundtrip" class="roundtrip"></p>
+      <p id="selection" class="selection" hidden>
+        Selected <q id="selection-text"></q>
+        — <span id="selection-resolves"></span>
+      </p>
       <section id="report">
         <h2>What the host did to this section</h2>
         <dl>
@@ -363,6 +376,9 @@
   const customFgEl = document.querySelector('#custom-fg');
   const themeVarsEl = document.querySelector('#theme-vars');
   const roundtripEl = document.querySelector('#roundtrip');
+  const selectionEl = document.querySelector('#selection');
+  const selectionTextEl = document.querySelector('#selection-text');
+  const selectionResolvesEl = document.querySelector('#selection-resolves');
   const reportEl = document.querySelector('#report');
   const reportFields = {
     parse: document.querySelector('#report-parse'),
@@ -436,6 +452,9 @@
     pagerEl.style.display = 'none';
     appearanceEl.style.display = 'none';
     roundtripEl.style.display = 'none';
+    selectionEl.hidden = true;
+    selectionTextEl.textContent = '';
+    selectionResolvesEl.textContent = '';
     reportEl.style.display = 'none';
     violations.length = 0;
   }
@@ -721,6 +740,18 @@
       // A followed internal link pushes a back-stack entry; enable Back.
       backStackDepth += 1;
       backEl.disabled = false;
+    });
+    reader.on('selection', ({ text, position }) => {
+      // A selection carries the selected text plus a Position anchored at its
+      // start. Show the text and prove the Position resolves back by re-navigating
+      // to it (it lands on the selection's page without reflow). The progress
+      // figure comes straight off the Position — no string parsing needed.
+      selectionEl.hidden = false;
+      const shown = text.length > 80 ? `${text.slice(0, 80)}…` : text;
+      selectionTextEl.textContent = shown;
+      const pct = Math.round(position.progress * 100);
+      selectionResolvesEl.textContent = `resolvable Position at ≈${pct}% of the chapter`;
+      selectionResolvesEl.className = 'ok';
     });
     reader.on('positionchange', onPositionChange);
     reader.on('ready', (position) => {

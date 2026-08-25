@@ -15,7 +15,7 @@
   import { epub } from '/src/formats/index.ts';
   import { ContentHost } from '/src/view/index.ts';
   import { Paginator } from '/src/layout/index.ts';
-  import { render } from '/src/reader/index.ts';
+  import { render, parsePosition } from '/src/reader/index.ts';
 
   // The host must mint no object URLs at all: an opaque-origin frame cannot
   // read the creating origin's blob store, so any that appeared would be both
@@ -255,7 +255,7 @@
       const record = (type) => (payload) => {
         readerEvents.push({ type, payload: JSON.parse(JSON.stringify(payload ?? null)) });
       };
-      for (const type of ['ready', 'positionchange', 'sectionchange', 'linkclick']) {
+      for (const type of ['ready', 'positionchange', 'sectionchange', 'linkclick', 'selection']) {
         reader.on(type, record(type));
       }
       reader.on('error', (err) => readerEvents.push({ type: 'error', payload: String(err?.message ?? err) }));
@@ -318,6 +318,16 @@
 
     async readerGoTo(target) {
       await reader.goTo(target);
+      return reader.position;
+    },
+
+    /**
+     * Rebuilds a Position from its opaque serialized string and navigates to it —
+     * the round trip a host performs when restoring a persisted selection anchor.
+     * Returns the settled reader position.
+     */
+    async readerGoToSerialized(serialized) {
+      await reader.goTo(parsePosition(serialized));
       return reader.position;
     },
 
