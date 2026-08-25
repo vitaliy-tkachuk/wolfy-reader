@@ -248,6 +248,7 @@ function stripExtension(name: string): string {
 class ReaderImpl implements Reader {
   readonly #book: Book;
   readonly #paginator: Paginator;
+  readonly #element: HTMLElement;
   readonly #sections: readonly Section[];
   readonly #options: ReaderOptions;
   readonly #listeners: { [E in ReaderEvent]: Set<ReaderEventHandler<E>> } = {
@@ -274,9 +275,12 @@ class ReaderImpl implements Reader {
   readonly #tapZones: TapZones | null;
   /** Serializes navigation so overlapping calls settle in order. */
   #queue: Promise<unknown> = Promise.resolve();
+  /** The host-side image-zoom overlay, mounted lazily on the first image tap. */
+  #zoom: ImageZoom | null = null;
 
   constructor(book: Book, element: HTMLElement, options: ReaderOptions) {
     this.#book = book;
+    this.#element = element;
     this.#sections = book.sections;
     this.#options = options;
     this.#mode = options.mode ?? 'paginated';
@@ -311,6 +315,9 @@ class ReaderImpl implements Reader {
         if (this.#tapZones !== null) {
           this.#dispatchIntent(tapIntent(tap, this.#tapZones, this.#direction));
         }
+      },
+      onImageTap: (image) => {
+        this.#openZoom(image);
       },
       onSelection: (selection) => {
         void this.#onSelection(selection);
@@ -381,6 +388,8 @@ class ReaderImpl implements Reader {
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#zoom?.destroy();
+    this.#zoom = null;
     this.#paginator.destroy();
     for (const event of Object.keys(this.#listeners) as ReaderEvent[]) {
       this.#listeners[event].clear();
@@ -394,12 +403,9 @@ class ReaderImpl implements Reader {
    * Route a resolved {@link NavIntent} (from keyboard/swipe/tap, already made
    * direction-aware in `input.ts`) to the matching public navigation method. Each
    * goes through the same serialized queue as programmatic navigation, so hand
-   * input interleaves in issue order. `none` is a no-op.
-   *
-   * There is no page-turn animation in the reader yet, so nothing here animates
-   * and there is nothing to gate on `prefers-reduced-motion`: pages simply turn.
-   * When an animated turn lands (M3 appearance), gate it on
-   * `matchMedia('(prefers-reduced-motion: reduce)')` — never against the setting.
+   * input interleaves in issue order. `none` is a no-op. Input is never gated on
+   * `prefers-reduced-motion`: pages must always turn. The only motion in the reader
+   * is the zoom overlay's open/close transition, which the overlay gates itself.
    */
   #dispatchIntent(intent: NavIntent): void {
     switch (intent) {
@@ -424,6 +430,20 @@ class ReaderImpl implements Reader {
       case 'none':
         return;
     }
+  }
+
+  // --- Image zoom overlay ---------------------------------------------------
+
+  /**
+   * Opens the host-side zoom overlay over the tapped image's already-served
+   * `data:` bytes. The overlay is a DOM element in the *host* document, outside the
+   * sandboxed frame — it mints no new frame resource and never a `blob:` URL. A
+   * non-`data:` src (a remote image the CSP already refuses in-frame) is ignored.
+   */
+  #openZoom(image: { src: string; alt: string }): void {
+    if (this.#destroyed || !image.src.startsWith('data:')) return;
+    if (this.#zoom === null) this.#zoom = new ImageZoom(this.#element);
+    this.#zoom.open(image.src, image.alt);
   }
 
   // --- Navigation queue -----------------------------------------------------
@@ -786,6 +806,185 @@ class ReaderImpl implements Reader {
         // A listener throwing must not derail the emit or the navigation.
       }
     }
+  }
+}
+
+/**
+ * The host-side image-zoom overlay. It lives entirely in the *host* document,
+ * outside the sandboxed frame: it renders the image's already-served `data:` bytes
+ * in a host DOM element, so it mints no new frame resource and — crucially — never
+ * a `blob:` URL (an opaque-origin frame cannot load a host blob URL; `data:` is the
+ * boundary-crossing form the whole view stack already relies on).
+ *
+ * Accessibility: it is a modal dialog with a focus TRAP (Tab cycles the close
+ * control and image), closes on Escape or a backdrop click, and restores focus to
+ * whatever the reader element held before it opened. Its open/close transition —
+ * the reader's only animation — is gated on `prefers-reduced-motion`; input and
+ * page-turning are never gated on the preference.
+ */
+class ImageZoom {
+  readonly #anchor: HTMLElement;
+  readonly #doc: Document;
+  #root: HTMLElement | null = null;
+  #image: HTMLImageElement | null = null;
+  #closeButton: HTMLButtonElement | null = null;
+  #previouslyFocused: HTMLElement | null = null;
+  readonly #onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.close();
+      return;
+    }
+    if (event.key === 'Tab') this.#trapTab(event);
+  };
+
+  constructor(anchor: HTMLElement) {
+    this.#anchor = anchor;
+    const doc = anchor.ownerDocument;
+    if (doc === null) throw new ReaderError('the reader element is not in a document');
+    this.#doc = doc;
+  }
+
+  open(src: string, alt: string): void {
+    if (this.#root !== null) {
+      // Re-target an already-open overlay rather than stacking a second one.
+      this.#image!.src = src;
+      this.#image!.alt = alt;
+      return;
+    }
+    const active = this.#doc.activeElement;
+    this.#previouslyFocused = active instanceof HTMLElement ? active : this.#anchor;
+
+    const root = this.#doc.createElement('div');
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-label', alt !== '' ? alt : 'Zoomed image');
+    Object.assign(root.style, {
+      position: 'fixed',
+      inset: '0',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'rgba(0, 0, 0, 0.85)',
+      zIndex: '2147483647',
+      padding: '4vmin',
+      boxSizing: 'border-box',
+      opacity: this.#reducedMotion() ? '1' : '0',
+      transition: this.#reducedMotion() ? 'none' : 'opacity 150ms ease',
+    } satisfies Partial<CSSStyleDeclaration>);
+    root.addEventListener('pointerdown', (event) => {
+      if (event.target === root) this.close();
+    });
+
+    const image = this.#doc.createElement('img');
+    image.src = src;
+    image.alt = alt;
+    image.tabIndex = 0;
+    Object.assign(image.style, {
+      maxWidth: '100%',
+      maxHeight: '100%',
+      objectFit: 'contain',
+      boxShadow: '0 4px 32px rgba(0, 0, 0, 0.5)',
+    } satisfies Partial<CSSStyleDeclaration>);
+
+    const close = this.#doc.createElement('button');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '×';
+    Object.assign(close.style, {
+      position: 'absolute',
+      top: '2vmin',
+      right: '2vmin',
+      width: '2.5rem',
+      height: '2.5rem',
+      fontSize: '1.5rem',
+      lineHeight: '1',
+      cursor: 'pointer',
+      border: '0',
+      borderRadius: '50%',
+      background: 'rgba(255, 255, 255, 0.9)',
+      color: '#000',
+    } satisfies Partial<CSSStyleDeclaration>);
+    close.addEventListener('click', () => {
+      this.close();
+    });
+
+    root.append(image, close);
+    this.#doc.body.append(root);
+    this.#root = root;
+    this.#image = image;
+    this.#closeButton = close;
+    this.#doc.addEventListener('keydown', this.#onKeyDown, true);
+    // Fade in on the next frame so the transition has a start value to animate from.
+    if (!this.#reducedMotion()) {
+      const view = this.#doc.defaultView;
+      if (view !== null) view.requestAnimationFrame(() => (root.style.opacity = '1'));
+    }
+    close.focus();
+  }
+
+  close(): void {
+    const root = this.#root;
+    if (root === null) return;
+    this.#doc.removeEventListener('keydown', this.#onKeyDown, true);
+    this.#root = null;
+    this.#image = null;
+    this.#closeButton = null;
+    const restore = this.#previouslyFocused;
+    this.#previouslyFocused = null;
+    root.remove();
+    this.#restoreFocus(restore);
+  }
+
+  /**
+   * Return focus to the reader region. The tap that opened the overlay came from
+   * inside the sandboxed frame, so the host's active element is usually the frame's
+   * body (not focusable from here) — fall back to the reader mount, made
+   * programmatically focusable with a temporary `tabindex` so focus lands on the
+   * reader rather than the document body.
+   */
+  #restoreFocus(saved: HTMLElement | null): void {
+    if (saved !== null && saved.isConnected && saved !== this.#doc.body) {
+      saved.focus();
+      if (this.#doc.activeElement === saved) return;
+    }
+    const anchor = this.#anchor;
+    // A bare div is not focusable; a -1 tabindex makes it programmatically
+    // focusable without adding it to the tab order. Idempotent and benign.
+    if (!anchor.hasAttribute('tabindex')) anchor.tabIndex = -1;
+    anchor.focus();
+  }
+
+  destroy(): void {
+    this.close();
+  }
+
+  /**
+   * Keep Tab focus inside the overlay: the close control and image are the stops.
+   * Tab is intercepted unconditionally and focus is moved explicitly so it can
+   * never escape the overlay — the reader region behind it is inert while open.
+   */
+  #trapTab(event: KeyboardEvent): void {
+    event.preventDefault();
+    const stops = this.#focusStops();
+    if (stops.length === 0) return;
+    const active = this.#doc.activeElement as HTMLElement | null;
+    const current = active === null ? -1 : stops.indexOf(active);
+    const step = event.shiftKey ? -1 : 1;
+    const nextIndex = current === -1 ? 0 : (current + step + stops.length) % stops.length;
+    stops[nextIndex]!.focus();
+  }
+
+  #focusStops(): HTMLElement[] {
+    const stops: HTMLElement[] = [];
+    if (this.#closeButton !== null) stops.push(this.#closeButton);
+    if (this.#image !== null) stops.push(this.#image);
+    return stops;
+  }
+
+  #reducedMotion(): boolean {
+    const view = this.#doc.defaultView;
+    return view !== null && view.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 }
 

@@ -68,7 +68,7 @@ Two rules are worth stating separately because they are not obvious from the tab
 
 ## Protocol
 
-Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `6` today (it began at `1`; the reader facade, human-input, and selection work grew it — see the reader-facade section); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, and `selection`) are documented with the features that added them.
+Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `7` today (it began at `1`; the reader facade, human-input, selection, and image-tap work grew it — see the reader-facade section); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, `selection`, and `imagetap`) are documented with the features that added them.
 
 Origin cannot authenticate here: the frame's origin is `'null'`, which identifies nothing. The host trusts a message only when `event.source === iframe.contentWindow` **and** it validates (`asFrameMessage`). The frame trusts a message only when `event.source === window.parent` and it validates. Everything else is ignored, never dispatched. Because the frame's origin is opaque, host→frame messages must use `'*'` as `targetOrigin`; the payloads carry nothing confidential for that reason. Frame→host messages target the host's real origin when it has one.
 
@@ -155,7 +155,7 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **`destroy()` leaves nothing behind** (idempotent): it tears down the `Paginator` (which destroys the host, the iframe, and — because resources are `data:` URLs the frame carries, not host-minted blob URLs — there is nothing to revoke; the frame's `message` listener goes with the iframe), clears all event listener sets, and drops the back-stack. Pending frame requests reject as the host tears the channel down.
 
-**Protocol is at v6.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6 — see below); `PROTOCOL_VERSION` is `6`, and the frame's hand-written validator is kept in step with `asHostMessage`/`asFrameMessage` by hand.
+**Protocol is at v7.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below); `PROTOCOL_VERSION` is `7`, and the frame's hand-written validator is kept in step with `asHostMessage`/`asFrameMessage` by hand.
 
 ### Human input — keyboard, swipe, tap zones (T003)
 
@@ -169,7 +169,7 @@ The reader is operable by hand: keyboard, touch swipe, and configurable tap zone
 |---|---|---|
 | `key` | `key` | a navigation-relevant `keydown` in the frame (`ArrowLeft/Right/Up/Down`, `PageUp/PageDown`, `Home`, `End` — the frame's `NAV_KEYS` allowlist; nothing else is forwarded) |
 | `swipe` | `dx`, `dy` | a completed pointer/touch drag clearing the frame's `SWIPE_THRESHOLD` (30px) and horizontal-dominant (`|dx| > |dy|`) |
-| `tap` | `x`, `y`, `width`, `height` | a pointer/touch press-release within `TAP_SLOP` (10px) that is **not** on a link — a link tap stays a `linkclick`, shared through the same `linkAncestor` walk |
+| `tap` | `x`, `y`, `width`, `height` | a pointer/touch press-release within `TAP_SLOP` (10px) that is **not** on a link and **not** on an image — a link tap stays a `linkclick` and an image tap becomes an `imagetap` (see the image-zoom section), each shared through its own ancestor walk |
 
 The host relays these through `ContentHostOptions.onKey(key)` / `onSwipe(dx, dy)` / `onTap({x, y, width, height})`, which the facade supplies.
 
@@ -189,7 +189,7 @@ The host relays these through `ContentHostOptions.onKey(key)` / `onSwipe(dx, dy)
 
 Each mode is gated independently in the facade, so a consumer can turn any one off; the frame still forwards all three (the wire is not conditional), the facade simply ignores a disabled mode.
 
-**`prefers-reduced-motion` is a documented no-op for now.** There is no page-turn animation in the reader yet, so nothing gates on the preference — pages simply turn. When an animated turn lands (M3 appearance), gate the *animation* on `matchMedia('(prefers-reduced-motion: reduce)')`, never on input: input must always turn the page. `#dispatchIntent` in `src/reader/index.ts` carries the marker comment for where that gate goes.
+**`prefers-reduced-motion` gates the zoom overlay, never input.** The reader's only animation is the image-zoom overlay's open/close fade (see the image-zoom section); it is gated on `matchMedia('(prefers-reduced-motion: reduce)')` and appears/disappears instantly under the preference. Page-turning is never gated — `#dispatchIntent` in `src/reader/index.ts` dispatches every navigation intent regardless of the preference, because input must always turn the page. There is still no page-turn animation; when one lands (M3 appearance), gate that animation the same way, never the input.
 
 ### Selection
 
@@ -214,6 +214,26 @@ A text selection in the reader surfaces as a first-class `selection` event carry
 **Offset computation.** For each endpoint the frame finds the enclosing `.wolfyreader-chunk` container, sums the `textContent` length of every prior chunk container, then adds the text length from that chunk's start to the endpoint via a `Range` — the same tiling the chunk `data-chunk-start` attributes encode. An endpoint outside a realized chunk container yields `-1` and the selection is dropped. Endpoints are normalized so `start <= end` regardless of selection direction.
 
 **The UTF-16-offset-range↔`Position` bridge.** `Paginator.positionOfOffsetRange(start, end)` captures the anchor at `start` with `capturePosition(text, start, sectionId)` — `capturePosition` takes a UTF-16 offset directly, so no grapheme conversion is needed on the capture leg (the grapheme↔UTF-16 conversion only matters on the *resolve* leg, `pageOfPosition`). Only the `start` anchor is needed to resolve the range back to a page; `end` rides the wire for symmetry and future decoration work. The facade attaches `text` and emits `selection`. Because the `Position` is content-addressed, a host can persist it as a bookmark/highlight anchor and `goTo` it later; it resolves back through the same soft-miss path as any other `Position`.
+
+### Image handling and tap-to-zoom
+
+Oversized book images are capped and tappable-to-zoom.
+
+**Containment lives in the frame reset, not the facade.** The `img,svg{max-width:100%;height:auto}` rule in `RESET_CSS` caps every replaced element at its column width; an image with a 2400px intrinsic width paints at the column width, not 2400px, and never breaks or overflows its column. Because each chunk is its own multi-column context, a wide image simply lands on its own column (its own page) rather than pushing prose off the page — the paginator's forced-page-break-per-chunk behaviour, not new work here.
+
+**A tap on an image forwards the image, not a page-turn.** The coordination script (`frame.ts`) has an `imageAncestor` walk mirroring `linkAncestor`: on a completed tap (within `TAP_SLOP`) that is on an `<img>`/SVG `<image>` and not on a link, it sends an `imagetap` carrying the image's already-substituted `src` and its `alt` instead of a plain `tap`. A tap on neither a link nor an image stays a page-turn `tap`, so the `tapIntent` zone mapping is untouched — no regression. This is the same forward-a-semantic-gesture reasoning as `linkclick`/`key`/`swipe`/`tap`.
+
+**Wire message (frame→host, unsolicited, protocol v7):**
+
+| message | payload | when |
+|---|---|---|
+| `imagetap` | `src`, `alt` | a tap on a book image (not a link, not a page-turn); `src` is the image's already-served `data:` URL, `alt` its accessible name |
+
+The host relays it through `ContentHostOptions.onImageTap({src, alt})`, which the facade supplies.
+
+**The overlay is strictly host-side and renders `data:` bytes — never `blob:`.** `ImageZoom` in `src/reader/index.ts` is a modal dialog appended to the *host* document, outside the sandboxed frame. It renders the exact `data:` URL the frame already carries in its `<img src>` (what `applyResources` substituted) — the full-resolution bytes, reused, not re-fetched and not re-minted. It **must not** mint a `blob:` URL: a host blob URL belongs to the host origin and the opaque-origin frame is refused it (the same measured "Not allowed to load local resource" the resource layer lives with), and there is no reason to create one host-side either — the `data:` string is the source of truth. The facade ignores any non-`data:` `src` (a remote image the CSP already refuses in-frame). The overlay mints no new frame resource; it opens no second document-assembly path.
+
+**Accessibility and dismissal.** The overlay is a `role="dialog"` `aria-modal` element with a focus **trap**: Tab is intercepted and cycled explicitly between the close control and the image, so focus can never escape while it is open. It closes on Escape or a backdrop (pointerdown on the overlay root, not its children) and returns focus to the reader region — the pre-open active element when that is focusable, else the reader mount (made programmatically focusable with a `-1` tabindex, because the tap that opened the overlay came from inside the frame, leaving the host's active element on the frame body). Its open/close fade is the reader's only animation and is gated on `prefers-reduced-motion` (instant under the preference); `destroy()` closes any open overlay.
 
 ### Search
 
@@ -244,8 +264,8 @@ frozen-surface addition since selection. The engine is headless and lives in
   regex. Rendering a *visible highlight* on a landed hit is a separate, later unit
   (it consumes the decorations API); `search` ships the engine + jumpable hits only.
 
-**Protocol is unchanged (still v6).** Search touches no wire message — the matcher is
-headless and the scan does not cross the frame boundary — so `PROTOCOL_VERSION` stays
-`6`.
+**Search touches no wire message.** The matcher is headless and the scan does not
+cross the frame boundary, so search added nothing to the protocol (the version has
+since moved to `7` for image-tap reporting, unrelated to search).
 
 **Packaging note.** `package.json` has **no `exports` map yet** — neither the reader subpath nor `core`/`epub`/`layout` are declared, so all are importable by path only (which is what the tests and demo do). Adding a partial map now would break those path imports; the public `exports` map (including the `./reader` subpath) is deferred to a later packaging milestone.

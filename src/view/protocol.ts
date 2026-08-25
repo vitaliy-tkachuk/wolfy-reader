@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export interface Measurement {
   readonly width: number;
@@ -130,6 +130,19 @@ export type FrameMessage =
       readonly end: number;
       /** The selected text, exactly as the frame reads it. */
       readonly text: string;
+    }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'imagetap';
+      /**
+       * The image's already-substituted `data:` URL — the full-resolution bytes
+       * `applyResources` served into the frame's `<img src>`. Never a `blob:` URL:
+       * the opaque-origin frame cannot mint one the host could load, and the host
+       * overlay renders these bytes directly. The host verifies the `data:` scheme.
+       */
+      readonly src: string;
+      /** The image's `alt` text, for the overlay's accessible name. */
+      readonly alt: string;
     };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -259,6 +272,12 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
         return null;
       }
       return { v: PROTOCOL_VERSION, type: 'selection', start, end, text };
+    }
+    case 'imagetap': {
+      const src = message['src'];
+      const alt = message['alt'];
+      if (typeof src !== 'string' || typeof alt !== 'string') return null;
+      return { v: PROTOCOL_VERSION, type: 'imagetap', src, alt };
     }
     default:
       return null;

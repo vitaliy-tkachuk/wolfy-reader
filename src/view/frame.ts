@@ -62,7 +62,7 @@ function escapeAttribute(value: string): string {
 export function coordinationScript(hostOrigin: string): string {
   return `(function(){
 'use strict';
-var VERSION = 6;
+var VERSION = 7;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
@@ -482,6 +482,19 @@ function linkAncestor(node){
   }
   return null;
 }
+// Walk up from a node to an enclosing <img src> (or SVG <image>), or null. Mirrors
+// linkAncestor so a tap on a figure is distinguishable from a page-turn tap. The
+// src is already a data: URL — applyResources substituted the full-resolution bytes
+// into it — so forwarding it re-uses those bytes; no blob URL is ever minted.
+function imageAncestor(node){
+  while (node && node.nodeType === 1) {
+    var name = node.localName;
+    if (name === 'img' && node.getAttribute('src')) return node;
+    if (name === 'image' && (node.getAttribute('href') || node.getAttribute('xlink:href'))) return node;
+    node = node.parentNode;
+  }
+  return null;
+}
 document.addEventListener('click', function(event){
   var link = linkAncestor(event.target);
   if (link) {
@@ -522,6 +535,15 @@ function endGesture(x, y){
     return;
   }
   if (Math.abs(dx) <= TAP_SLOP && Math.abs(dy) <= TAP_SLOP && !linkAncestor(start.target)) {
+    // A tap on an image (and not a link) opens the host-side zoom overlay: forward
+    // the image's resolved data: URL + alt. Every other tap is a page-turn gesture
+    // the host maps to a zone — unchanged, so tapIntent never regresses.
+    var image = imageAncestor(start.target);
+    if (image) {
+      var src = image.getAttribute('src') || image.getAttribute('href') || image.getAttribute('xlink:href') || '';
+      send({ v: VERSION, type: 'imagetap', src: String(src), alt: String(image.getAttribute('alt') || '') });
+      return;
+    }
     send({ v: VERSION, type: 'tap', x: x, y: y, width: window.innerWidth, height: window.innerHeight });
   }
 }

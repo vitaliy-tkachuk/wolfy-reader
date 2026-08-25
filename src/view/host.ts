@@ -38,6 +38,12 @@ export interface ContentHostOptions {
   /** A tap in the frame that was not on a link; carries tap coords + frame viewport size. */
   readonly onTap?: (tap: { x: number; y: number; width: number; height: number }) => void;
   /**
+   * A tap on a book image in the frame (not a link, not a page-turn). Carries the
+   * image's already-substituted `data:` URL and its `alt`, so a host can open a
+   * zoom overlay over the same full-resolution bytes. Never a `blob:` URL.
+   */
+  readonly onImageTap?: (image: { src: string; alt: string }) => void;
+  /**
    * A completed text selection in the frame; carries the selected text and its
    * UTF-16 offset range over the section text (`sectionText`). Empty and collapsed
    * selections are dropped in the frame and never reach here.
@@ -125,6 +131,9 @@ export class ContentHost {
         return;
       case 'tap':
         this.#options.onTap?.({ x: message.x, y: message.y, width: message.width, height: message.height });
+        return;
+      case 'imagetap':
+        this.#options.onImageTap?.({ src: message.src, alt: message.alt });
         return;
       case 'selection':
         this.#options.onSelection?.({ start: message.start, end: message.end, text: message.text });

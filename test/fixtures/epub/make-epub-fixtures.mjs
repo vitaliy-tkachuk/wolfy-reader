@@ -97,6 +97,35 @@ function makePng(r, g, b) {
   ]);
 }
 
+// A solid-colour PNG of an arbitrary declared size. Used for the oversized-image
+// fixture: intrinsic width far past any column so an uncapped <img> would overflow.
+function makeSolidPng(width, height, r, g, b) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const rowBytes = width * 3;
+  const raw = Buffer.alloc((rowBytes + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (rowBytes + 1);
+    raw[rowStart] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const p = rowStart + 1 + x * 3;
+      raw[p] = r;
+      raw[p + 1] = g;
+      raw[p + 2] = b;
+    }
+  }
+  const idat = deflateSync(raw);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', idat),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 // --- shared content --------------------------------------------------------
 
 const MIMETYPE = 'application/epub+zip';
@@ -1734,6 +1763,66 @@ writeFileSync(
     null,
     2,
   ) + '\n',
+);
+
+// --- oversized image fixture ------------------------------------------------
+//
+// One chapter with an image whose intrinsic size (2400x1600) dwarfs any reading
+// column, so an uncapped <img> would overflow its column and push content off the
+// page. The frame reset caps replaced content at max-width:100%; height:auto, and
+// this fixture is what proves the cap holds. It also drives the tap-to-zoom overlay.
+
+const bigImageOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:7c9e1f22-4a55-4c3e-9a77-0f2b8c1de777</dc:identifier>
+    <dc:title>The Wide Plate</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="c1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="plate" href="plate.png" media-type="image/png"/>
+    <item id="style" href="style.css" media-type="text/css"/>
+  </manifest>
+  <spine>
+    <itemref idref="c1"/>
+  </spine>
+</package>
+`;
+
+const bigImageNav = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>The Wide Plate</title></head>
+<body>
+<nav epub:type="toc"><ol><li><a href="chapter-1.xhtml">The Wide Plate</a></li></ol></nav>
+</body>
+</html>
+`;
+
+const bigImageChapter = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>The Wide Plate</title><link rel="stylesheet" type="text/css" href="style.css"/></head>
+<body>
+<h1>The Wide Plate</h1>
+<p>Below sits a plate far wider than any reading column. It must be capped to the column, never allowed to overflow.</p>
+<p><img id="wide-plate" src="plate.png" alt="A very wide invented plate" width="2400" height="1600"/></p>
+<p>This paragraph follows the plate and must remain on the page beside it, not pushed off by an overflowing image.</p>
+</body>
+</html>
+`;
+
+writeFileSync(
+  join(outDir, 'bigimage.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('content.opf') },
+    { name: 'content.opf', data: bigImageOpf },
+    { name: 'nav.xhtml', data: bigImageNav },
+    { name: 'chapter-1.xhtml', data: bigImageChapter },
+    { name: 'plate.png', data: makeSolidPng(2400, 1600, 40, 90, 160), method: 0 },
+    { name: 'style.css', data: styleCss },
+  ]),
 );
 
 console.log('fixtures written to', outDir);

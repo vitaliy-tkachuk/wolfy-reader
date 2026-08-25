@@ -203,6 +203,10 @@ test('frame messages are accepted only in a known shape', () => {
     asFrameMessage({ v: PROTOCOL_VERSION, type: 'selection', start: 5, end: 17, text: 'a quote' }),
     { v: PROTOCOL_VERSION, type: 'selection', start: 5, end: 17, text: 'a quote' },
   );
+  assert.deepEqual(
+    asFrameMessage({ v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' }),
+    { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' },
+  );
   for (const rejected of [
     null,
     'ready',
@@ -222,6 +226,10 @@ test('frame messages are accepted only in a known shape', () => {
     { v: PROTOCOL_VERSION, type: 'selection', start: '1', end: 2, text: 'x' },
     { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 5 },
     { v: 5, type: 'selection', start: 1, end: 2, text: 'x' },
+    { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:x' },
+    { v: PROTOCOL_VERSION, type: 'imagetap', src: 5, alt: 'x' },
+    { v: PROTOCOL_VERSION, type: 'imagetap', alt: 'x' },
+    { v: 6, type: 'imagetap', src: 'data:x', alt: 'x' },
   ]) {
     assert.equal(asFrameMessage(rejected), null, JSON.stringify(rejected));
   }
