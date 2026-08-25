@@ -116,6 +116,25 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   validator lives in a template string in `frame.ts` (it cannot import), so
   `protocol.ts` and that `validateHost` copy are kept in step by hand; any change
   bumps the version and edits both.
+- **2026-08-26 — Page→offset mapping is a binary search, not a per-character
+  walk.** `offsetOfPage` in the coordination script used to probe every character
+  with `getClientRects` until one landed in the page's column band. Column flow is
+  monotonic — the page band a character paints in never decreases as its text
+  offset grows — so the first character of a page is found by binary search over
+  the chunk's text (~log n rect probes over an ≤8000-char chunk). Characters with
+  no client rects (zero-width anchors, collapsed whitespace) are skipped by
+  scanning forward to the next measurable character inside each probe; a page
+  band holding no measurable character falls back to the chunk's start offset,
+  as before. Relatedly, `pointAtOffset` (the decorations seam) realizes **only
+  the chunk that owns the offset**: the accumulation walk reads `textContent`
+  (DOM, not layout), so a decoration in a late chunk no longer force-realizes
+  every earlier chunk and the content-visibility eviction window survives —
+  asserted by the "decoration realization window" case in
+  `test/browser/layout.browser.mjs`. The paginator's section-text cache also
+  survives same-section reflows (mode switch, appearance) now, since the text is
+  invariant; it still invalidates on a section change. These compose with the
+  host's per-section render-input cache (see [`view.md`](view.md)), which is what
+  stops a font-size tick re-decoding and re-minting resources.
 - **Each chunk is its own multi-column context, absolutely positioned.** Forced by
   layout containment (Gotchas). Every chunk boundary is a forced page break —
   accepted, and it is what the page-count cost below buys.

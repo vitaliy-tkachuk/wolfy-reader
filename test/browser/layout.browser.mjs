@@ -246,6 +246,104 @@ describe('chunk eviction', { ...skipAll }, () => {
   });
 });
 
+describe('the render-input cache', { ...skipAll }, () => {
+  // A 1×1 PNG, base64 — enough to prove an image resource is minted once and
+  // reused, not re-decoded and re-base64'd, across same-section reflows.
+  const PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  function imageSection() {
+    const base = longSection(30, 'cache-proof');
+    return {
+      ...base,
+      source: base.source.replace('</body>', '<p><img src="pic.png" alt="pic"/></p></body>'),
+      resources: { 'pic.png': { mediaType: 'image/png', base64: PNG } },
+    };
+  }
+
+  const GEOMETRY = { mode: 'paginated', pageWidth: 700, pageHeight: 560 };
+
+  const counters = () => page.evaluate(() => window.harness.renderCounters());
+  const frameCsp = () =>
+    contentFrame().evaluate(
+      () => document.querySelector('meta[http-equiv="Content-Security-Policy"]').getAttribute('content'),
+    );
+  const frameImageSrc = () =>
+    contentFrame().evaluate(() => {
+      const img = document.querySelector('img');
+      return img === null ? null : img.getAttribute('src');
+    });
+
+  test('appearance and mode reflows reuse the sanitized document and minted data: URLs', async () => {
+    await page.evaluate(() => window.harness.createPaginator());
+    await page.evaluate(([s, r]) => window.harness.paginateCounted(s, r), [imageSection(), GEOMETRY]);
+    assert.deepEqual(await counters(), { sectionLoads: 1, resourceLoads: 1 }, 'first render decodes once');
+
+    const cspBefore = await frameCsp();
+    const srcBefore = await frameImageSrc();
+    assert.ok(srcBefore !== null && srcBefore.startsWith('data:image/png;base64,'), 'the image is served as data:');
+
+    // A reflowing appearance tick re-assembles the srcdoc (the theme rides it),
+    // but the section-invariant inputs must be reused — no re-decode, no
+    // re-sanitize, no image re-base64.
+    await page.evaluate(() =>
+      window.harness.paginatorApplyAppearance('#wolfyreader-content{font-size:24px}'),
+    );
+    assert.deepEqual(await counters(), { sectionLoads: 1, resourceLoads: 1 }, 'a font-size tick re-decoded the section');
+
+    // Security posture unchanged: the image is still the same data: URL (never
+    // blob:), and the CSP nonce is minted fresh per render, cache hit or not.
+    const srcAfter = await frameImageSrc();
+    assert.equal(srcAfter, srcBefore, 'the reflow must reuse the exact minted data: URL');
+    const cspAfter = await frameCsp();
+    assert.notEqual(cspAfter, cspBefore, 'the CSP nonce must be fresh on every render, even a cache hit');
+    assert.match(cspAfter, /script-src 'nonce-/, 'the CSP still names a script nonce');
+
+    // A mode switch reflows through the same path and must also hit the cache.
+    await page.evaluate(() => window.harness.paginatorSwitchMode('scrolled'));
+    assert.deepEqual(await counters(), { sectionLoads: 1, resourceLoads: 1 }, 'a mode switch re-decoded the section');
+
+    // A different section invalidates: the frame shows the new section's text.
+    await page.evaluate(
+      ([s, r]) => window.harness.paginateSynthetic(s, r),
+      [longSection(5, 'cache-other'), GEOMETRY],
+    );
+    const swapped = await contentFrame().evaluate(() => document.body.textContent.includes('5. The paginator'));
+    assert.ok(swapped, 'a new section must render its own content, not the cached one');
+  });
+});
+
+describe('decoration realization window', { ...skipAll }, () => {
+  test('a decoration in the last chunk realizes only its target chunk', async () => {
+    await paginateSynthetic(longSection(120, 'decorate-tail'), {
+      mode: 'paginated',
+      pageWidth: 700,
+      pageHeight: 560,
+      windowChunks: 2,
+    });
+    await page.evaluate(() => window.harness.refine());
+    await page.evaluate(() => window.harness.goToPage(0));
+    const before = await page.evaluate(() => window.harness.paginatorDiagnostics());
+    assert.ok(before.totalChunks > 5, `expected many chunks, got ${before.totalChunks}`);
+    assert.ok(before.realizedChunks < before.totalChunks, 'the eviction window must be active before decorating');
+
+    // Anchor the decoration near the section's end — the last chunk. Locating it
+    // must realize that chunk alone, not force-realize every chunk on the walk.
+    const after = await page.evaluate(async () => {
+      const text = await window.harness.paginatorSectionText();
+      return window.harness.paginatorDecorateAt('tail', text.length - 120, 'hl');
+    });
+    assert.ok(
+      after.realizedChunks <= before.realizedChunks + 2,
+      `decorating the tail realized ${after.realizedChunks} chunks (was ${before.realizedChunks}) — earlier chunks were force-realized`,
+    );
+    assert.ok(
+      after.realizedChunks < after.totalChunks,
+      'decorating the tail must not realize the whole section',
+    );
+  });
+});
+
 describe('corpus timing budgets (nice-to-have)', { ...skipAll, ...skipCorpus }, () => {
   test('rendering and re-layout of the largest real section stay within reference ceilings', async () => {
     const opened = await page.evaluate(() => window.harness.openBook('/corpus/gutenberg-pride-and-prejudice.epub'));

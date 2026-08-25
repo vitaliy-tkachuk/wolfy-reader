@@ -89,6 +89,33 @@ interface Pending {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * Section-invariant render inputs, cached so a re-pagination of the *same*
+ * section (a font-size tick, a mode switch — the theme rides the srcdoc, so
+ * every appearance change re-assembles the document) reuses them instead of
+ * re-running decode → sanitize → resource minting. No image is re-base64'd on
+ * a reflow.
+ *
+ * This must not — and does not — weaken any of the three defences: everything
+ * cached sits strictly *downstream* of the sanitizer (the same sanitized
+ * output, byte for byte), resources stay the `data:` URLs the registry minted
+ * (never `blob:`), and the CSP nonce is still created fresh for every
+ * document assembly. Only the inputs are reused; the assembly is not.
+ *
+ * Invalidated when a different section renders and on {@link ContentHost.destroy}.
+ */
+interface SectionRenderCache {
+  readonly section: Section;
+  /** The sanitized, resource-applied document. Never mutated after creation. */
+  readonly document: Document;
+  readonly headHtml: string;
+  readonly sanitization: SanitizationSummary;
+  readonly resources: ResourceSummary;
+  readonly registry: ResourceRegistry;
+  /** Assembled body markup, memoized per body-assembly key (plain / chunked@N). */
+  readonly bodyHtml: Map<string, string>;
+}
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 /**
@@ -108,7 +135,7 @@ export class ContentHost {
   readonly #window: Window;
   readonly #options: ContentHostOptions;
   readonly #pending = new Map<number, Pending>();
-  #registry: ResourceRegistry | null = null;
+  #cache: SectionRenderCache | null = null;
   #ready: (() => void) | null = null;
   #nextId = 1;
   #generation = 0;
@@ -192,7 +219,7 @@ export class ContentHost {
   }
 
   async render(section: Section): Promise<RenderReport> {
-    return this.#renderSection(section, (document) => document.body.innerHTML);
+    return this.#renderSection(section, 'plain', (document) => document.body.innerHTML);
   }
 
   /**
@@ -217,42 +244,75 @@ export class ContentHost {
    * assembly differs. Call {@link paginate} afterward to lay it out.
    */
   async renderChunked(section: Section, chunkChars?: number): Promise<RenderReport> {
-    return this.#renderSection(section, (document) => {
+    return this.#renderSection(section, `chunked@${chunkChars ?? 'default'}`, (document) => {
       const { chunks } = chunkElement(document.body, chunkChars);
       return assembleChunkedBody(chunks.map((chunk) => ({ html: chunk.html, chars: chunk.chars })));
     });
   }
 
   /**
-   * The shared render path: bump the generation, run the sanitize + resources
-   * pipeline, then hand the sanitized document's body to `buildBody` to produce
-   * the frame body markup. `render` passes it through verbatim; `renderChunked`
-   * re-wraps it in chunk containers.
+   * The shared render path: bump the generation, obtain the section-invariant
+   * render inputs (from the cache when the same section renders again — a
+   * reflow — or by running the sanitize + resources pipeline), then hand the
+   * sanitized document's body to `buildBody` to produce the frame body markup.
+   * `render` passes it through verbatim; `renderChunked` re-wraps it in chunk
+   * containers; both memoize their output under `bodyKey`. The CSP nonce is
+   * minted fresh for every assembly regardless of cache hits.
    */
   async #renderSection(
     section: Section,
+    bodyKey: string,
     buildBody: (document: Document) => string,
   ): Promise<RenderReport> {
     if (this.#destroyed) throw new ContentHostError('the host has been destroyed');
     const generation = (this.#generation += 1);
-    this.#registry?.release();
-    this.#registry = null;
 
-    const source = decodeText(await section.load());
-    this.#checkGeneration(generation);
-    // Sanitization is unconditional. Section.scripted is an author declaration
-    // that a hostile book simply omits, so gating on it would skip exactly the
-    // files that need it most.
-    const sanitized = sanitizeSection(source, section.mediaType);
-    const registry = new ResourceRegistry(section.resolve?.bind(section));
-    this.#registry = registry;
-    const resources = await applyResources(sanitized.document, registry);
-    this.#checkGeneration(generation);
+    let cache = this.#cache;
+    if (cache === null || cache.section !== section) {
+      // A different section: the outgoing section's inputs are invalidated and
+      // its registry released before anything new is built.
+      this.#cache?.registry.release();
+      this.#cache = null;
+
+      const source = decodeText(await section.load());
+      this.#checkGeneration(generation);
+      // Sanitization is unconditional. Section.scripted is an author declaration
+      // that a hostile book simply omits, so gating on it would skip exactly the
+      // files that need it most.
+      const sanitized = sanitizeSection(source, section.mediaType);
+      const registry = new ResourceRegistry(section.resolve?.bind(section));
+      let resources: ResourceSummary;
+      try {
+        resources = await applyResources(sanitized.document, registry);
+        // Checked before the cache is written, so a superseded render can never
+        // clobber the cache a later render installed.
+        this.#checkGeneration(generation);
+      } catch (error) {
+        registry.release();
+        throw error;
+      }
+      cache = {
+        section,
+        document: sanitized.document,
+        headHtml: sanitized.document.head.innerHTML,
+        sanitization: sanitized.summary,
+        resources,
+        registry,
+        bodyHtml: new Map(),
+      };
+      this.#cache = cache;
+    }
+
+    let bodyHtml = cache.bodyHtml.get(bodyKey);
+    if (bodyHtml === undefined) {
+      bodyHtml = buildBody(cache.document);
+      cache.bodyHtml.set(bodyKey, bodyHtml);
+    }
 
     await this.#load(
       assembleFrameDocument({
-        headHtml: sanitized.document.head.innerHTML,
-        bodyHtml: buildBody(sanitized.document),
+        headHtml: cache.headHtml,
+        bodyHtml,
         nonce: createNonce(),
         hostOrigin: this.#targetOrigin(),
         ...(this.#themeCss !== undefined ? { themeCss: this.#themeCss } : {}),
@@ -264,8 +324,8 @@ export class ContentHost {
     return {
       sectionId: section.id,
       declaredScripted: section.scripted === true,
-      sanitization: sanitized.summary,
-      resources,
+      sanitization: cache.sanitization,
+      resources: cache.resources,
     };
   }
 
@@ -403,8 +463,8 @@ export class ContentHost {
       pending.fail(new ContentHostError('the host has been destroyed'));
     }
     this.#ready = null;
-    this.#registry?.release();
-    this.#registry = null;
+    this.#cache?.registry.release();
+    this.#cache = null;
     this.frame.remove();
   }
 

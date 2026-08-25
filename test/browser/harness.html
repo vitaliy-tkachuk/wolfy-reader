@@ -202,6 +202,64 @@
       return paginator.paginate(syntheticSection(spec), request);
     },
 
+    /**
+     * Paginates a synthetic section instrumented to count section-byte loads and
+     * resource-byte loads — the observable proof of the per-section render-input
+     * cache: a same-section reflow must not re-decode or re-mint. Counters are
+     * read back with `renderCounters()`.
+     */
+    async paginateCounted(spec, request) {
+      window.__sectionLoads = 0;
+      window.__resourceLoads = 0;
+      const base = syntheticSection(spec);
+      const section = {
+        ...base,
+        load: async () => {
+          window.__sectionLoads += 1;
+          return base.load();
+        },
+        resolve: (reference) => {
+          const resource = base.resolve(reference);
+          if (resource === undefined) return undefined;
+          return {
+            ...resource,
+            load: async () => {
+              window.__resourceLoads += 1;
+              return resource.load();
+            },
+          };
+        },
+      };
+      return paginator.paginate(section, request);
+    },
+
+    renderCounters() {
+      return { sectionLoads: window.__sectionLoads, resourceLoads: window.__resourceLoads };
+    },
+
+    /** Applies a reflowing appearance change through the paginator (see #reapply). */
+    async paginatorApplyAppearance(css, geometry = {}) {
+      await paginator.applyAppearance(css, geometry);
+      return paginator.state;
+    },
+
+    /** Switches the paginator's layout mode, preserving position. */
+    async paginatorSwitchMode(mode) {
+      return paginator.switchMode(mode);
+    },
+
+    /**
+     * Decorates the standalone paginator over a Position captured at a UTF-16
+     * offset into its own section text, then reports diagnostics — used to prove
+     * a decoration in a late chunk realizes only its target chunk.
+     */
+    async paginatorDecorateAt(id, offset, className) {
+      const text = await paginator.sectionText();
+      const position = capturePosition(text, offset, paginator.section.id);
+      await paginator.decorate(id, position, className);
+      return paginator.diagnostics();
+    },
+
     async refine() {
       return paginator.refine();
     },

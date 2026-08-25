@@ -159,12 +159,16 @@ export class Paginator {
    */
   async paginate(section: Section, request: PaginateRequest = {}): Promise<PaginationState> {
     const options = this.#resolveOptions(request);
+    // The text cache is keyed by section: a re-paginate of the same section (a
+    // mode switch, an appearance reflow) re-lays out the same text, so the cache
+    // survives; a different section invalidates it.
+    const sameSection = this.#section === section;
     const state = await this.#host.paginate(section, options);
     this.#section = section;
     this.#options = options;
     this.#state = state;
     this.#page = 0;
-    this.#text = null;
+    if (!sameSection) this.#text = null;
     await this.#redrawDecorations();
     return state;
   }
@@ -443,7 +447,8 @@ export class Paginator {
     const state = await this.#host.paginate(this.#section, options);
     this.#options = options;
     this.#state = state;
-    this.#text = null;
+    // Same section, same text: the section-text cache survives the reflow, so
+    // the restore leg below resolves without another sectionText round trip.
     const page = await this.pageOfPosition(anchor);
     await this.goToPage(page >= 0 ? page : 0);
     await this.#redrawDecorations();

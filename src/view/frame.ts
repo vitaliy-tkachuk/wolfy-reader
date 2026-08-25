@@ -348,41 +348,75 @@ function goToPage(page){
   return page;
 }
 
-// Map a page (0-based) to the character offset of its first painted glyph. Walk
-// the active chunk's text with a Range, find the first character whose rect falls
-// on this page's column band, and add the chunk's cumulative start offset.
+// Map a page (0-based) to the character offset of its first painted glyph.
+// Column flow lays text out monotonically: the column — and therefore the page
+// band — a character paints in never decreases as its text offset grows. So the
+// first character of a page is found by binary search over the chunk's text
+// (~log n getClientRects probes over <= ~8000 chars), never one probe per
+// character. Characters with no client rects (zero-width anchors, collapsed
+// whitespace — the empty-rect gotcha) are skipped by scanning forward to the
+// next measurable character inside each probe.
 function offsetOfPage(page){
   if (page < 0 || page >= layout.pageCount) return -1;
   var chunk = chunkAtPage(page);
   if (chunk === null) return -1;
   realize(chunk.el);
   var localPage = page - chunk.firstPage;
-  var bandLeft = localPage * stride();
-  var bandRight = bandLeft + layout.pageWidth;
-  // Hoist the box origin and reuse one Range across the walk: calling
-  // getBoundingClientRect or createRange per character forces a fresh layout
-  // each time and dominated this seam. getClientRects on the reused range still
-  // flushes, but only one flush per character, over a chunk (<= ~8000 chars).
   var boxLeft = chunk.el.getBoundingClientRect().left;
+  var pageStride = stride();
+  // Collect the chunk's text nodes once, with cumulative start offsets, so a
+  // probe maps a chunk-local character index to (node, intra-node offset) by
+  // binary search rather than re-walking the tree.
   var walker = document.createTreeWalker(chunk.el, NodeFilter.SHOW_TEXT, null);
-  var range = document.createRange();
-  var textOffset = 0;
-  var node;
+  var nodes = [], starts = [], total = 0, node;
   while ((node = walker.nextNode())){
-    var len = node.data.length;
-    for (var p = 0; p < len; p++){
-      range.setStart(node, p);
-      range.setEnd(node, p + 1);
-      var rects = range.getClientRects();
-      if (rects.length > 0){
-        var left = rects[0].left - boxLeft;
-        if (left >= bandLeft - 1 && left < bandRight){
-          return chunk.start + textOffset + p;
-        }
-      }
-    }
-    textOffset += len;
+    nodes.push(node); starts.push(total); total += node.data.length;
   }
+  if (total === 0) return chunk.start;
+  var range = document.createRange();
+  // The local page band painting the character at chunk-local index i, or -1
+  // when the character has no client rects. The +1 tolerates sub-pixel
+  // rounding, mirroring the old band check's bandLeft - 1.
+  function pageAt(i){
+    var lo = 0, hi = nodes.length - 1;
+    while (lo < hi){
+      var mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= i) lo = mid; else hi = mid - 1;
+    }
+    range.setStart(nodes[lo], i - starts[lo]);
+    range.setEnd(nodes[lo], i - starts[lo] + 1);
+    var rects = range.getClientRects();
+    if (rects.length === 0) return -1;
+    return Math.floor((rects[0].left - boxLeft + 1) / pageStride);
+  }
+  // First measurable character at index >= i (exclusive bound limit), as
+  // { index, page }, or null when every character in [i, limit) is unmeasurable.
+  function probeFrom(i, limit){
+    for (var j = i; j < limit; j++){
+      var pg = pageAt(j);
+      if (pg >= 0) return { index: j, page: pg };
+    }
+    return null;
+  }
+  // Binary-search the smallest measurable index whose page is >= localPage;
+  // monotonicity of page-per-offset is what makes the halving sound.
+  var low = 0, high = total, best = -1, bestPage = -1;
+  while (low < high){
+    var midpoint = (low + high) >> 1;
+    var probe = probeFrom(midpoint, high);
+    if (probe === null){
+      high = midpoint;
+    } else if (probe.page >= localPage){
+      best = probe.index;
+      bestPage = probe.page;
+      high = probe.index;
+    } else {
+      low = probe.index + 1;
+    }
+  }
+  // A page whose band holds no measurable character keeps the old fallback: the
+  // chunk's own start offset.
+  if (best >= 0 && bestPage === localPage) return chunk.start + best;
   return chunk.start;
 }
 
@@ -486,18 +520,21 @@ var decorationBoxes = {};   // decorationId -> [box elements]
 var DECORATION_CLASS = ${JSON.stringify(DECORATION_CLASS)};
 
 // Find the (node, offset) DOM point for a global UTF-16 offset into the concatenated
-// chunk-container text — the inverse of offsetOfPoint used by selection. Walks every
-// chunk container's text nodes, accumulating live textContent length, and stops at
-// the node that spans the offset. Returns null when the offset is past the realized
-// text (a soft-miss the caller draws nothing for).
+// chunk-container text — the inverse of offsetOfPoint used by selection. Walks the
+// chunk containers, accumulating live textContent length, and stops at the node that
+// spans the offset. textContent is DOM, not layout, so the accumulation walk must not
+// realize the chunks it merely passes over — only the chunk that owns the offset is
+// realized (the caller needs its client rects), so a decoration in a late chunk
+// leaves the content-visibility eviction window intact. Returns null when the offset
+// is past the realized text (a soft-miss the caller draws nothing for).
 function pointAtOffset(target){
   var chunks = chunkContainers();
   var acc = 0;
   for (var i = 0; i < chunks.length; i++){
     var el = chunks[i];
-    realize(el);
     var len = (el.textContent || '').length;
     if (target <= acc + len){
+      realize(el);
       var local = target - acc;
       var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
       var nodeAcc = 0, node;
