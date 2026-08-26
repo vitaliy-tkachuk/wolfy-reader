@@ -820,6 +820,11 @@ function endGesture(x, y){
   var start = gesture;
   gesture = null;
   if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+    // A horizontal drag that left a live text selection is the reader selecting
+    // text, not turning a page. Suppress the swipe so selection wins; the trailing
+    // pointerup still flushes the selection to the host.
+    var sel = document.getSelection();
+    if (sel !== null && !sel.isCollapsed && sel.toString().length !== 0) return;
     send({ v: VERSION, type: 'swipe', dx: dx, dy: dy });
     return;
   }

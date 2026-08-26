@@ -146,6 +146,32 @@ async function swipe(dx, dy = 0) {
 }
 
 /**
+ * Dispatch a horizontal drag that clears SWIPE_THRESHOLD while a live, non-collapsed
+ * text selection exists in the frame — the reader dragging to select, not swiping.
+ * Selects the first realized chunk's text, then fires pointerdown → pointerup. The
+ * frame must suppress the swipe (selection wins) and leave the position unchanged.
+ */
+async function swipeWithSelection(dx) {
+  const frame = contentFrame();
+  return frame.evaluate((sx) => {
+    const chunk = document.querySelector('.wolfyreader-chunk');
+    if (chunk === null) return false;
+    const selection = document.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(chunk);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    if (selection.isCollapsed || selection.toString().length === 0) return false;
+    const startX = Math.round(window.innerWidth / 2);
+    const startY = Math.round(window.innerHeight / 2);
+    const opts = (x) => ({ clientX: x, clientY: startY, isPrimary: true, bubbles: true, pointerId: 1 });
+    document.dispatchEvent(new PointerEvent('pointerdown', opts(startX)));
+    document.dispatchEvent(new PointerEvent('pointerup', opts(startX + sx)));
+    return true;
+  }, dx);
+}
+
+/**
  * Dispatch a tap at the given fraction of the frame width (a press-release with
  * no movement, so it clears TAP_SLOP as a tap, not a swipe). `y` defaults to
  * mid-frame.
@@ -392,6 +418,24 @@ describe('touch swipe', { ...skipAll }, () => {
       afterRight.section < afterLeft.section ||
       (afterRight.section === afterLeft.section && afterRight.page < afterLeft.page);
     assert.ok(retreated, 'a rightward swipe did not retreat');
+  });
+
+  test('a drag that selects text does not turn the page', async () => {
+    await openReader(HOSTILE);
+    await landOnMultiPage();
+    await page.evaluate(() => window.harness.readerNext());
+    const start = await position();
+
+    const held = await afterGesture(
+      start,
+      async () => {
+        const selected = await swipeWithSelection(-120);
+        assert.ok(selected, 'could not establish a text selection to drag');
+      },
+      { expectMove: false },
+    );
+    assert.equal(held.section, start.section, 'a selection drag moved the section');
+    assert.equal(held.page, start.page, 'a selection drag turned the page');
   });
 
   test('swipe direction reverses under RTL', { ...skipRtl }, async () => {
