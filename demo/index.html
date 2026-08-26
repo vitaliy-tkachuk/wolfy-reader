@@ -515,9 +515,12 @@
   let backStackDepth = 0;
   // The most recent selection's Position, so "Highlight selection" can decorate over
   // it. The library DRAWS the highlight and never stores it — the demo (the host)
-  // owns this handful of ids and the Positions behind them.
+  // owns these ids and the Positions behind them. The id is derived from the span
+  // (the Position's serialized string), so re-highlighting the same selection reuses
+  // the same id and the library redraws in place instead of stacking a duplicate —
+  // host-side dedup, since the library is content-unaware by design.
   let lastSelectionPosition = null;
-  let highlightCount = 0;
+  const drawnHighlights = new Set();
   // Bumped on every new query so an in-flight streaming scan for a stale query stops
   // appending — the async iterator is abandoned (its generator cleans up on the next
   // GC / the loop simply stops consuming).
@@ -566,7 +569,7 @@
     }
     backStackDepth = 0;
     lastSelectionPosition = null;
-    highlightCount = 0;
+    drawnHighlights.clear();
     highlightEl.disabled = true;
     clearHighlightsEl.hidden = true;
     stopTts();
@@ -961,16 +964,20 @@
   // below and it re-anchors and stays over the same text.
   highlightEl.addEventListener('click', () => {
     if (reader === null || lastSelectionPosition === null) return;
-    const id = `hl-${highlightCount++}`;
+    // Key the id by the span itself: the same selection yields the same serialized
+    // Position, so a repeat click reuses the id and the library redraws in place
+    // rather than stacking a second overlay over identical text.
+    const id = `hl:${lastSelectionPosition.serialized}`;
     void reader.decorate(id, lastSelectionPosition, { className: 'demo-highlight' });
+    drawnHighlights.add(id);
     clearHighlightsEl.hidden = false;
   });
 
   clearHighlightsEl.addEventListener('click', () => {
     if (reader === null) return;
     // The host owns the ids it drew, so it undecorates each in turn.
-    for (let i = 0; i < highlightCount; i += 1) void reader.undecorate(`hl-${i}`);
-    highlightCount = 0;
+    for (const id of drawnHighlights) void reader.undecorate(id);
+    drawnHighlights.clear();
     clearHighlightsEl.hidden = true;
   });
 
