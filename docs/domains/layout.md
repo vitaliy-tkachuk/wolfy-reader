@@ -41,7 +41,7 @@ UTF-16 code units — so the paginator converts between them with `Intl.Segmente
 (exact for surrogate pairs, combining sequences, emoji clusters).
 
 Public surface consumed by the facade (M2-4): `paginate(section, request?)`,
-`relayout`, `switchMode(mode)`, `refine`, `goToPage`/`nextPage`/`previousPage`,
+`relayout`, `switchMode(mode)`, `resize`, `refine`, `goToPage`/`nextPage`/`previousPage`,
 `positionOfPage`/`pageOfPosition`, `chapterProgress`/`bookProgress`,
 `setThemeCss(css)` / `applyAppearance(css, geometry)`, `diagnostics`,
 `sectionText`, `destroy`, plus the `host`/`section`/`options`/`state`/`page`
@@ -56,7 +56,13 @@ re-assembles, and restores the *exact* page. `applyAppearance(css, { columnCount
 columnGap })` handles a reflowing typography knob (font/size/line-height/margin/
 columns): geometry changes, so it reuses the exact capture → re-layout → resolve →
 restore path that `switchMode` uses (shared as `#reapply`), restoring the
-*nearest* anchor page. `PaginateRequest`/`resolveOptions` carry `columnCount`
+*nearest* anchor page. **`resize()` is the same capture → re-paginate → seek-back,
+but re-reads the container's `clientWidth`/`clientHeight`** — page geometry is
+captured once at `paginate`, so a container that later resizes leaves the frame's
+content at the old size (it scrolls when shrunk, gaps when grown). `resize()` no-ops
+(returns `null`) when the size is unchanged or the container is `0×0` (hidden), so a
+`ResizeObserver` can call it on every notification without churn; the reader owns
+that observer (see [`view.md`](view.md)). `PaginateRequest`/`resolveOptions` carry `columnCount`
 (1 or 2) through to `PaginateOptions`, and the frame splits each per-chunk
 multi-column context into that many columns per page — `stride()` advances by N
 column strides so a page paints N columns at once.

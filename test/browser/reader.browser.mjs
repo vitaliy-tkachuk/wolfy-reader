@@ -392,3 +392,66 @@ describe('destroy leaves nothing behind', { ...skipAll }, () => {
     assert.equal((await page.evaluate(() => window.harness.leakProbe())).iframes, 0);
   });
 });
+
+describe('the frame does not scroll and re-paginates on resize', { ...skipAll, ...skipCorpus }, () => {
+  async function frameScrolls() {
+    return contentFrame().evaluate(() => {
+      const de = document.documentElement;
+      return { v: de.scrollHeight > de.clientHeight, h: de.scrollWidth > de.clientWidth };
+    });
+  }
+  async function setStage(w, h) {
+    await page.evaluate(
+      ({ w, h }) => {
+        const s = document.querySelector('#stage');
+        s.style.width = `${w}px`;
+        s.style.height = `${h}px`;
+      },
+      { w, h },
+    );
+  }
+
+  test('a paginated frame shows no scrollbar at page 0 or after paging', async () => {
+    await openReader(PP);
+    let sc = await frameScrolls();
+    assert.ok(!sc.v && !sc.h, `frame scrolled at page 0 (v=${sc.v} h=${sc.h})`);
+    // Paging translates the off-page columns into view; without html/body clipping
+    // their width would leak a stray horizontal scrollbar.
+    await page.evaluate(async () => {
+      for (let i = 0; i < 4; i += 1) await window.harness.readerNext();
+    });
+    sc = await frameScrolls();
+    assert.ok(!sc.v && !sc.h, `frame scrolled after paging (v=${sc.v} h=${sc.h})`);
+  });
+
+  test('shrinking the container re-paginates, stays scroll-free, and holds the section', async () => {
+    try {
+      await openReader(PP);
+      await page.evaluate(async () => {
+        for (let i = 0; i < 3; i += 1) await window.harness.readerNext();
+      });
+      const before = await page.evaluate(() => window.harness.readerPosition());
+
+      await setStage(560, 420);
+      // Wait for the iframe to actually resize, then for the ResizeObserver's rAF +
+      // re-paginate to settle.
+      await page.waitForFunction(() => {
+        const f = document.querySelector('#stage iframe');
+        return f !== null && f.getBoundingClientRect().width < 700;
+      });
+      await new Promise((r) => setTimeout(r, 300));
+
+      const sc = await frameScrolls();
+      assert.ok(!sc.v && !sc.h, `frame scrolled after shrink (v=${sc.v} h=${sc.h})`);
+      const after = await page.evaluate(() => window.harness.readerPosition());
+      assert.equal(after.section, before.section, 'the resize lost the section');
+      assert.notEqual(
+        after.totalPages,
+        before.totalPages,
+        'a smaller viewport should re-paginate to a different page count',
+      );
+    } finally {
+      await setStage(800, 600);
+    }
+  });
+});

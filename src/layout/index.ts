@@ -205,6 +205,33 @@ export class Paginator {
   }
 
   /**
+   * Re-paginates the current section at the container's *current* size, preserving
+   * the reading place. Page geometry is captured once at `paginate` time from the
+   * container, so a container that later resizes leaves the frame's content at the
+   * old size — it scrolls (shrunk) or leaves a gap (grown); this re-reads the size
+   * and re-flows. A no-op (returns `null`) when the size is unchanged or the
+   * container is unmeasurable (0×0, e.g. `display:none`), so a `ResizeObserver` may
+   * call it on every notification without churn. Mirrors {@link switchMode}: capture
+   * a `Position`, re-paginate, seek back (a resolution miss degrades to page 0).
+   */
+  async resize(): Promise<PaginationState | null> {
+    this.#requireActive();
+    const pageWidth = this.#container.clientWidth;
+    const pageHeight = this.#container.clientHeight;
+    if (pageWidth === 0 || pageHeight === 0) return null;
+    if (this.#options!.pageWidth === pageWidth && this.#options!.pageHeight === pageHeight) return null;
+    const anchor = await this.positionOfPage(this.#page);
+    const state = await this.paginate(this.#section!, {
+      ...this.#requestFromOptions(),
+      pageWidth,
+      pageHeight,
+    });
+    const page = await this.pageOfPosition(anchor);
+    if (page >= 0) await this.goToPage(page);
+    return state;
+  }
+
+  /**
    * Drives the estimate toward the true count by re-measuring. In paginated mode
    * the frame refines the count as chunks realize; a `relayout` forces that
    * measurement. Returns the (possibly firm) state. Idempotent once firm.

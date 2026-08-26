@@ -217,6 +217,13 @@ function relayout(){
   layout.chunks = [];
   var root = document.getElementById(ROOT_ID) || document.body;
   if (layout.mode === 'scrolled'){
+    // The document scrolls vertically to read, so restore that; but clip the
+    // horizontal axis so an over-wide element (a broad table, a long pre) cannot add
+    // a stray sideways scrollbar to what is a vertical reading surface.
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
+    document.documentElement.style.overflowX = 'hidden';
+    document.body.style.overflowX = 'hidden';
     root.style.position = '';
     root.style.width = layout.pageWidth ? (layout.pageWidth + 'px') : '';
     root.style.height = '';
@@ -246,7 +253,12 @@ function relayout(){
     layout.firm = true;
     return;
   }
-  // Paginated.
+  // Paginated. The root box is the page viewport (overflow:hidden). The document
+  // must never scroll: each chunk is a multi-column context whose later columns lay
+  // out far to the right and a page turn translates them into view, so without this
+  // the off-page columns give html/body a wide scrollWidth and a stray scrollbar.
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
   root.style.position = 'relative';
   root.style.width = layout.pageWidth + 'px';
   root.style.height = layout.pageHeight + 'px';

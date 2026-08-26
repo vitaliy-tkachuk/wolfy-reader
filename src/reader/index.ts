@@ -318,6 +318,14 @@ class ReaderImpl implements Reader {
   #queue: Promise<unknown> = Promise.resolve();
   /** The host-side image-zoom overlay, mounted lazily on the first image tap. */
   #zoom: ImageZoom | null = null;
+  /**
+   * Observes the container so a resize re-paginates: page geometry is captured at
+   * render time, so a container that later shrinks leaves the frame scrolling and
+   * one that grows leaves a gap. Null where `ResizeObserver` is absent.
+   */
+  #resizeObserver: ResizeObserver | null = null;
+  /** Pending rAF handle coalescing a burst of resize notifications into one re-flow. */
+  #resizeFrame: number | null = null;
 
   constructor(book: Book, element: HTMLElement, options: ReaderOptions) {
     this.#book = book;
@@ -380,6 +388,39 @@ class ReaderImpl implements Reader {
     });
     // Kick off the initial render; `ready` fires when it settles.
     void this.#run(() => this.#open());
+    this.#observeResize();
+  }
+
+  /**
+   * Watches the container for size changes and re-paginates on each, so the frame
+   * never scrolls (shrunk container) or shows a gap (grown one). Notifications are
+   * coalesced onto the next animation frame, then the re-flow is enqueued behind any
+   * in-flight navigation so it settles in order and holds the reading place. The
+   * `ResizeObserver` fires once on `observe()` at the current size — a no-op, since
+   * `Paginator.resize()` short-circuits when the size has not actually changed.
+   */
+  #observeResize(): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    this.#resizeObserver = new ResizeObserver(() => this.#onResize());
+    this.#resizeObserver.observe(this.#element);
+  }
+
+  #onResize(): void {
+    if (this.#destroyed || this.#resizeFrame !== null) return;
+    this.#resizeFrame = requestAnimationFrame(() => {
+      this.#resizeFrame = null;
+      if (this.#destroyed || this.#paginator.section === null) return;
+      void this.#run(() => this.#reflowToContainer());
+    });
+  }
+
+  async #reflowToContainer(): Promise<void> {
+    if (this.#destroyed || this.#paginator.section === null) return;
+    const state = await this.#paginator.resize();
+    // `null` means the size did not actually change (or the container is hidden):
+    // nothing re-laid out, so nothing to announce.
+    if (this.#destroyed || state === null) return;
+    this.#emit('positionchange', this.#snapshot());
   }
 
   get position(): ReaderPosition {
@@ -480,6 +521,12 @@ class ReaderImpl implements Reader {
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#resizeObserver?.disconnect();
+    this.#resizeObserver = null;
+    if (this.#resizeFrame !== null) {
+      cancelAnimationFrame(this.#resizeFrame);
+      this.#resizeFrame = null;
+    }
     this.#zoom?.destroy();
     this.#zoom = null;
     this.#paginator.destroy();
