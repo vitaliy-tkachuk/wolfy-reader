@@ -12,6 +12,7 @@
  */
 import { capturePosition, resolvePosition, type Position, type Section } from '../core/index.ts';
 import {
+  countGraphemes,
   graphemeIndexToCodeUnitOffset as graphemeIndexToOffset,
   segmentGraphemes,
   type Grapheme,
@@ -273,17 +274,23 @@ export class Paginator {
   }
 
   /**
-   * The `Position` anchored at a frame-supplied UTF-16 offset range over the
+   * The `Position` anchored over a frame-supplied UTF-16 offset range on the
    * section text — the bridge behind selection reporting. The frame computes the
    * range against the same tiled section text this measures against, so the
    * `start` offset is captured directly with `capturePosition` (which takes a
-   * UTF-16 offset). `end` is accepted for symmetry with the wire shape; only the
-   * anchor at `start` is needed to resolve the range back to a page.
+   * UTF-16 offset). The quote spans the whole selection (`start`..`end`), not a
+   * fixed default, so a host that highlights the returned Position via `decorate`
+   * paints the entire selection rather than only its first ~32 graphemes; resolving
+   * it back to a page still keys off the anchor's start.
    */
-  async positionOfOffsetRange(start: number, _end: number): Promise<Position> {
+  async positionOfOffsetRange(start: number, end: number): Promise<Position> {
     this.#requireActive();
     const text = await this.#sectionText();
-    return capturePosition(text, Math.max(0, start), this.#section!.id);
+    const from = Math.max(0, start);
+    const to = Math.max(from, end);
+    return capturePosition(text, from, this.#section!.id, {
+      quoteLength: countGraphemes(text.slice(from, to)),
+    });
   }
 
   /**

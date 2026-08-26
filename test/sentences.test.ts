@@ -42,6 +42,50 @@ test('whitespace-only input yields no sentences', () => {
   assert.deepEqual(segmentSentences('   \n\n  ', 's0'), []);
 });
 
+test('a sentence wrapped across source line breaks is one sentence, not many', () => {
+  // Section textContent keeps the source's newlines + indentation (the page hides
+  // them via white-space:normal). UAX #29 would break a "sentence" at every line
+  // break — segmentSentences must merge back to the punctuation seam.
+  const wrapped = 'The quick brown\n    fox jumped over\n    the lazy dog and ran. Next one here.';
+  const sentences = segmentSentences(wrapped, 's0');
+  assert.deepEqual(
+    sentences.map((s) => s.text),
+    ['The quick brown fox jumped over the lazy dog and ran.', 'Next one here.'],
+  );
+  // The anchor still spans the raw newline-bearing run, so it resolves against the
+  // frame's (newline-bearing) section text and decorate highlights the whole sentence.
+  const first = sentences[0]!;
+  const resolved = resolvePosition(first.position, wrapped);
+  assert.ok(resolved, 'the merged sentence resolves against the raw text');
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(wrapped)].map((g) => g.segment);
+  const span = graphemes.slice(resolved!.offset, resolved!.offset + resolved!.length).join('');
+  assert.equal(
+    span.replace(/\s+/gu, ' ').trim(),
+    'The quick brown fox jumped over the lazy dog and ran.',
+    'the highlighted span covers the whole wrapped sentence',
+  );
+});
+
+test('a punctuation-less line merges forward rather than fragmenting', () => {
+  // Plain text carries no heading structure — a line with no terminator is not a
+  // sentence boundary, so it joins the next run instead of becoming a stray "2 word"
+  // segment. (The alternative, breaking on the blank line, is exactly the newline
+  // over-split we are fixing.)
+  const sentences = segmentSentences('A Title Line\n\nBody follows here.', 's0');
+  assert.deepEqual(
+    sentences.map((s) => s.text),
+    ['A Title Line Body follows here.'],
+  );
+});
+
+test('a trailing sentence with no terminal punctuation is still emitted', () => {
+  const sentences = segmentSentences('First one. And a tail with no full stop', 's0');
+  assert.deepEqual(
+    sentences.map((s) => s.text),
+    ['First one.', 'And a tail with no full stop'],
+  );
+});
+
 test('a resolved sentence Position tracks content shifts (prefix insertion)', () => {
   const sentences = segmentSentences(TEXT, 's0');
   const target = sentences[2]!; // "Did the bird fly?"

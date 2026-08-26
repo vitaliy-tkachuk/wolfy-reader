@@ -177,6 +177,37 @@ describe('selection events', { ...skipAll, ...skipFixture }, () => {
     assert.equal(landed.section, before.section, 'the selection Position resolved to a different section');
   });
 
+  test('the selection Position anchors over the whole selection, not a fixed prefix', async () => {
+    await openReader(HOSTILE);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+
+    // A selection longer than the old default quote (32 graphemes). The emitted
+    // Position must quote the whole span so a host highlighting it via decorate
+    // paints the entire selection, not only its first few words.
+    const selected = await selectRange(60);
+    if (selected === null || selected.length < 40) {
+      // No text node long enough in the first section — nothing to exercise.
+      return;
+    }
+    const event = await waitForSelection();
+    assert.ok(event !== undefined, 'no selection event fired for a real selection');
+
+    const exact = event.payload.position?.anchor?.exact ?? '';
+    const graphemes = (s) =>
+      [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)].length;
+    // The quote spans the whole selection (its length, in graphemes), not the old
+    // fixed 32-grapheme default. The window may word-snap at the front, so assert on
+    // length rather than an exact-string match.
+    assert.ok(
+      exact.length > 32,
+      `the anchored quote (${exact.length}) must span past the old 32-grapheme cap`,
+    );
+    assert.ok(
+      Math.abs(graphemes(exact) - graphemes(selected)) <= 2,
+      `the quote (${graphemes(exact)}g) must span the whole selection (${graphemes(selected)}g)`,
+    );
+  });
+
   test('a collapsed selection (a bare click) fires no `selection` event', async () => {
     await openReader(HOSTILE);
     await page.evaluate(() => window.harness.clearReaderEvents());

@@ -139,7 +139,7 @@ Two negative duties matter to the paginator: zero-width anchor spans (`<span cla
 | `positionchange` | `ReaderPosition` | after any navigation settles |
 | `sectionchange` | `{ index, sectionId }` | when the active section changes |
 | `linkclick` | `{ href }` | an in-frame link click, **before** it is followed |
-| `selection` | `{ text, position }` | a completed text selection in the frame; `position` is a `Position` anchored at the selection start |
+| `selection` | `{ text, position }` | a completed text selection in the frame; `position` is a `Position` whose quote spans the whole selection |
 | `error` | `Error` | a navigation or render failure (also frame-reported errors) |
 
 Firing order is documented and tested:
@@ -206,7 +206,7 @@ Each mode is gated independently in the facade, so a consumer can turn any one o
 
 ### Selection
 
-A text selection in the reader surfaces as a first-class `selection` event carrying the selected text plus a `Position` anchored at the selection's start. The event fires standalone — it reports, it never navigates — so it does not go through the navigation queue and emits no `positionchange`.
+A text selection in the reader surfaces as a first-class `selection` event carrying the selected text plus a `Position` whose quote spans the whole selection (anchored at its start, quoted to its full length). The event fires standalone — it reports, it never navigates — so it does not go through the navigation queue and emits no `positionchange`.
 
 **Capture site: the frame, forwarded — the host cannot read the frame's `Selection`.** A selection lives inside the opaque-origin frame's document and never bubbles to the host, exactly like `linkclick` / `key` / pointer gestures. The coordination script (`frame.ts`) observes it and forwards a *semantic* payload; the host cannot reach across the sandbox to read the `Selection` object.
 
@@ -226,7 +226,7 @@ A text selection in the reader surfaces as a first-class `selection` event carry
 
 **Offset computation.** For each endpoint the frame finds the enclosing `.wolfyreader-chunk` container, sums the `textContent` length of every prior chunk container, then adds the text length from that chunk's start to the endpoint via a `Range` — the same tiling the chunk `data-chunk-start` attributes encode. An endpoint outside a realized chunk container yields `-1` and the selection is dropped. Endpoints are normalized so `start <= end` regardless of selection direction.
 
-**The UTF-16-offset-range↔`Position` bridge.** `Paginator.positionOfOffsetRange(start, end)` captures the anchor at `start` with `capturePosition(text, start, sectionId)` — `capturePosition` takes a UTF-16 offset directly, so no grapheme conversion is needed on the capture leg (the grapheme↔UTF-16 conversion only matters on the *resolve* leg, `pageOfPosition`). Only the `start` anchor is needed to resolve the range back to a page; `end` rides the wire for symmetry and future decoration work. The facade attaches `text` and emits `selection`. Because the `Position` is content-addressed, a host can persist it as a bookmark/highlight anchor and `goTo` it later; it resolves back through the same soft-miss path as any other `Position`.
+**The UTF-16-offset-range↔`Position` bridge.** `Paginator.positionOfOffsetRange(start, end)` captures the anchor at `start` with `capturePosition(text, start, sectionId, { quoteLength })` — `capturePosition` takes a UTF-16 offset directly, so no grapheme conversion is needed on the capture leg (the grapheme↔UTF-16 conversion only matters on the *resolve* leg, `pageOfPosition`). The quote spans the **whole selection**: `quoteLength = countGraphemes(text.slice(start, end))`, so a host that highlights the emitted `Position` via `decorate` paints the entire selection, not merely its first `DEFAULT_QUOTE_LENGTH` (32) graphemes — the earlier form discarded `end` and capped the quote at the default, so "highlight selection" over a long span painted only a few words. Resolving the range back to a page still keys off the anchor's start, so the wider quote is free. The facade attaches `text` and emits `selection`. Because the `Position` is content-addressed, a host can persist it as a bookmark/highlight anchor and `goTo` it later; it resolves back through the same soft-miss path as any other `Position`.
 
 ### Image handling and tap-to-zoom
 
@@ -366,6 +366,20 @@ machinery unchanged (no new wire message, no protocol bump).
   `sentences()` segments `Paginator.sectionText()` (the tiled section text
   `selection`/`decorate`/`resolvePosition` all share), so a sentence `Position` both
   jumps and highlights cleanly with no drift between the two.
+- **Intl over-splits; `segmentSentences` merges to the punctuation seam.** That tiled
+  text is section `textContent`, which keeps the source XHTML's newlines +
+  indentation (the rendered page hides them via `white-space:normal`). `Intl.Segmenter`
+  follows UAX #29, which ends a "sentence" at every hard line break — so segmenting it
+  verbatim split one visual sentence at every wrapped source line, and a short line or
+  heading became a two-word "sentence" that `decorate` then highlighted alone. Fix
+  (`src/core/position.ts`): accumulate adjacent Intl segments until the run actually
+  ends on sentence-terminal punctuation (`. ! ? …` + trailing closers), then anchor
+  over the **raw** span (newlines included) so it still content-matches the frame text;
+  the returned `text` collapses whitespace to single spaces for a clean TTS string.
+  Abbreviations (`J. R. R.`) still split — that period genuinely can end a sentence and
+  the plain text carries no signal otherwise; a punctuation-less line (a bare heading)
+  merges *forward* into the next run rather than fragmenting, since blank-line splitting
+  is the very over-split being fixed.
 - **Current section only, and it never mutates.** It is a read-only query, but it
   still rides the reader's serialized navigation queue (`#runResult`, the value-
   returning sibling of `#run`) so it settles in order with navigation rather than

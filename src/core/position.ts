@@ -179,6 +179,17 @@ export interface SentenceRange {
  * highlight primitive so a host can build text-to-speech on top — it speaks nothing
  * and stores nothing. Whitespace-only segments are dropped. Headless: the caller
  * supplies already-extracted text, exactly like `capturePosition`.
+ *
+ * `Intl.Segmenter` follows UAX #29, which ends a "sentence" at every hard line
+ * break — but the reading text is section `textContent`, whose source newlines the
+ * rendered page collapses via `white-space:normal`. Segmenting it verbatim would
+ * split one visual sentence at every wrapped source line (a heading or short line
+ * becoming a two-word "sentence"). So adjacent Intl segments are merged until the
+ * run actually ends on sentence-terminal punctuation; the anchor still spans the
+ * raw text (newlines included) so it content-matches the frame's section text,
+ * while the returned `text` collapses whitespace runs to single spaces for a clean
+ * TTS string. Abbreviations (`J. R. R.`) still split — that break is Intl's, and a
+ * period genuinely can end a sentence, so we do not second-guess it.
  */
 export function segmentSentences(
   text: string,
@@ -190,18 +201,63 @@ export function segmentSentences(
   // sentence capture reuses the same arrays instead of re-segmenting — this is
   // what keeps a long chapter linear instead of quadratic.
   const segmented = segmentText(text);
+
+  // Accumulate a run of Intl segments and its code-unit start until the run ends on
+  // sentence-terminal punctuation, then anchor over the raw span. A run start of -1
+  // means no run is open (all leading/inter-sentence whitespace is skipped).
+  let runStart = -1;
+  let runText = '';
+  const flush = (): void => {
+    const trimmed = runText.replace(/\s+$/u, '');
+    if (trimmed.trim().length !== 0) {
+      const quoteLength = countGraphemes(trimmed);
+      // Anchor over the whole (raw, newline-bearing) run so decorate highlights all
+      // of it against the frame's section text.
+      const position = captureSegmented(segmented, runStart, sectionId, {
+        ...options,
+        quoteLength,
+      });
+      out.push({ text: collapseWhitespace(trimmed), position });
+    }
+    runStart = -1;
+    runText = '';
+  };
+
   for (const segment of sentenceSegmenter(options.locale).segment(text)) {
-    const trimmed = segment.segment.replace(/\s+$/u, '');
-    if (trimmed.trim().length === 0) continue;
-    const quoteLength = countGraphemes(trimmed);
-    // Anchor the quote over the whole sentence so decorate highlights all of it.
-    const position = captureSegmented(segmented, segment.index, sectionId, {
-      ...options,
-      quoteLength,
-    });
-    out.push({ text: trimmed, position });
+    if (segment.segment.trim().length === 0) {
+      // Whitespace-only Intl segment: part of an open run, else inter-sentence space.
+      if (runStart >= 0) runText += segment.segment;
+      continue;
+    }
+    if (runStart < 0) runStart = segment.index;
+    runText += segment.segment;
+    if (endsOnSentenceTerminal(runText)) flush();
   }
+  if (runStart >= 0) flush();
   return out;
+}
+
+/** Sentence-final punctuation, incl. CJK and other-script terminators. */
+const SENTENCE_TERMINAL = /[.!?…。！？؟।]/u;
+/** Trailing closing punctuation a terminator may hide behind (quotes, brackets). */
+const TRAILING_CLOSERS = /[)\]}"'”’»›]+$/u;
+
+/**
+ * Whether a run, ignoring trailing whitespace and closing punctuation, ends on a
+ * sentence terminator — the seam that decides a real sentence break from a mere
+ * line wrap. `"the lazy dog."` and `"he said 'go.'"` end a sentence; `"The quick
+ * brown\n"` (a wrapped line) does not.
+ */
+function endsOnSentenceTerminal(run: string): boolean {
+  const core = run.replace(/\s+$/u, '').replace(TRAILING_CLOSERS, '');
+  const chars = [...core];
+  const last = chars[chars.length - 1];
+  return last !== undefined && SENTENCE_TERMINAL.test(last);
+}
+
+/** Collapses every run of whitespace to a single space and trims the ends. */
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/gu, ' ').trim();
 }
 
 /**
