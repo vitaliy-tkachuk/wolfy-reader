@@ -66,6 +66,18 @@ pushing it is separate work.
   whatever is sitting in `dist`, which is what makes it a test of the real publish
   path.
 
+- **`README.md` is the package page, and four of its claims are load-bearing.** npm
+  renders it verbatim and caches it *per version*, so it is part of the release
+  surface rather than repo furniture. It opens for a stranger deciding whether to
+  install — what the library does, `npm install`, a working example — and everything
+  about developing the library sits below a `# Development` divider. Four statements
+  must survive every edit: zero ***runtime*** dependencies (the qualifier is not
+  optional — four devDependencies exist), the stability contract (`Book` and
+  `Position` are the semver promise, honestly `0.x` until a real consumer has
+  exercised them), the browser baseline (`DecompressionStream`: Chrome 80+, Safari
+  16.4+, Firefox 113+, ESM only), and the DRM-free legal position. The first three
+  are the entire pitch; the fourth is a legal position, not a feature note.
+
 - **CI guards what a reviewer cannot see, and there is no lint job because there is
   no linter.** Formatting is hand-maintained by rule, so the workflow spends its
   minutes on the constraints that are invisible in a diff: the dependency count, the
@@ -185,7 +197,19 @@ pushing it is separate work.
   tree and asserted to pass. A guard nobody has ever seen fail is indistinguishable
   from a guard that cannot fail.
 
+- **Every README sample is verified against the real exports before it ships.** The
+  samples are the most-read code in the project and nothing tests them: they call
+  `render(book, element, options)` from the root, take an explicit `formats` list,
+  and import only published subpaths — never `/src/...`, which the `exports` map
+  refuses. The PLAN's `book.render(...)` sketch never existed; the README follows the
+  code, and `scripts/check-pack.mjs`'s subpath table is the authority on what a
+  reader is allowed to type.
+
 ## Gotchas
+
+- **npm caches the README per published version.** The page frozen onto a version is
+  whatever shipped with it, so prose can only be fixed forward by publishing again.
+  README work lands *before* a release, never after.
 
 - **esbuild rewrites the banner when the source is inside `node_modules`.** It hoists
   legal comments into a trailing `Bundled license information` block and rewrites the

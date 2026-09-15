@@ -2,15 +2,172 @@
 
 Read ebooks in the browser — with pages that turn, text you can search, and typography you can change without losing your place.
 
-## Overview
+A from-scratch, MIT-licensed, ESM-only TypeScript reading engine for EPUB, FB2 and plain text. Bytes in, a `Book` out, and a real reading view: paginated and scrolled modes, table-of-contents and link navigation, full-text search, live theme and typography controls, selection events and decorations. Zero runtime dependencies, and untrusted book content renders inside a hardened sandboxed iframe.
 
-wolfy-reader renders ebooks in the browser — EPUB, FB2 and plain text today, MOBI/AZW3 later — with paginated and scrolled reading, chapter and TOC navigation, in-book search, and live appearance controls for font, theme and margins. It is built from scratch on platform primitives, carries zero runtime dependencies, and treats its API as a promise rather than a moving target: the `Book` model and the `Position` format are covered by semver. Reading position is preserved across every appearance change by contract — after a font, line-height, margin, column or paginated↔scrolled change, the paragraph at the top of your page is still on your page (the stated tolerance, tested as an invariant; scrolled mode holds to section granularity), and untrusted book content renders inside a hardened sandboxed iframe. It targets developers who want a reader that is small, pleasant to use, and safe with untrusted files — not a spec-conformance or DRM reading system.
+## Install
+
+```bash
+npm install wolfy-reader
+```
+
+## Quickstart
+
+```ts
+import { open, render } from 'wolfy-reader';
+import { epub } from 'wolfy-reader/epub';
+
+// Bytes in: ArrayBuffer | Blob (a File is one) | { size, read(offset, length) }.
+// The library never fetches — you hand it the bytes.
+const book = await open(file, { formats: [epub] });
+
+console.log(book.metadata.title, book.sections.length);
+
+const reader = render(book, document.getElementById('reader')!, {
+  mode: 'paginated',
+  theme: 'sepia',
+  fontSize: 19,
+});
+
+reader.on('ready', (at) => console.log(`page ${at.page + 1} of ${at.totalPages}`));
+
+await reader.next();               // turn a page
+await reader.goTo(book.toc[0]!);   // jump to a chapter
+await reader.back();               // undo that jump — there is a back-stack
+```
+
+Formats are explicit: `open` takes the list you pass it, so a text-only app never pulls the EPUB decoder or the ZIP reader. `render` returns synchronously and paints asynchronously — the `ready` event is the first painted page.
+
+**Change how it looks, keep the place:**
+
+```ts
+await reader.setAppearance({ fontSize: 24, lineHeight: 1.6, margin: 48 });
+await reader.setMode('scrolled');
+```
+
+Both re-flow the book and then put you back where you were reading. This is a contract, not a best effort: the paragraph at the top of your page is still on your page afterwards, held by a content anchor rather than a page number, and proven by a browser suite that runs every knob against real books.
+
+**Search the whole book, lazily:**
+
+```ts
+for await (const hit of reader.search('whale')) {
+  console.log(hit.context);        // the match, trimmed to whole words
+  await reader.goTo(hit.position); // land on its page
+  break;
+}
+```
+
+**Highlight a selection:**
+
+```ts
+import { serializePosition } from 'wolfy-reader';
+
+reader.on('selection', async ({ text, position }) => {
+  await reader.decorate('note-1', position, { className: 'my-highlight' });
+  localStorage.setItem('note-1', serializePosition(position)); // your storage, not ours
+});
+```
+
+The library *draws* decorations and never stores them. A `Position` serializes to one opaque string you persist yourself and hand back to `decorate` or `goTo` next time.
+
+**Decode without a DOM:**
+
+```ts
+import { open } from 'wolfy-reader/core';
+import { text } from 'wolfy-reader/text';
+
+const book = await open(bytes, { formats: [text] });
+```
+
+`wolfy-reader/core` is guaranteed headless — nothing reachable from it touches `document` or `window`, enforced by a static check in CI — so it runs under Node or a worker.
+
+## What you get
+
+- **Two reading modes** — paginated with real page turns, or continuous scroll, switchable at runtime.
+- **Navigation** — nested TOC, in-book links, and a back-stack for jumps.
+- **Full-text search** across the whole book, streaming as sections are scanned, with jumpable hits.
+- **Live appearance** — theme, font family and size, line height, margins, one or two columns, justification, hyphenation. Every knob preserves position.
+- **Selection events and decorations** — draw styled overlays over any anchored range; the library never stores annotation data.
+- **Sentence ranges** — `reader.sentences()` returns each sentence with a `Position`, so a host can drive a speech engine sentence by sentence. The library speaks nothing.
+- **Input handled** — keyboard, tap zones and swipe, all configurable.
+- **Typed failures** — every error extends `BookError` (`UnrecognizedFormatError`, `CorruptContainerError`, `EncryptedContentError`), so hosts catch by class.
+
+## Stability contract
+
+**The `Book` model and the `Position` format are the promise. Everything else may churn.**
+
+Names in the core model are treated as unrenameable, and a reading position serializes to a version-prefixed opaque string a host persists verbatim and never parses — so positions stored today keep resolving as the format evolves. The reader facade grows additively (new methods, never renamed or removed ones).
+
+The project lives honestly in `0.x` until the model has survived a real consumer. Until `1.0`, a breaking change bumps the minor.
+
+## Browser support
+
+Browsers with `DecompressionStream` — **Chrome 80+, Safari 16.4+, Firefox 113+**. The engine is built on platform primitives (`DecompressionStream`, `DOMParser`, `TextDecoder`, `Intl.Segmenter`, CSS multi-column), which is also what keeps it small.
+
+ESM only — no CJS build, no bundler required. The headless `wolfy-reader/core` entry also runs under Node.
+
+## Zero runtime dependencies
+
+`dependencies` is empty and stays empty, permanently. Not "few" — none. CI fails the build if anything is added, and a pack-fidelity check installs the published tarball into a scratch project to prove it.
+
+Dev dependencies exist (TypeScript, Playwright, esbuild, `@types/node`); none of them ship to you.
+
+Published weight, minified and gzipped:
+
+| Import | Size |
+| --- | --- |
+| `wolfy-reader` | ~30 kB |
+| `wolfy-reader/core` | ~2.3 kB |
+| `wolfy-reader/epub` | ~6.6 kB |
+| `wolfy-reader/fb2` | ~3.7 kB |
+| `wolfy-reader/text` | ~1.4 kB |
+
+Each subpath has a budget CI refuses to exceed. Format decoders are separate entries on purpose — only `epub` carries the ZIP reader.
+
+## Security
+
+Book content is untrusted input, and it renders behind three independent defences:
+
+- a `sandbox="allow-scripts"` iframe **without** `allow-same-origin`, so the frame's origin is opaque and it can reach nothing of yours;
+- allowlist sanitization of every element and attribute before the markup is assembled;
+- a per-render `Content-Security-Policy` of `default-src 'none'`, with the book's own images, stylesheets and fonts served as `data:` URLs.
+
+Host and frame talk over one typed, versioned, validated `postMessage` protocol. The layers are not redundant — see [`docs/domains/view.md`](docs/domains/view.md) for why each is load-bearing.
+
+## Formats and legal position
+
+EPUB 2 and 3 (reflowable), FB2, and plain text today; MOBI/AZW3 is planned. Fixed-layout books are *detected* and reported so a host can refuse them — rendering stays reflowable, permanently.
+
+**DRM-free books only.** DRM is permanently out of scope: nothing here decrypts, circumvents, or interoperates with a DRM scheme.
+
+Formats were learned from specifications — the W3C EPUB specs, the MobileRead format wiki, the PalmDB spec — never from GPL source. No code is taken from epub.js, foliate-js, Readium, PDF.js or JSZip.
+
+## Package surface
+
+Five subpaths, written longhand with no wildcards — internal modules are not importable:
+
+| Subpath | Contains |
+| --- | --- |
+| `wolfy-reader` | `render` + the reader facade, plus everything in `/core` |
+| `wolfy-reader/core` | `open`, the `Book` model, `Position`, typed errors — guaranteed headless |
+| `wolfy-reader/epub` | the EPUB decoder |
+| `wolfy-reader/fb2` | the FB2 decoder |
+| `wolfy-reader/text` | the plain-text decoder |
+
+## License
+
+MIT © Vitaliy Tkachuk
+
+---
+
+# Development
+
+Everything below is for working *on* the library rather than with it.
 
 ## Stack
 
 - Language: TypeScript — ESM only (`"type": "module"`), no CJS build
 - Build system: TypeScript compiler (`tsc`), no bundler; `node:test` for tests, Playwright for browser tests (dev-only)
-- Package registry: npm — `wolfy-reader` (unscoped; availability confirmed)
+- Package registry: npm — `wolfy-reader` (unscoped)
 - Target platforms / runtimes: Browsers with `DecompressionStream` — Chrome 80+, Safari 16.4+, Firefox 113+
 
 ## Getting Started
