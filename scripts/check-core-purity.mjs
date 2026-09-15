@@ -2,7 +2,13 @@ import { readFile, stat } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// `--root` points the walk at a scratch tree instead of the repo, which is how the
+// guard's own failure path is tested without a deliberately broken commit.
+const rootArg = process.argv.slice(2).find((arg) => arg.startsWith('--root='));
+const repoRoot =
+  rootArg === undefined
+    ? resolve(dirname(fileURLToPath(import.meta.url)), '..')
+    : resolve(rootArg.slice('--root='.length));
 const srcRoot = resolve(repoRoot, 'src');
 const entry = resolve(srcRoot, 'core', 'index.ts');
 const forbiddenRoots = ['layout', 'view'].map((name) => resolve(srcRoot, name));

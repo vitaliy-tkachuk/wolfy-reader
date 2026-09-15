@@ -2,7 +2,7 @@ import { access, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const corpusDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'corpus')
+export const corpusDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'corpus')
 
 // Gutenberg ships the same title as EPUB and TXT — pairs feed differential decoder tests.
 function gutenberg(id, slug) {
@@ -51,7 +51,7 @@ const W3C_TESTS = [
   'scr-support-fallback',
 ]
 
-const downloads = [
+export const downloads = [
   ...gutenberg(84, 'frankenstein'),
   ...gutenberg(1342, 'pride-and-prejudice'),
   ...gutenberg(2701, 'moby-dick'),
@@ -77,29 +77,36 @@ async function exists(path) {
   }
 }
 
-await mkdir(corpusDir, { recursive: true })
+async function main() {
+  await mkdir(corpusDir, { recursive: true })
 
-let failures = 0
-for (const { url, file } of downloads) {
-  const dest = join(corpusDir, file)
-  if (await exists(dest)) {
-    console.log(`skip    ${file} (already present)`)
-    continue
+  let failures = 0
+  for (const { url, file } of downloads) {
+    const dest = join(corpusDir, file)
+    if (await exists(dest)) {
+      console.log(`skip    ${file} (already present)`)
+      continue
+    }
+    try {
+      const res = await fetch(url, {
+        headers: { 'user-agent': 'wolfy-reader-corpus-fetch (https://github.com/vitaliy-tkachuk/wolfy-reader)' },
+        redirect: 'follow',
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      await mkdir(dirname(dest), { recursive: true })
+      await writeFile(dest, bytes)
+      console.log(`fetched ${file} (${bytes.length} bytes)`)
+    } catch (err) {
+      failures += 1
+      console.error(`failed  ${file}: ${err.message}`)
+    }
   }
-  try {
-    const res = await fetch(url, {
-      headers: { 'user-agent': 'wolfy-reader-corpus-fetch (https://github.com/vitaliy-tkachuk/wolfy-reader)' },
-      redirect: 'follow',
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    await mkdir(dirname(dest), { recursive: true })
-    await writeFile(dest, bytes)
-    console.log(`fetched ${file} (${bytes.length} bytes)`)
-  } catch (err) {
-    failures += 1
-    console.error(`failed  ${file}: ${err.message}`)
-  }
+
+  if (failures > 0) process.exitCode = 1
 }
 
-if (failures > 0) process.exitCode = 1
+// `check-guards.mjs` imports this manifest to assert the corpus is complete, so
+// downloading must not fire on import — the same reason `banner.mjs` guards its
+// prepend pass.
+if (process.argv[1] === fileURLToPath(import.meta.url)) await main()

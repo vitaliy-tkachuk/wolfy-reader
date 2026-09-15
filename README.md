@@ -22,10 +22,18 @@ npm test             # node:test suite, headless — includes the differential d
 npm run test:browser # Playwright suites for the sandboxed frame
 npm run typecheck    # tsc --noEmit
 npm run check:core   # fail if src/core reaches src/layout or src/view
+npm run check:guards # fail if dependencies grew or consumer vocabulary leaked in
 npm run build        # tsc -> dist (plain ESM + .d.ts + sourcemaps), then the @license banner
+npm run check:size   # gzipped bundle budget per published subpath (needs a build)
 npm run check:pack   # pack, install the tarball, import and typecheck every subpath
 npm run bench        # pagination benchmark (needs the corpus)
 ```
+
+GitHub Actions runs all of the above on every push to `main` and every pull
+request; the Playwright suites run on pull requests only. Node is pinned in
+`.nvmrc` so local and CI cannot drift. See
+[`docs/domains/release.md`](docs/domains/release.md) for what each guard defends
+and why the browser tier is PR-only.
 
 `npm run check:pack` is the only check that exercises the *published* surface: the
 demo and the test suites import `/src/...` by path, which the `exports` map does not

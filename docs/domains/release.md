@@ -4,12 +4,15 @@
 
 Everything between the source tree and a tarball a stranger can install: the build
 (`tsconfig.build.json` → `dist`), the `exports` map that defines the public surface,
-the `@license` banner (`scripts/banner.mjs`), and the pack-fidelity check
-(`scripts/check-pack.mjs`) that proves the packed tarball is actually consumable.
+the `@license` banner (`scripts/banner.mjs`), the pack-fidelity check
+(`scripts/check-pack.mjs`) that proves the packed tarball is actually consumable,
+the repo guards (`scripts/check-guards.mjs`), the per-subpath size budget
+(`scripts/check-size.mjs`), and the GitHub Actions workflow
+(`.github/workflows/ci.yml`) that runs the lot.
 
 Publishing itself is not here yet — there is no release workflow, no CHANGELOG, and
-no registry credentials. The package builds and packs correctly; pushing it is
-separate work.
+no registry credentials. The package builds, packs and is continuously checked;
+pushing it is separate work.
 
 ## Key decisions
 
@@ -63,6 +66,43 @@ separate work.
   whatever is sitting in `dist`, which is what makes it a test of the real publish
   path.
 
+- **CI guards what a reviewer cannot see, and there is no lint job because there is
+  no linter.** Formatting is hand-maintained by rule, so the workflow spends its
+  minutes on the constraints that are invisible in a diff: the dependency count, the
+  core → view layer boundary, the gzipped weight of each subpath, and the shape of
+  the published tarball. A reviewer can see a misplaced brace; nobody can see that a
+  one-line import just put the renderer inside the headless entry.
+
+- **The browser tier runs on pull requests, not on pushes to `main`.** Full Chromium
+  plus the corpus is the expensive half of the run, and the assumption it rests on is
+  that work reaches `main` through a pull request. If direct pushes become normal the
+  view invariants stop being guarded, and the `if` condition on the `browser` job is
+  the thing to revisit — not the suites.
+
+- **CI must never be allowed to pass by skipping.** Every corpus-backed test skips
+  gracefully when `test/corpus/` is absent, which is correct for a fresh clone and
+  fatal in CI: a failed download would leave the differential suite reporting green
+  having compared nothing. `check:guards --require-corpus` asserts every file the
+  fetch script intends to download is present, and the fetch itself exits non-zero
+  rather than being tolerated with `continue-on-error`. The flag is opt-in precisely
+  so a local run stays green before anyone downloads 31MB of books.
+
+- **Size budgets are gzipped bytes of the minified bundle, held in source.** What
+  matters is what a consumer's build ships, not what sits in `dist`, so each subpath
+  entry is bundled and minified through esbuild and gzipped. The budgets live in
+  `check-size.mjs` rather than a generated lockfile because raising one should be a
+  decision with a reason attached, visible in a diff. They are measured values plus
+  roughly 25% headroom — every subpath currently sits at 78–80% of its budget, which
+  is the calibration to keep: loose enough that honest growth does not redden `main`,
+  tight enough that an accidental import across a layer boundary does. A format
+  subpath that quietly picked up the ZIP reader would roughly double and trip
+  immediately.
+
+- **A new subpath without a budget is a failure, not a default.** `check-size.mjs`
+  reports the measured size and refuses, the same way `check-pack.mjs` refuses an
+  `exports` key missing from its table. A guard that silently ignores what it has
+  not been told about is not a guard.
+
 ## Implementation notes
 
 - `npm run build` = `clean` → `tsc -p tsconfig.build.json` → `node scripts/banner.mjs`.
@@ -98,6 +138,53 @@ separate work.
   check fails on any `exports` key not in it — so a new subpath cannot be added and
   silently go untested.
 
+- `.github/workflows/ci.yml` has two jobs, both on `ubuntu-latest`, both reading Node
+  from `.nvmrc`. `check` runs on push to `main`, on pull requests and on manual
+  dispatch: `npm ci` → `typecheck` → `check:core` → corpus cache + `fetch-corpus` →
+  `check:guards --require-corpus` → `build` → `npm test` → `check:size` →
+  `check:pack`. `browser` runs on pull requests and manual dispatch only: the same
+  setup plus a cached Chromium and the corpus, then `test:browser`. The run is
+  `concurrency`-grouped per ref with `cancel-in-progress`, and `permissions` is
+  `contents: read` — nothing in CI writes anything.
+
+- **Two caches, keyed on what actually invalidates them.** The corpus is keyed on
+  `hashFiles('scripts/fetch-corpus.mjs')`, so adding a title invalidates it by
+  itself and an ordinary run touches no upstream server; `fetch-corpus` is idempotent
+  and makes no request when every file is already present. The Playwright browsers
+  are keyed on the lockfile: it is what moves Playwright's version, and with four
+  devDependencies the occasional redundant download is cheaper than a shell step to
+  read the resolved version.
+
+- `scripts/check-guards.mjs` runs three checks and reports every violation in one
+  pass: `dependencies` is empty; no term from the consuming application's vocabulary
+  appears in `src/`, `demo/` or `test/`; and, under `--require-corpus`, the corpus is
+  complete. `--root=<dir>` points it at a scratch tree, which is how its own failure
+  paths are tested. `check-core-purity.mjs` gained the same `--root` for the same
+  reason; it is otherwise unchanged, having shipped long before CI existed.
+
+- **The corpus manifest has one home.** `check-guards.mjs` imports `downloads` from
+  `fetch-corpus.mjs` rather than restating the expected file list, so "complete"
+  means exactly "everything the fetch script intends to download". The fetch script
+  therefore guards its own download pass behind a direct-execution check — importing
+  it must not start downloading, the same rule `banner.mjs` follows.
+
+- **Measured gzipped sizes at the time the budgets were set** (minified bundle,
+  esbuild, `target: es2022`): `.` 30,324 / 38,000 · `/core` 2,348 / 3,000 · `/epub`
+  6,562 / 8,250 · `/fb2` 3,693 / 4,750 · `/text` 1,399 / 1,750. The root is an order
+  of magnitude larger than `/core` because it carries the paginator and the view;
+  that ratio is the thing the budget is really watching.
+
+- **`check-size.mjs` pins esbuild's `target` to `es2022`.** The default target drifts
+  with esbuild's version, which would move every number here for reasons that have
+  nothing to do with the library and quietly spend the headroom.
+
+- **Guard tests are the deliberate-violation proof** (`test/guards.test.ts`). Each
+  guard is run against a scratch tree that violates it — an added dependency, a
+  vocabulary term, a missing corpus, a core module importing the view, a one-byte
+  budget — and asserted to exit non-zero naming the offence, then run against a clean
+  tree and asserted to pass. A guard nobody has ever seen fail is indistinguishable
+  from a guard that cannot fail.
+
 ## Gotchas
 
 - **esbuild rewrites the banner when the source is inside `node_modules`.** It hoists
@@ -131,3 +218,38 @@ separate work.
   they import `/src/...` by path, which `exports` does not govern. Packaging changes
   cannot be validated through the demo — `npm run check:pack` is the only surface
   that exercises the published shape.
+
+- **Never write the consuming application's vocabulary anywhere under `docs/`.** The
+  guard scans source, not docs, but the terms are deliberately confined to
+  `scripts/check-guards.mjs` so that no document ever has to be carved out of a scan
+  that later widens. Refer to "the term list in `check-guards.mjs`" instead — and
+  note `test/guards.test.ts` assembles its fixture term from fragments for exactly
+  this reason, since `test/` *is* scanned.
+
+- **`test/corpus/` is carved out of the vocabulary scan because real books use the
+  words** — a Victorian detective sends a great many messages by wire. `bench/fixtures/`
+  is generated from that same prose and sits outside the scanned roots. A guard that
+  fails on the corpus it exists to protect gets switched off within a week, so the
+  carve-out has its own test.
+
+- **Anything that measures `dist/` skips silently when it is absent**, which is why
+  CI builds *before* it tests rather than after. `check:size` reports a skip, and the
+  two size cases in `test/guards.test.ts` skip themselves — on a fresh checkout that
+  would quietly retire the budget and its own failure-path proof while still
+  reporting success. The build step is cheap; the vacuous pass is not.
+
+- **A `.ts` test cannot statically import the `.mjs` scripts**: the tsconfig has no
+  `allowJs`, so `tsc` would demand a declaration file. `test/guards.test.ts` reaches
+  the corpus manifest through a computed dynamic specifier, which tsc does not
+  resolve and Node loads normally.
+
+- **`npm run check:pack` needs registry reachability** — it shells out to `npm pack`
+  and `npm install <tarball>`. That is free on a GitHub-hosted runner, but it is the
+  step most likely to fail for reasons that have nothing to do with the change.
+
+- **One browser test is a timing ceiling and sits close to it.** The corpus timing
+  budget in the layout suite asserts an order-of-magnitude tripwire against a
+  machine-specific reference; it has been observed to trip on a fast machine under
+  load and is the likeliest source of a red `browser` job on slower shared runners.
+  If it flakes in CI, re-baseline the ceiling in the layout domain — do not delete
+  the assertion and do not paper over it with a retry.

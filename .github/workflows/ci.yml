@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A superseded run proves nothing, and the browser job is the expensive half.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run check:core
+
+      # 31MB of third-party books. Cached so an ordinary run touches no upstream
+      # server, and keyed on the script that defines the set, so adding a title
+      # invalidates the cache by itself.
+      - uses: actions/cache@v6
+        with:
+          path: test/corpus
+          key: corpus-${{ hashFiles('scripts/fetch-corpus.mjs') }}
+
+      # Idempotent: on a cache hit every file is already present and no request is
+      # made. A failed download exits non-zero rather than leaving a partial set.
+      - run: npm run fetch-corpus
+
+      # Corpus tests skip gracefully when the download is absent — right for a
+      # fresh clone, fatal here, where it would leave the differential suite
+      # reporting green having compared nothing.
+      - run: npm run check:guards -- --require-corpus
+
+      # Before the tests, not after: the size guard's own failure-path tests measure
+      # the real `dist`, and on a fresh checkout they would skip themselves into
+      # uselessness — the exact vacuous pass the corpus flag exists to prevent.
+      - run: npm run build
+
+      - run: npm test
+
+      - run: npm run check:size
+
+      - run: npm run check:pack
+
+  browser:
+    name: browser
+    # Work reaches main through pull requests, so the browser tier guards the PR.
+    # If direct pushes to main become normal, the view invariants stop being
+    # guarded and this condition is the thing to revisit.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Keyed on the lockfile because that is what moves Playwright's version;
+      # the other three devDependencies change rarely enough that the occasional
+      # extra download is cheaper than a shell step to read the resolved version.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Full Chromium, not the headless shell: the suites run `channel: 'chromium'`
+      # because the shell's compositor is the wrong thing to measure multi-column
+      # layout and paint timing on.
+      - run: npx playwright install --with-deps chromium
+
+      - uses: actions/cache@v6
+        with:
+          path: test/corpus
+          key: corpus-${{ hashFiles('scripts/fetch-corpus.mjs') }}
+
+      - run: npm run fetch-corpus
+
+      # The appearance invariant suite runs against real corpus books, so the same
+      # vacuous-pass risk applies here as in the check job.
+      - run: npm run check:guards -- --require-corpus
+
+      - run: npm run test:browser
