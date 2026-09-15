@@ -42,21 +42,21 @@
     "semantic_hash": "69f367643afb1181566dbb8122ff3df6"
   },
   "package.json": {
-    "mtime": 1789514268.3082473,
-    "seen": 1789514269.562664,
-    "ast_hash": "807f4d9fb478a4ca53a1e48a98fb8a06",
+    "mtime": 1789515332.920441,
+    "seen": 1789515791.955297,
+    "ast_hash": "5b3ee4dbe1c8a4fb2a483b234d2e7426",
     "semantic_hash": ""
   },
   "scripts/check-core-purity.mjs": {
-    "mtime": 1787609591.7070873,
-    "seen": 1787677275.942879,
-    "ast_hash": "4cff74eb29472f252626f1d9a58830ee",
-    "semantic_hash": "4cff74eb29472f252626f1d9a58830ee"
+    "mtime": 1789515284.5529735,
+    "seen": 1789515791.9552991,
+    "ast_hash": "87ea2b5d99e98bad56b18d6f7803d532",
+    "semantic_hash": ""
   },
   "scripts/fetch-corpus.mjs": {
-    "mtime": 1789511945.0849202,
-    "seen": 1789512007.73825,
-    "ast_hash": "7db59ea529485f59479f314d07a9e1e0",
+    "mtime": 1789515280.1342824,
+    "seen": 1789515791.955301,
+    "ast_hash": "b80063872edbd721313ca2011071e164",
     "semantic_hash": ""
   },
   "scripts/make-bench-fixture.mjs": {
@@ -342,9 +342,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1789514268.306584,
-    "seen": 1789514269.5627258,
-    "ast_hash": "16746f92f2ee88ef656a8965a41858ec",
+    "mtime": 1789515597.4927175,
+    "seen": 1789515791.955359,
+    "ast_hash": "07dd8f9cbbd87ffa1b19df2fba464697",
     "semantic_hash": ""
   },
   "README.template.md": {
@@ -366,9 +366,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1789514268.3068373,
-    "seen": 1789514269.562729,
-    "ast_hash": "dce9c6c43832aebab43eed613bddc4c1",
+    "mtime": 1789515609.441236,
+    "seen": 1789515791.955362,
+    "ast_hash": "c283fa092728bb9b749c35ab95361dba",
     "semantic_hash": ""
   },
   "docs/coding-conventions.md": {
@@ -402,9 +402,9 @@
     "semantic_hash": ""
   },
   "docs/domains/tooling.md": {
-    "mtime": 1789514268.3077295,
-    "seen": 1789514269.562736,
-    "ast_hash": "06e41faa77a7d30a566cf637319c0cf5",
+    "mtime": 1789515695.207471,
+    "seen": 1789515791.955369,
+    "ast_hash": "31fbdd387a86c3e680bd554c71e6b7a5",
     "semantic_hash": ""
   },
   "docs/domains/view.md": {
@@ -732,9 +732,33 @@
     "semantic_hash": ""
   },
   "docs/domains/release.md": {
-    "mtime": 1789514268.3074327,
-    "seen": 1789514269.5627341,
-    "ast_hash": "e872c56d90f7984caedf25225f61f48c",
+    "mtime": 1789515751.077893,
+    "seen": 1789515791.955368,
+    "ast_hash": "f1fba693a5e188259444d63bfcdd7c2b",
+    "semantic_hash": ""
+  },
+  "scripts/check-guards.mjs": {
+    "mtime": 1789515305.75638,
+    "seen": 1789515791.9552991,
+    "ast_hash": "1af5c1071fa84f092ef77c3cda9ded94",
+    "semantic_hash": ""
+  },
+  "scripts/check-size.mjs": {
+    "mtime": 1789515352.6164079,
+    "seen": 1789515791.955301,
+    "ast_hash": "92f7994e89c48013442631c5692b6d38",
+    "semantic_hash": ""
+  },
+  "test/guards.test.ts": {
+    "mtime": 1789515418.052893,
+    "seen": 1789515791.955347,
+    "ast_hash": "519ce863809daadb89a4dfbcf1ed1687",
+    "semantic_hash": ""
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1789515743.258428,
+    "seen": 1789515791.9553568,
+    "ast_hash": "46692455272b05e68c65449aea331246",
     "semantic_hash": ""
   }
 }
