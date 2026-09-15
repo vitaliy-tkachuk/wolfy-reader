@@ -13,7 +13,10 @@ claim wins, so richer formats are listed before catch-all ones.
 
 Code:
 
-- `src/formats/index.ts` — the public barrel: `export { epub, fb2, text }`.
+- `src/formats/index.ts` — an internal convenience barrel (`export { epub, fb2, text }`)
+  for tests and the demo, which import it by path. It is deliberately **not** in the
+  package's `exports` map: each decoder ships as its own subpath so a consumer pulls
+  only the closure it uses. See [`release.md`](release.md).
 - `src/formats/text/index.ts` — the plain-text decoder.
 - `src/formats/fb2/index.ts` — the FictionBook 2 decoder.
 - `src/formats/xml.ts` — the shared headless XML parser (`parseXml` + helpers +

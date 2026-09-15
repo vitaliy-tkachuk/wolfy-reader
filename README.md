@@ -22,8 +22,15 @@ npm test             # node:test suite, headless — includes the differential d
 npm run test:browser # Playwright suites for the sandboxed frame
 npm run typecheck    # tsc --noEmit
 npm run check:core   # fail if src/core reaches src/layout or src/view
+npm run build        # tsc -> dist (plain ESM + .d.ts + sourcemaps), then the @license banner
+npm run check:pack   # pack, install the tarball, import and typecheck every subpath
 npm run bench        # pagination benchmark (needs the corpus)
 ```
+
+`npm run check:pack` is the only check that exercises the *published* surface: the
+demo and the test suites import `/src/...` by path, which the `exports` map does not
+govern, so a packaging fault is invisible to them. Run it before any release — see
+[`docs/domains/release.md`](docs/domains/release.md).
 
 The differential decode suite (`test/differential.test.ts`) proves the decoders
 agree: for each title shipped as both EPUB and TXT, it decodes each, strips

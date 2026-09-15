@@ -1,22 +1,72 @@
 {
   "name": "wolfy-reader",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Read ebooks in the browser — pages that turn, text you can search, and typography you can change without losing your place.",
+  "keywords": [
+    "ebook",
+    "reader",
+    "epub",
+    "fb2",
+    "pagination",
+    "browser"
+  ],
   "license": "MIT",
   "author": "Vitaliy Tkachuk",
+  "homepage": "https://github.com/vitaliy-tkachuk/wolfy-reader#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vitaliy-tkachuk/wolfy-reader.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vitaliy-tkachuk/wolfy-reader/issues"
+  },
   "type": "module",
   "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./epub": {
+      "types": "./dist/formats/epub/index.d.ts",
+      "default": "./dist/formats/epub/index.js"
+    },
+    "./fb2": {
+      "types": "./dist/formats/fb2/index.d.ts",
+      "default": "./dist/formats/fb2/index.js"
+    },
+    "./text": {
+      "types": "./dist/formats/text/index.d.ts",
+      "default": "./dist/formats/text/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
+    "clean": "node --input-type=module -e \"import{rmSync}from'node:fs';rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/banner.mjs",
     "test": "node --test \"test/**/*.test.ts\"",
     "test:browser": "node --test \"test/browser/*.browser.mjs\"",
     "typecheck": "tsc --noEmit",
     "check:core": "node scripts/check-core-purity.mjs",
+    "check:pack": "node scripts/check-pack.mjs",
     "fetch-corpus": "node scripts/fetch-corpus.mjs",
     "demo": "node scripts/serve-demo.mjs",
-    "bench": "node bench/run.mjs"
+    "bench": "node bench/run.mjs",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2",
     "playwright": "^1.62.1",
     "typescript": "^7.0.2"
   }
