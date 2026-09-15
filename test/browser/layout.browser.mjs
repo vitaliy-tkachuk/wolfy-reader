@@ -163,7 +163,7 @@ describe('paginated pages paint their content', { ...skipAll }, () => {
     const frame = contentFrame();
     const paintedAtCentre = () =>
       frame.evaluate(() => {
-        const root = document.getElementById('wolfyreader-content');
+        const root = document.getElementById('wolfy-reader-content');
         const box = root.getBoundingClientRect();
         const el = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
         return el ? (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
@@ -287,7 +287,7 @@ describe('the render-input cache', { ...skipAll }, () => {
     // but the section-invariant inputs must be reused — no re-decode, no
     // re-sanitize, no image re-base64.
     await page.evaluate(() =>
-      window.harness.paginatorApplyAppearance('#wolfyreader-content{font-size:24px}'),
+      window.harness.paginatorApplyAppearance('#wolfy-reader-content{font-size:24px}'),
     );
     assert.deepEqual(await counters(), { sectionLoads: 1, resourceLoads: 1 }, 'a font-size tick re-decoded the section');
 

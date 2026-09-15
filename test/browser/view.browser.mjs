@@ -198,7 +198,7 @@ describe('inert content', { ...skipAll, ...skipVectors }, () => {
         // Exactly one script may exist: the host's own nonced coordination
         // script, identified by the content root it addresses.
         for (const script of scripts) {
-          if (!script.textContent.includes('wolfyreader-content')) found.push('script');
+          if (!script.textContent.includes('wolfy-reader-content')) found.push('script');
         }
         if (scripts.length !== 1) found.push(`script-count:${scripts.length}`);
         return found;
@@ -250,7 +250,7 @@ describe('inert content', { ...skipAll, ...skipVectors }, () => {
       const bookScripts = await frame.evaluate(
         () =>
           [...document.querySelectorAll('script')].filter(
-            (script) => !script.textContent.includes('wolfyreader-content'),
+            (script) => !script.textContent.includes('wolfy-reader-content'),
           ).length,
       );
       results.push({ declared: report.declaredScripted, bookScripts, fired: await firedProbes(frame) });

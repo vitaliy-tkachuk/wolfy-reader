@@ -142,7 +142,7 @@ const DEFAULT_LIGHT: Record<string, string> = { ...THEMES.light };
 const DEFAULT_DARK: Record<string, string> = { ...THEMES.dark };
 
 /** The cascade layer the theme reset lives in, so publisher rules outrank it. */
-const THEME_LAYER = 'wolfyreader-theme';
+const THEME_LAYER = 'wolfy-reader-theme';
 
 /** Normalize a custom-property key to its `--`-prefixed form. */
 function normalizeVarName(name: string): string {

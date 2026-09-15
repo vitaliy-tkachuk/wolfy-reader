@@ -1,9 +1,9 @@
 import { escapeXmlAttribute } from '../core/text.ts';
 
-export const CONTENT_ROOT_ID = 'wolfyreader-content';
+export const CONTENT_ROOT_ID = 'wolfy-reader-content';
 
 /** Class marking each per-chunk container the host emits into the frame body. */
-export const CHUNK_CLASS = 'wolfyreader-chunk';
+export const CHUNK_CLASS = 'wolfy-reader-chunk';
 /** Cumulative character offset of a chunk's first glyph into the section text. */
 export const CHUNK_START_ATTR = 'data-chunk-start';
 /** Cumulative character offset just past a chunk's last glyph. */
@@ -12,7 +12,7 @@ export const CHUNK_END_ATTR = 'data-chunk-end';
 export const CHUNK_INDEX_ATTR = 'data-chunk-index';
 
 /** Class every draw-only decoration overlay box carries, alongside the caller's class. */
-export const DECORATION_CLASS = 'wolfyreader-decoration';
+export const DECORATION_CLASS = 'wolfy-reader-decoration';
 
 /**
  * A minimal reset and nothing else. Column geometry belongs to the paginator
@@ -946,7 +946,7 @@ export interface ChunkPart {
  * overlap. The frame reads these attributes to build per-chunk multi-column
  * contexts and to map pages to character offsets.
  *
- * The container is a `<div class="wolfyreader-chunk">`; the char count comes from
+ * The container is a `<div class="wolfy-reader-chunk">`; the char count comes from
  * `chunkElement` (`textContent.length` of the chunk's nodes), so it matches what
  * the frame measures with `textContent` at runtime.
  */

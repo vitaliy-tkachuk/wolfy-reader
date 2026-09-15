@@ -226,7 +226,7 @@ A text selection in the reader surfaces as a first-class `selection` event carry
 - **Collapsed / empty** — an `isCollapsed` selection or empty `toString()` forwards nothing (a bare click emits no event).
 - **Empty `getClientRects()`** — the zero-width-anchor / empty-inline gotcha the paginator already lives with (114 such spans in `item8`). A selection whose range has no client rects carries no painted geometry, so forwarding it would be a malformed range; the frame length-checks the rect list and drops it.
 
-**Offset computation.** For each endpoint the frame finds the enclosing `.wolfyreader-chunk` container, sums the `textContent` length of every prior chunk container, then adds the text length from that chunk's start to the endpoint via a `Range` — the same tiling the chunk `data-chunk-start` attributes encode. An endpoint outside a realized chunk container yields `-1` and the selection is dropped. Endpoints are normalized so `start <= end` regardless of selection direction.
+**Offset computation.** For each endpoint the frame finds the enclosing `.wolfy-reader-chunk` container, sums the `textContent` length of every prior chunk container, then adds the text length from that chunk's start to the endpoint via a `Range` — the same tiling the chunk `data-chunk-start` attributes encode. An endpoint outside a realized chunk container yields `-1` and the selection is dropped. Endpoints are normalized so `start <= end` regardless of selection direction.
 
 **The UTF-16-offset-range↔`Position` bridge.** `Paginator.positionOfOffsetRange(start, end)` captures the anchor at `start` with `capturePosition(text, start, sectionId, { quoteLength })` — `capturePosition` takes a UTF-16 offset directly, so no grapheme conversion is needed on the capture leg (the grapheme↔UTF-16 conversion only matters on the *resolve* leg, `pageOfPosition`). The quote spans the **whole selection**: `quoteLength = countGraphemes(text.slice(start, end))`, so a host that highlights the emitted `Position` via `decorate` paints the entire selection, not merely its first `DEFAULT_QUOTE_LENGTH` (32) graphemes — the earlier form discarded `end` and capped the quote at the default, so "highlight selection" over a long span painted only a few words. Resolving the range back to a page still keys off the anchor's start, so the wider quote is free. The facade attaches `text` and emits `selection`. Because the `Position` is content-addressed, a host can persist it as a bookmark/highlight anchor and `goTo` it later; it resolves back through the same soft-miss path as any other `Position`.
 
@@ -342,7 +342,7 @@ below — the highlight draws nothing and throws nothing.
   the chunk — so they never eat a subsequent selection or a link click and never change
   page geometry. Empty `getClientRects()` (the zero-width-anchor / empty-inline gotcha
   the paginator already lives with) draws nothing rather than a malformed box; a
-  zero-area rect is skipped. A default `.wolfyreader-decoration` style in the frame's
+  zero-area rect is skipped. A default `.wolfy-reader-decoration` style in the frame's
   reset makes a bare `decorate` visible without host CSS; the caller's `className`
   rides alongside so an appearance stylesheet can restyle it.
 - **Known scrolled-mode caveat (engine, not this API).** Scrolled mode collapses paging

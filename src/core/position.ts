@@ -270,7 +270,7 @@ function collapseWhitespace(text: string): string {
 export function parsePosition(serialized: string): Position {
   if (!serialized.startsWith(SERIAL_PREFIX)) {
     throw new CorruptContainerError(
-      `not a wolfyReader position: missing '${SERIAL_PREFIX}' version prefix`,
+      `not a wolfy-reader position: missing '${SERIAL_PREFIX}' version prefix`,
     );
   }
 

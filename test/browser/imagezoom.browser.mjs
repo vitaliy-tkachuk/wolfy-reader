@@ -85,7 +85,7 @@ async function imageBox() {
     const img = document.querySelector('img#wide-plate');
     if (img === null) return null;
     const rect = img.getBoundingClientRect();
-    const root = document.getElementById('wolfyreader-content') ?? document.body;
+    const root = document.getElementById('wolfy-reader-content') ?? document.body;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const cx = Math.round(rect.left + rect.width / 2);

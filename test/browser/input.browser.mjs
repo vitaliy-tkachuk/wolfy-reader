@@ -154,7 +154,7 @@ async function swipe(dx, dy = 0) {
 async function swipeWithSelection(dx) {
   const frame = contentFrame();
   return frame.evaluate((sx) => {
-    const chunk = document.querySelector('.wolfyreader-chunk');
+    const chunk = document.querySelector('.wolfy-reader-chunk');
     if (chunk === null) return false;
     const selection = document.getSelection();
     const range = document.createRange();

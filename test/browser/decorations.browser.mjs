@@ -90,7 +90,7 @@ async function openReader(url, options = {}) {
 /** The concatenated chunk text as the frame measures it (the decoration text space). */
 async function frameSectionText() {
   return contentFrame().evaluate(() => {
-    const chunks = [...document.getElementsByClassName('wolfyreader-chunk')];
+    const chunks = [...document.getElementsByClassName('wolfy-reader-chunk')];
     return chunks.map((c) => c.textContent || '').join('');
   });
 }
@@ -127,7 +127,7 @@ async function anchorOnPage(phraseLen = 12) {
 /** The union client rect of the first occurrence of `phrase` in the frame, or null. */
 function phraseRect(frame, phrase) {
   return frame.evaluate((needle) => {
-    const root = document.getElementById('wolfyreader-content') || document.body;
+    const root = document.getElementById('wolfy-reader-content') || document.body;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let node;
     while ((node = walker.nextNode())) {

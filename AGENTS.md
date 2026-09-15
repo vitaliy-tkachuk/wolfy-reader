@@ -95,7 +95,7 @@ For Level 0 work, just fix without docs.
 
 ## Project-specific guidance
 
-**wolfyReader** — read ebooks in the browser: pages that turn, text you can search, and typography you can change without losing your place.
+**wolfy-reader** — read ebooks in the browser: pages that turn, text you can search, and typography you can change without losing your place.
 
 See [`docs/architecture.md`](docs/architecture.md) for stack and main application areas.
 

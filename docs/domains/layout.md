@@ -25,7 +25,7 @@ generated from the gitignored corpus and are themselves gitignored.
 Chunking runs **host-side**, on the sanitized DOM, before the body markup crosses
 into the frame. `ContentHost.renderChunked` calls `chunkElement` on the sanitized
 document body and wraps each chunk in a container
-(`<div class="wolfyreader-chunk" data-chunk-index data-chunk-start data-chunk-end>`)
+(`<div class="wolfy-reader-chunk" data-chunk-index data-chunk-start data-chunk-end>`)
 carrying its cumulative, end-exclusive character range over the tiled section
 text. Only *measurement* (`Range.getClientRects`, per-chunk multi-column geometry)
 must run in-frame under the opaque origin; chunking is pure string/DOM work that
@@ -146,7 +146,7 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   translate and paints only the first column — every page after the first goes
   blank while `getClientRects` still reports laid-out positions for the clipped
   columns, so the blank is invisible to a layout-only probe. The viewport clip
-  lives on the `#wolfyreader-content` root. Regression:
+  lives on the `#wolfy-reader-content` root. Regression:
   `test/browser/layout.browser.mjs` "paginated pages paint their content" probes
   with `elementFromPoint` (which honours the clip) rather than rects.
 - **`content-visibility: auto` is kept, for re-layout only.** It makes bulk

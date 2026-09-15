@@ -88,7 +88,7 @@ for (const { url, file } of downloads) {
   }
   try {
     const res = await fetch(url, {
-      headers: { 'user-agent': 'wolfyReader-corpus-fetch (https://github.com/vitaliy-tkachuk/wolfyReader)' },
+      headers: { 'user-agent': 'wolfy-reader-corpus-fetch (https://github.com/vitaliy-tkachuk/wolfy-reader)' },
       redirect: 'follow',
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)

@@ -40,7 +40,7 @@ Code:
   themeable defaults, so publisher CSS cannot clobber the theme.** Content colours
   flow through `--wr-*` custom properties, and the stylesheet that consumes them is
   built in two parts:
-  - **The reading surface** (`#wolfyreader-content` background + base colour) is set
+  - **The reading surface** (`#wolfy-reader-content` background + base colour) is set
     *unlayered* and `!important` at id specificity. An id selector plus `!important`
     outranks even a hostile publisher `*{…!important}` or `body{…!important}`, so a
     book cannot repaint the surface out from under the active theme. It pins only
@@ -48,13 +48,13 @@ Code:
     (`p{color:red}`) still wins for itself, because that is a direct match on the
     descendant.
   - **The themeable defaults** (html/body fallback surface, link colour, selection
-    colours) live in a low cascade layer, `@layer wolfyreader-theme`. An unlayered
+    colours) live in a low cascade layer, `@layer wolfy-reader-theme`. An unlayered
     publisher rule of any specificity outranks the layer *for the properties it
     sets*, so a book restyling its own links or background wins there — while the
     `--wr-*` variables themselves are unreachable by publisher CSS, because they are
     custom-property names the book does not know.
 
-  The layer is *declared* first (`@layer wolfyreader-theme;` leads the sheet) so its
+  The layer is *declared* first (`@layer wolfy-reader-theme;` leads the sheet) so its
   order is fixed before any `@layer` a book declares later. An unstyled book themes
   fully because nothing overrides the layer; the hostile-CSS browser fixture is the
   proof that a publisher `body/*{color;background !important}` cannot win the
@@ -71,7 +71,7 @@ Code:
 
 - **Typography rides the same cascade device as the surface guarantee.** The
   reader's own font/size/line-height/alignment/hyphenation are pinned on
-  `#wolfyreader-content` *unlayered and `!important`* at id specificity — an id
+  `#wolfy-reader-content` *unlayered and `!important`* at id specificity — an id
   selector plus `!important` outranks even a hostile publisher `*{…!important}`, so
   the chosen typography wins the reading surface. As with colours, it pins only the
   content root's *own* values; a descendant the book styles directly

@@ -148,7 +148,7 @@ const invokedDirectly =
 if (invokedDirectly) {
   try {
     const { origin } = await startServer();
-    console.log(`wolfyReader demo at ${origin}/`);
+    console.log(`wolfy-reader demo at ${origin}/`);
   } catch (err) {
     console.error(err.message);
     process.exitCode = 1;

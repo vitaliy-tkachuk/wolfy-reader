@@ -83,10 +83,10 @@ test('mergeAppearance: an update omitting theme keeps the base theme', () => {
 
 test('themeStyleSheet declares the theme layer first, so publisher rules outrank it', () => {
   const css = themeStyleSheet({ theme: 'dark' });
-  // The `@layer wolfyreader-theme;` statement fixes the layer's order before any
+  // The `@layer wolfy-reader-theme;` statement fixes the layer's order before any
   // publisher `@layer` can, and must precede the layer block that uses it.
-  const declareAt = css.indexOf('@layer wolfyreader-theme;');
-  const blockAt = css.indexOf('@layer wolfyreader-theme{');
+  const declareAt = css.indexOf('@layer wolfy-reader-theme;');
+  const blockAt = css.indexOf('@layer wolfy-reader-theme{');
   assert.ok(declareAt === 0, 'the layer declaration must lead the stylesheet');
   assert.ok(blockAt > declareAt, 'the layer block must follow the declaration');
 });
@@ -95,7 +95,7 @@ test('themeStyleSheet consumes the variables in a layer but forces them at :root
   const css = themeStyleSheet({ theme: 'dark' });
   // The reset that paints from the variables lives inside the layer (loses to
   // publisher rules on their own properties)…
-  assert.match(css, /@layer wolfyreader-theme\{[^]*background:var\(--wr-background\)/);
+  assert.match(css, /@layer wolfy-reader-theme\{[^]*background:var\(--wr-background\)/);
   // …while the forced variables are set on an UNLAYERED :root block (after the
   // layer), so publisher CSS — which does not name --wr-* — cannot reach them.
   assert.match(css, /:root\{--wr-background:#121212/);
@@ -166,8 +166,8 @@ test('themeStyleSheet forces the typography knobs on the content root, !importan
   // The reader's own values are pinned on the content root at id specificity with
   // !important — the same cascade device the surface guarantee uses — so a hostile
   // publisher rule cannot clobber the chosen typography on the reading surface.
-  assert.match(css, /#wolfyreader-content\{[^}]*font-size:var\(--wr-font-size\) !important/);
-  assert.match(css, /#wolfyreader-content\{[^}]*text-align:var\(--wr-text-align\) !important/);
+  assert.match(css, /#wolfy-reader-content\{[^}]*font-size:var\(--wr-font-size\) !important/);
+  assert.match(css, /#wolfy-reader-content\{[^}]*text-align:var\(--wr-text-align\) !important/);
   assert.match(css, /hyphens:var\(--wr-hyphens\) !important/);
   // The variables themselves are declared at :root (publisher CSS never names them).
   assert.match(css, /--wr-font-size:20px/);
@@ -180,7 +180,7 @@ test('column-count is not put in the stylesheet (it is per-chunk, applied frame-
 
 test('a colour-only appearance emits no typography guarantee block', () => {
   const css = themeStyleSheet({ theme: 'dark' });
-  assert.doesNotMatch(css, /#wolfyreader-content\{[^}]*font-/);
+  assert.doesNotMatch(css, /#wolfy-reader-content\{[^}]*font-/);
 });
 
 test('isReflowingUpdate: reflowing knobs are detected, a theme-only update is not', () => {

@@ -101,7 +101,7 @@ async function openReader(url, options = {}) {
 async function selectRange(count) {
   const frame = contentFrame();
   const text = await frame.evaluate((n) => {
-    const root = document.getElementById('wolfyreader-content') || document.body;
+    const root = document.getElementById('wolfy-reader-content') || document.body;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let node = null;
     while ((node = walker.nextNode())) {
@@ -217,7 +217,7 @@ describe('selection events', { ...skipAll, ...skipFixture }, () => {
       const selection = window.getSelection();
       selection.removeAllRanges();
       // A bare click collapses the selection at a point.
-      const root = document.getElementById('wolfyreader-content') || document.body;
+      const root = document.getElementById('wolfy-reader-content') || document.body;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
       const node = walker.nextNode();
       if (node !== null) selection.collapse(node, 0);
@@ -247,8 +247,8 @@ describe('selection events', { ...skipAll, ...skipFixture }, () => {
     // Inject a zero-width empty-inline span (the getClientRects() gotcha) and select
     // it exactly. Its empty rect list must trip the frame's guard: no payload.
     const injected = await frame.evaluate(() => {
-      const root = document.getElementById('wolfyreader-content') || document.body;
-      const chunk = root.querySelector('.wolfyreader-chunk') || root;
+      const root = document.getElementById('wolfy-reader-content') || document.body;
+      const chunk = root.querySelector('.wolfy-reader-chunk') || root;
       const anchor = document.createElement('span');
       anchor.id = 'empty-anchor-probe';
       chunk.appendChild(anchor);

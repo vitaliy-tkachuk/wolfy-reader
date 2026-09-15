@@ -118,7 +118,7 @@ function contentFrame(p) {
 /** Computed background/color of the frame's content root, as rgb() strings. */
 async function rootColors(p) {
   return contentFrame(p).evaluate(() => {
-    const root = document.getElementById('wolfyreader-content');
+    const root = document.getElementById('wolfy-reader-content');
     const style = getComputedStyle(root);
     return { background: style.backgroundColor, color: style.color };
   });
@@ -127,7 +127,7 @@ async function rootColors(p) {
 /** Computed typography of the content root (font/size/line-height/align/hyphens). */
 async function rootTypography(p) {
   return contentFrame(p).evaluate(() => {
-    const style = getComputedStyle(document.getElementById('wolfyreader-content'));
+    const style = getComputedStyle(document.getElementById('wolfy-reader-content'));
     return {
       fontFamily: style.fontFamily,
       fontSize: style.fontSize,
@@ -146,7 +146,7 @@ async function rootTypography(p) {
  */
 async function chunkColumnWidth(p) {
   return contentFrame(p).evaluate(() => {
-    const chunk = document.querySelector('.wolfyreader-chunk');
+    const chunk = document.querySelector('.wolfy-reader-chunk');
     return parseFloat(getComputedStyle(chunk).columnWidth);
   });
 }
@@ -328,11 +328,11 @@ function longSection() {
  */
 async function visiblePageText(p) {
   return contentFrame(p).evaluate(() => {
-    const root = document.getElementById('wolfyreader-content');
+    const root = document.getElementById('wolfy-reader-content');
     const rootRect = root.getBoundingClientRect();
     const out = [];
-    for (const el of document.querySelectorAll('.wolfyreader-chunk p')) {
-      if (getComputedStyle(el.closest('.wolfyreader-chunk')).visibility === 'hidden') continue;
+    for (const el of document.querySelectorAll('.wolfy-reader-chunk p')) {
+      if (getComputedStyle(el.closest('.wolfy-reader-chunk')).visibility === 'hidden') continue;
       const r = el.getBoundingClientRect();
       // A paragraph painted on the current page overlaps the root's viewport box.
       if (r.right > rootRect.left + 1 && r.left < rootRect.right - 1 && r.width > 0 && r.height > 0) {
@@ -346,7 +346,7 @@ async function visiblePageText(p) {
 /** Every paragraph text rendered in the section, regardless of the current page. */
 async function allSectionText(p) {
   return contentFrame(p).evaluate(() =>
-    [...document.querySelectorAll('.wolfyreader-chunk p')].map((el) => el.textContent),
+    [...document.querySelectorAll('.wolfy-reader-chunk p')].map((el) => el.textContent),
   );
 }
 
@@ -631,8 +631,8 @@ describe('typography knobs each change the rendered content', { ...skipAll }, ()
       // It doubles as the inter-column gutter (still read off `column-gap`).
       const geom = () =>
         contentFrame(p).evaluate(() => {
-          const chunk = document.querySelector('.wolfyreader-chunk');
-          const root = document.getElementById('wolfyreader-content') || document.body;
+          const chunk = document.querySelector('.wolfy-reader-chunk');
+          const root = document.getElementById('wolfy-reader-content') || document.body;
           const style = getComputedStyle(chunk);
           return {
             left: parseFloat(style.left),
