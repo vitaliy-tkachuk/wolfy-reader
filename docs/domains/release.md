@@ -104,15 +104,17 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
   16.4+, Firefox 113+, ESM only), and the DRM-free legal position. The first three
   are the entire pitch; the fourth is a legal position, not a feature note.
 
-- **The publish job re-runs every check itself, because the Release PR has none.**
-  A pull request opened with `GITHUB_TOKEN` does not trigger workflows — GitHub's
-  loop protection — so the bot's PR arrives with no checks and merges to `main`
-  unverified. A `workflow_run` dependency across workflows would be a race, and a
-  personal access token to make the PR trigger CI would reintroduce exactly the
-  long-lived credential OIDC exists to remove. So the publish job runs typecheck,
-  the guards, the corpus-backed suite, the build, the size budget and the pack
-  check between the tag and `npm publish`. It is not belt-and-braces: it is the
-  only verification that release ever gets.
+- **The publish job re-runs every check itself, because the Release PR's checks are
+  not guaranteed to run.** A workflow triggered by a pull request that
+  `GITHUB_TOKEN` opened is created but held: it lands in `action_required` and waits
+  for a maintainer to press "Approve and run". Approving it is worth doing — it
+  gives the Release PR the full tier, browser suites included — but a release must
+  not depend on someone remembering to click. A `workflow_run` dependency across
+  workflows would be a race, and a personal access token to make the PR trigger CI
+  automatically would reintroduce exactly the long-lived credential OIDC exists to
+  remove. So the publish job runs typecheck, the guards, the corpus-backed suite,
+  the build, the size budget and the pack check between the tag and `npm publish`.
+  It is the verification a release is guaranteed to get.
 
 - **Trusted publishing (OIDC), never a stored token, and no `--provenance` flag.**
   The workflow requests `id-token: write` and npm exchanges that for publish
