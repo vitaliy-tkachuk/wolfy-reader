@@ -3,7 +3,7 @@ import type { Book } from '../../src/core/index.ts';
 /**
  * Differential-testing support: extract a book's prose independent of its format,
  * strip Project Gutenberg boilerplate (content selection — kept separate from
- * normalization so a third format like MOBI reuses the normalizer untouched),
+ * normalization so a further format reuses the normalizer untouched),
  * normalize to a comparable word stream, and score how much of one edition's prose
  * appears verbatim in another's.
  *
@@ -17,8 +17,8 @@ import type { Book } from '../../src/core/index.ts';
  */
 
 /** Concatenates every section's text, format-neutrally: strips markup from the
- * XHTML/HTML the decoders emit. Works for any `Book` — epub, text, and (later)
- * mobi all render sections as markup, so the extractor never grows a per-format
+ * XHTML/HTML the decoders emit. Works for any `Book` — every decoder
+ * renders sections as markup, so the extractor never grows a per-format
  * branch. */
 export async function extractBookText(book: Book): Promise<string> {
   const parts: string[] = [];

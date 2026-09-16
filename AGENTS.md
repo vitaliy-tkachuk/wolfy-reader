@@ -107,4 +107,5 @@ Standing rules for this project:
 - **Untrusted book content always renders in a hardened sandboxed iframe** (no `allow-same-origin`, strict CSP, allowlist sanitization, `data:` resources, `postMessage` coordination). Resources are `data:`, not `blob:`, and this is not a preference: a blob URL belongs to the origin that created it, and the frame's origin is opaque, so the frame is refused the host's blob URLs outright — measured, see [`docs/domains/view.md`](docs/domains/view.md). Do not "restore" `blob:` here.
 - **The `Book` model and the `Position` format are the stability promise.** Everything else may churn.
 - **DRM is permanently out of scope** — DRM-free books only.
-- **Learn formats from specifications** (W3C EPUB, the MobileRead format wiki, the PalmDB spec), never from GPL source.
+- **MOBI/AZW3 are not supported and not planned** (2026-09-17). Do not propose a `mobi` decoder; the format seam is public, so a third party can add one.
+- **Learn formats from specifications** (W3C EPUB, the FictionBook 2 specification), never from GPL source.

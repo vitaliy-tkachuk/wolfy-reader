@@ -189,7 +189,7 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
   `rewriteRelativeImportExtensions` is what turns `./errors.ts` into `./errors.js`.
 
 - `scripts/banner.mjs` derives the entry list from `package.json`'s `exports` rather
-  than hardcoding paths, so `/mobi` and `/react` will be bannered the day they are
+  than hardcoding paths, so a `/react` subpath will be bannered the day it is
   added. It exports `banner` (the full comment), `attribution` (the same text without
   delimiters) and `entryFiles()`, which `check-pack.mjs` imports — so the two scripts
   cannot disagree about what a banner is.

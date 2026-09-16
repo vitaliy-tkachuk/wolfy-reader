@@ -131,8 +131,8 @@ Host and frame talk over one typed, versioned, validated `postMessage` protocol.
 
 - **DRM-free books only.** DRM is permanently out of scope: nothing here decrypts, circumvents or interoperates with a DRM scheme.
 - **Reflowable only.** Fixed-layout books are detected and reported so a host can refuse them.
-- **MOBI/AZW3** is planned.
-- Formats were learned from specifications — the W3C EPUB specs, the MobileRead format wiki, the PalmDB spec — never from GPL source. No code is taken from epub.js, foliate-js, Readium, PDF.js or JSZip.
+- **MOBI/AZW3 are not supported, and not planned.** Amazon's current format is closed, Amazon-sold books are DRM-locked, and the DRM-free remainder converts losslessly to EPUB with Calibre — feed the EPUB.
+- Formats were learned from specifications — the W3C EPUB specs and the FictionBook 2 specification — never from GPL source. No code is taken from epub.js, foliate-js, Readium, PDF.js or JSZip.
 
 ## Development
 

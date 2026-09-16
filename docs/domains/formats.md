@@ -6,8 +6,8 @@ The `formats` domain is the seam where raw bytes become a `Book`, and the home o
 the lightweight decoders that are *not* their own domain. Each format is a
 `BookFormat` (`{ name, sniff, decode }`) registered through the public `open(input,
 { formats })` seam — the same seam third parties use, with no format baked into
-core. EPUB (`src/formats/epub`) and MOBI (later) are heavy enough to own their own
-domain docs; this doc covers the seam itself and the plain-text decoder
+core. EPUB (`src/formats/epub`) is heavy enough to own its own domain doc; this doc
+covers the seam itself and the plain-text decoder
 (`src/formats/text`). Sniffers run in the caller's registration order and the first
 claim wins, so richer formats are listed before catch-all ones.
 

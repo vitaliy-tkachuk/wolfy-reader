@@ -16,13 +16,12 @@ const formats = [epub, fb2, text];
 
 /**
  * The format table: extension → the format list to decode it, and the extractor.
- * Extraction is format-neutral (every decoder emits markup sections), so MOBI slots
- * in later (M5-5) by adding a single `.mobi` row — the harness does not reshape.
+ * Extraction is format-neutral (every decoder emits markup sections), so a further
+ * format is a single row — the harness does not reshape.
  */
 const FORMAT_BY_EXT: Record<string, { formats: typeof formats }> = {
   '.epub': { formats },
   '.txt': { formats },
-  // '.mobi': { formats } — added in M5-5 alongside the mobi decoder.
 };
 
 async function filesIn(dir: URL): Promise<string[]> {

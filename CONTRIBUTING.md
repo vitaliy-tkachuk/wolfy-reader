@@ -43,7 +43,7 @@ GitHub Actions runs all of the above on every push to `main` and every pull requ
 
 `npm run check:pack` is the only check that exercises the *published* surface: the demo and the test suites import `/src/...` by path, which the `exports` map does not govern, so a packaging fault is invisible to them. Run it before any release.
 
-The differential decode suite (`test/differential.test.ts`) proves the decoders agree: for each title shipped as both EPUB and TXT, it decodes each, strips boilerplate, normalizes, and asserts the prose matches across formats. It skips gracefully when the corpus is absent. This is the safety net MOBI/AZW3 will be built against.
+The differential decode suite (`test/differential.test.ts`) proves the decoders agree: for each title shipped as both EPUB and TXT, it decodes each, strips boilerplate, normalizes, and asserts the prose matches across formats. It skips gracefully when the corpus is absent.
 
 Benchmark timings recorded in [`docs/domains/layout.md`](docs/domains/layout.md) are machine-specific. On different hardware, re-baseline with `npm run bench` and compare the chunked-vs-naive *ratios* (3–7x) rather than absolute milliseconds.
 

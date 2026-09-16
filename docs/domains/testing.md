@@ -6,9 +6,8 @@ Cross-format decoder testing: the differential harness that proves independent
 decoders agree on the same book's prose, plus the decode-without-crash sweeps over
 license-clean corpora. This domain owns the *comparison* strategy, not the per-format
 tests (those live with their formats). Its reason to exist is stated in PLAN §4: two
-editions of one Gutenberg title (EPUB, TXT, later MOBI) must extract to the same text
-— a cheap, strong correctness signal, and the designated safety net M5 (MOBI/AZW3) is
-built against.
+editions of one Gutenberg title (EPUB, TXT) must extract to the same text — a cheap,
+strong correctness signal, and the safety net any further decoder is built against.
 
 Code:
 
@@ -41,7 +40,7 @@ Code:
   section's bytes and works on any `Book`, because every decoder emits markup
   sections. There is no per-format extractor branch, so the harness never reshapes as
   formats are added. The format table in the suite (`FORMAT_BY_EXT`) is the only
-  extensible seam: MOBI (M5-5) is one `.mobi` row.
+  extensible seam: a further format is one row.
 
 ## Implementation notes
 
