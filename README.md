@@ -1,5 +1,7 @@
 # wolfy-reader
 
+[![npm](https://img.shields.io/npm/v/wolfy-reader)](https://www.npmjs.com/package/wolfy-reader)
+
 Read ebooks in the browser — with pages that turn, text you can search, and typography you can change without losing your place.
 
 A from-scratch, MIT-licensed, ESM-only TypeScript reading engine for EPUB, FB2 and plain text. Bytes in, a `Book` out, and a real reading view: paginated and scrolled modes, table-of-contents and link navigation, full-text search, live theme and typography controls, selection events and decorations. Zero runtime dependencies, and untrusted book content renders inside a hardened sandboxed iframe.
