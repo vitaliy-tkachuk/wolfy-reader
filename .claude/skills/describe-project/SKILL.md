@@ -1,13 +1,13 @@
 ---
 name: describe-project
-description: Use when the developer wants to fill project-specific documentation in this ai-spec-template — phrased as "describe project", "fill template docs", "set project description", "/describe-project". Asks for project type (web / desktop / CLI / library / other) to drive an adaptive stack category set, renders README.template.md → README.md, patches docs/architecture.md, appends stack-specific .gitignore entries, and updates the AGENTS.md "Project-specific guidance" section. No code, dependencies, or source tree. For scaffolding, use the analyze + implement skills afterward.
+description: Use when the developer wants to fill project-specific documentation in this ai-spec-template — phrased as "describe project", "fill template docs", "set project description", "/describe-project". Asks for project type (web / desktop / CLI / library / other) to drive an adaptive stack category set, renders docs/readme-template.md → README.md, patches docs/architecture.md, appends stack-specific .gitignore entries, and updates the AGENTS.md "Project-specific guidance" section. No code, dependencies, or source tree. For scaffolding, use the analyze + implement skills afterward.
 ---
 
 # Describe-project skill
 
-Documentation bootstrap. Replace template stubs in `docs/architecture.md` + `AGENTS.md` (`Unknown`, `TBD — fill in once the tech stack is established`) with real project info supplied by the developer, and regenerate `README.md` from `README.template.md` (substituting identity tokens during render — the template itself is never modified). Safe to re-run (e.g. after a stack pivot) — overwrites the same fields, `README.md` is rebuilt from the template each time.
+Documentation bootstrap. Replace template stubs in `docs/architecture.md` + `AGENTS.md` (`Unknown`, `TBD — fill in once the tech stack is established`) with real project info supplied by the developer, and regenerate `README.md` from `docs/readme-template.md` (substituting identity tokens during render — the template itself is never modified). Safe to re-run (e.g. after a stack pivot) — overwrites the same fields, `README.md` is rebuilt from the template each time.
 
-The skill collects project info (including project **type**, which drives the stack categories), patches `docs/architecture.md`, renders `README.template.md` → `README.md` (substituting `{{PROJECT_NAME}}`, `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_PURPOSE}}`; template kept in place), appends stack-specific entries to `.gitignore`, and updates the `## Project-specific guidance` block in `AGENTS.md`.
+The skill collects project info (including project **type**, which drives the stack categories), patches `docs/architecture.md`, renders `docs/readme-template.md` → `README.md` (substituting `{{PROJECT_NAME}}`, `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_PURPOSE}}`; template kept in place), appends stack-specific entries to `.gitignore`, and updates the `## Project-specific guidance` block in `AGENTS.md`.
 
 **Bootstrap only.** This skill writes Markdown docs plus a managed `.gitignore` block. It does not install dependencies, scaffold code, create source files, or initialize a source tree. Stack values entered here are descriptive text recorded in `docs/architecture.md` — not setup actions. For actual scaffolding, run the `analyze` skill on a setup task afterward.
 
@@ -51,9 +51,9 @@ Run this **before** Step 3 so the README render in Step 3 can mirror the now-fin
 
 Leave `## Important boundaries` and `## Known constraints` as-is (they fill over time).
 
-## Step 3 — Render `README.md` from `README.template.md`
+## Step 3 — Render `README.md` from `docs/readme-template.md`
 
-1. Read `README.template.md`.
+1. Read `docs/readme-template.md`.
 2. Substitute identity tokens with the answers from Step 1:
    - `{{PROJECT_NAME}}` → project name
    - `{{PROJECT_DESCRIPTION}}` → one-line description
@@ -61,7 +61,7 @@ Leave `## Important boundaries` and `## Known constraints` as-is (they fill over
 3. Replace the entire `## Stack` block in the rendered output with the rows mirrored verbatim from `docs/architecture.md ## Current stack` (single source of truth — architecture.md), one `- <Category>: <value>` per line, with the same categories and order architecture.md now uses.
 4. Write the result to `README.md`, overwriting any prior content.
 
-Leave `README.template.md` in place — it stays in the repo as a reference for the rendering contract.
+Leave `docs/readme-template.md` in place — it stays in the repo as a reference for the rendering contract.
 
 **Warning:** Re-running this skill overwrites `README.md` entirely. Any `## Getting Started`, `## Running Locally`, or `## Building & Releasing` sections previously appended by the `implement` skill during scaffolding will be wiped. After re-render, re-run implement on the relevant scaffold task to restore them.
 
@@ -127,7 +127,7 @@ Run `git status` to confirm which files changed, then print a short receipt:
 
 ```
 Described project: <project name> (<project type>)
-Updated: README.md (rendered from README.template.md), docs/architecture.md, AGENTS.md, .gitignore
+Updated: README.md (rendered from docs/readme-template.md), docs/architecture.md, AGENTS.md, .gitignore
 Stack: <comma-separated category: value pairs, or "TBD" for deferred fields>
 Next: review the diff (`git diff`), commit the docs changes. For scaffolding (install deps, create source tree, configure tooling), run analyze on a setup task.
 ```
@@ -141,5 +141,5 @@ If the repo has no `graphify-out/` yet, add one line to the receipt: `Once sourc
 - Only touch `.gitignore` inside the `# --- stack-specific (managed by describe-project) ---` markers — never rewrite the base entries above them.
 - Never invent stack values — use `TBD` for anything the developer did not supply.
 - Never invent stack categories beyond what the chosen project type defines (or what the developer named for "Other").
-- Never delete `README.template.md` — leave it in the repo as the rendering contract reference.
+- Never delete `docs/readme-template.md` — leave it in the repo as the rendering contract reference.
 - Never start scaffolding tasks or decisions — that is the `analyze` skill's job.
