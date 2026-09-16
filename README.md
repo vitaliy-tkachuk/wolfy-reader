@@ -84,6 +84,24 @@ import { text } from 'wolfy-reader/text';
 const book = await open(bytes, { formats: [text] });
 ```
 
+## React
+
+`wolfy-reader/react` wraps the same facade for React 19. React is an optional peer: it is never installed unless you already have it, and no other subpath imports it.
+
+```tsx
+import { Reader, useReader } from 'wolfy-reader/react';
+
+// The component: options as props, one callback per event, the facade through ref.
+<Reader book={book} theme="sepia" fontSize={19} onPositionChange={(at) => save(at)} />
+
+// The hook, when your own element and layout are in charge.
+const { ref, reader, position } = useReader(book, { mode: 'scrolled' });
+<div ref={ref} />
+<button onClick={() => reader?.next()}>next</button>
+```
+
+Changing a prop calls `setAppearance` or `setMode` on the live reader; only a new `book` remounts. Any other framework calls `render(book, element)` directly — it takes a plain `HTMLElement`.
+
 ## Features
 
 | | |
@@ -99,7 +117,7 @@ const book = await open(bytes, { formats: [text] });
 
 ## Package surface
 
-Five subpaths, listed longhand — internal modules are not importable. Sizes are minified + gzipped, and each has a budget CI refuses to exceed.
+Six subpaths, listed longhand — internal modules are not importable. Sizes are minified + gzipped, and each has a budget CI refuses to exceed.
 
 | Import | Contains | Size |
 | --- | --- | --- |
@@ -108,6 +126,7 @@ Five subpaths, listed longhand — internal modules are not importable. Sizes ar
 | `wolfy-reader/epub` | EPUB decoder (the only entry carrying the ZIP reader) | ~6.6 kB |
 | `wolfy-reader/fb2` | FB2 decoder | ~3.7 kB |
 | `wolfy-reader/text` | Plain-text decoder | ~1.4 kB |
+| `wolfy-reader/react` | `useReader` + `Reader` for React 19 — carries the facade; React itself is an optional peer | ~30 kB |
 
 ## Stability
 

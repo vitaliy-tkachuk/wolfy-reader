@@ -47,8 +47,12 @@ async function withWorkspace(run: (root: string) => Promise<void>): Promise<void
   await rm(workspace, { recursive: true, force: true });
 }
 
-async function writeManifest(root: string, dependencies: Record<string, string>): Promise<void> {
-  const manifest = { name: 'guard-fixture', version: '0.0.0', private: true, dependencies };
+async function writeManifest(
+  root: string,
+  dependencies: Record<string, string>,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  const manifest = { name: 'guard-fixture', version: '0.0.0', private: true, dependencies, ...extra };
   await writeFile(join(root, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
@@ -75,6 +79,31 @@ test('the dependency guard fails on a non-empty dependencies map', async () => {
     assert.equal(status, 1);
     assert.match(output, /dependencies must stay empty/);
     assert.match(output, /left-pad/);
+  });
+});
+
+test('the peer guard fails on a peer dependency that is not marked optional', async () => {
+  await withWorkspace(async (root) => {
+    await writeManifest(root, {}, { peerDependencies: { react: '^19' } });
+
+    const { status, output } = runGuard('check-guards.mjs', [`--root=${root}`]);
+    assert.equal(status, 1);
+    assert.match(output, /peer dependencies must be optional/);
+    assert.match(output, /react/);
+  });
+});
+
+test('the peer guard passes when every peer is optional', async () => {
+  await withWorkspace(async (root) => {
+    await writeManifest(
+      root,
+      {},
+      { peerDependencies: { react: '^19' }, peerDependenciesMeta: { react: { optional: true } } },
+    );
+
+    const { status, output } = runGuard('check-guards.mjs', [`--root=${root}`]);
+    assert.equal(status, 0, output);
+    assert.match(output, /all 1 peer dependencies are optional/);
   });
 });
 

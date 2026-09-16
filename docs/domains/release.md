@@ -42,9 +42,19 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
 
 ## Key decisions
 
-- **Five subpaths, no wildcards: `.`, `/core`, `/epub`, `/fb2`, `/text`** (plus
-  `./package.json`). The map is the only thing enforcing public-vs-internal at
-  runtime, so it is written out longhand — a wildcard would publish the whole tree.
+- **Six subpaths, no wildcards: `.`, `/core`, `/epub`, `/fb2`, `/text`, `/react`**
+  (plus `./package.json`). The map is the only thing enforcing public-vs-internal
+  at runtime, so it is written out longhand — a wildcard would publish the whole
+  tree.
+
+- **React is an optional peer, and every peer must be.** npm 7+ auto-installs a
+  non-optional peer, which would put React into a vanilla or Vue app that only
+  wanted the EPUB decoder. `peerDependenciesMeta.react.optional: true` is the
+  load-bearing line; `check:guards` refuses any peer without it, and `check:pack`
+  asserts the tarball install brought in no peer before installing them for its
+  own probes. `react-dom` is not a peer: the bindings import `react` only, and the
+  renderer is the host's choice. The peer range is `^19` (the bindings use `ref`
+  as a prop).
 
 - **One subpath per format, not a `./formats` barrel.** The decoders' emitted
   closures differ by an order of magnitude — `text` reaches 3 modules, `fb2` 10,
@@ -189,8 +199,7 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
   `rewriteRelativeImportExtensions` is what turns `./errors.ts` into `./errors.js`.
 
 - `scripts/banner.mjs` derives the entry list from `package.json`'s `exports` rather
-  than hardcoding paths, so a `/react` subpath will be bannered the day it is
-  added. It exports `banner` (the full comment), `attribution` (the same text without
+  than hardcoding paths, so a new subpath is bannered the day it is added. It exports `banner` (the full comment), `attribution` (the same text without
   delimiters) and `entryFiles()`, which `check-pack.mjs` imports — so the two scripts
   cannot disagree about what a banner is.
 
@@ -246,9 +255,12 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
 
 - **Measured gzipped sizes at the time the budgets were set** (minified bundle,
   esbuild, `target: es2022`): `.` 30,324 / 38,000 · `/core` 2,348 / 3,000 · `/epub`
-  6,562 / 8,250 · `/fb2` 3,693 / 4,750 · `/text` 1,399 / 1,750. The root is an order
-  of magnitude larger than `/core` because it carries the paginator and the view;
-  that ratio is the thing the budget is really watching.
+  6,562 / 8,250 · `/fb2` 3,693 / 4,750 · `/text` 1,399 / 1,750 · `/react` 29,975 /
+  37,500. The root is an order of magnitude larger than `/core` because it carries
+  the paginator and the view; that ratio is the thing the budget is really watching.
+  `/react` weighs what the root weighs because it bundles the facade; the bindings
+  themselves are under a kilobyte, and a consumer that imports both shares the
+  modules. Peers are `external` to the measurement, so React never counts.
 
 - **`check-size.mjs` pins esbuild's `target` to `es2022`.** The default target drifts
   with esbuild's version, which would move every number here for reasons that have

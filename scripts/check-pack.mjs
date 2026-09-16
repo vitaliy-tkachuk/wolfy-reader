@@ -20,6 +20,7 @@ const SUBPATHS = [
   { specifier: './epub', values: ['epub'], format: 'epub' },
   { specifier: './fb2', values: ['fb2'], format: 'fb2' },
   { specifier: './text', values: ['text'], format: 'text' },
+  { specifier: './react', values: ['useReader', 'Reader'] },
 ];
 
 // Paths a consumer might reasonably reach for and must not get. The exports map is
@@ -28,6 +29,7 @@ const SUBPATHS = [
 const REFUSED = [
   'wolfy-reader/dist/view/host.js',
   'wolfy-reader/dist/core/index.js',
+  'wolfy-reader/dist/react/index.js',
   'wolfy-reader/src/core/index.ts',
   'wolfy-reader/formats',
 ];
@@ -124,8 +126,23 @@ import type { BookFormat, TocItem } from 'wolfy-reader/core';
 import { epub } from 'wolfy-reader/epub';
 import { fb2 } from 'wolfy-reader/fb2';
 import { text } from 'wolfy-reader/text';
+import { Reader as ReaderView, useReader } from 'wolfy-reader/react';
+import type { ReaderHandle, ReaderProps, UseReaderResult } from 'wolfy-reader/react';
+import { createElement } from 'react';
+import type { ReactElement } from 'react';
 
 const formats: readonly BookFormat[] = [epub, fb2, text];
+
+// The React subpath's handle type must be the facade's own Reader, not a parallel
+// declaration — a consumer holds one and calls the other.
+export function reactProbe(book: Book): ReactElement {
+  const props: ReaderProps = { book, theme: 'sepia', fontSize: 18, onReady: (at: ReaderPosition) => void at };
+  const hooked: UseReaderResult = useReader(book, { mode: 'scrolled' });
+  const handle: ReaderHandle | null = hooked.reader;
+  const facade: Reader | null = handle;
+  if (facade !== null) void facade.next();
+  return createElement(ReaderView, props);
+}
 
 export async function probe(bytes: ArrayBuffer, element: HTMLElement): Promise<void> {
   const book: Book = await open(bytes, { formats });
@@ -248,6 +265,36 @@ async function main() {
     return;
   }
   pass(`installed ${fromRegistry === null ? 'the tarball' : source} into a scratch consumer`);
+
+  // Optional peers are not auto-installed, which is the point of marking them so:
+  // the install above must have brought in no peer at all. The probes need them,
+  // so they are installed only now, at the version the peer range resolves to.
+  const peers = Object.keys(manifest.peerDependencies ?? {});
+  const installedPeers = [];
+  for (const peer of peers) {
+    try {
+      await stat(join(consumer, 'node_modules', peer));
+      installedPeers.push(peer);
+    } catch {
+      // absent — correct
+    }
+  }
+  if (installedPeers.length > 0) fail(`optional peer(s) were installed with the package: ${installedPeers.join(', ')}`);
+  else pass(`no peer was installed with the package (${peers.length} declared, all optional)`);
+  const peerSpecs = [
+    ...peers.map((peer) => `${peer}@${manifest.peerDependencies[peer]}`),
+    ...(peers.includes('react') ? [`react-dom@${manifest.peerDependencies.react}`, `@types/react@${manifest.peerDependencies.react}`] : []),
+  ];
+  if (peerSpecs.length > 0) {
+    try {
+      run('npm', ['install', ...peerSpecs, '--no-audit', '--no-fund', '--no-package-lock'], consumer);
+      pass(`installed the peers for the probes: ${peerSpecs.join(', ')}`);
+    } catch (error) {
+      fail(`installing peers failed:\n${error.stderr || error.message}`);
+      console.error(`\nscratch workspace kept for inspection: ${workspace}`);
+      return;
+    }
+  }
 
   const installed = join(consumer, 'node_modules', 'wolfy-reader');
 

@@ -96,7 +96,7 @@ function readerFromSource(root: string): UserConfig {
   }
   console.warn(`\n  wolfy-reader is served from source: ${root}\n`);
   return {
-    resolve: { alias },
+    resolve: { alias, dedupe: ['react', 'react-dom'] },
     server: { fs: { allow: [searchForWorkspaceRoot(process.cwd()), root] } },
     define: { __WOLFY_READER_SRC__: JSON.stringify(root) },
   };
@@ -120,7 +120,7 @@ What each part is for:
 - **Exact-match aliases** (`/^wolfy-reader\/epub$/`, not a prefix) mean the order of the entries does not matter, which is what makes deriving the list from `exports` safe. The library's sources import each other with explicit `.ts` extensions, which Vite resolves as-is — the checkout needs no build.
 - **`server.fs.allow`** is required: the checkout is outside the app's root and Vite's dev server refuses to serve it otherwise (a 403 on `/@fs/...`). Setting `allow` switches off Vite's automatic workspace-root detection, so the app's own root has to be put back with `searchForWorkspaceRoot`.
 - **The banner** is printed when the config is evaluated and stamped into the bundle through `define`, so both the terminal and the page say where the library came from. Both are inert when the variable is unset.
-- Once a `/react` subpath ships, add `resolve: { dedupe: ['react', 'react-dom'] }` to the returned config so the aliased source and the app share one React.
+- **`resolve.dedupe: ['react', 'react-dom']`** belongs in the returned config when the app uses `wolfy-reader/react`: the aliased source resolves `react` from the checkout's `node_modules`, and two React copies break hooks.
 
 Two rules that follow from it:
 

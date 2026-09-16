@@ -87,6 +87,29 @@ async function checkDependencies() {
   pass('dependencies is empty');
 }
 
+// npm 7+ installs a non-optional peer automatically, so a peer that is not marked
+// optional is a runtime dependency for every consumer — including the ones that
+// never import the subpath that needs it. A React peer without the flag would put
+// React into a vanilla or Vue app that only wanted the EPUB decoder.
+async function checkPeers() {
+  const manifestPath = join(repoRoot, 'package.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  } catch {
+    return;
+  }
+
+  const peers = Object.keys(manifest.peerDependencies ?? {});
+  const meta = manifest.peerDependenciesMeta ?? {};
+  const required = peers.filter((name) => meta[name]?.optional !== true);
+  if (required.length > 0) {
+    fail(`peer dependencies must be optional, found required: ${required.join(', ')}`);
+    return;
+  }
+  pass(peers.length === 0 ? 'no peer dependencies' : `all ${peers.length} peer dependencies are optional`);
+}
+
 async function* textFilesIn(dir) {
   let entries;
   try {
@@ -156,6 +179,7 @@ async function checkCorpus() {
 
 async function main() {
   await checkDependencies();
+  await checkPeers();
   await checkVocabulary();
   if (process.argv.includes('--require-corpus')) await checkCorpus();
 

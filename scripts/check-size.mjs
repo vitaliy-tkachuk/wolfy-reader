@@ -21,6 +21,7 @@ const BUDGETS = {
   './epub': 8_250,
   './fb2': 4_750,
   './text': 1_750,
+  './react': 37_500,
 };
 
 function argValue(name) {
@@ -56,6 +57,8 @@ async function measure(entry) {
     format: 'esm',
     platform: 'browser',
     target: 'es2022',
+    // A peer is the consumer's to ship; the budget measures the library's own bytes.
+    external: Object.keys(manifest.peerDependencies ?? {}).flatMap((peer) => [peer, `${peer}/*`]),
     write: false,
     logLevel: 'silent',
   });
