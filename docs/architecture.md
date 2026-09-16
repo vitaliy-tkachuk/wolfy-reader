@@ -26,7 +26,7 @@ The source tree exists as scaffolding; decoders, paginator and view fill the dir
 - `src/formats` — per-format decoders (`epub`, `fb2`, `text`), each producing a `Book`
 - `src/layout` — the paginator: chunked, virtualized CSS multi-column
 - `src/view` — the renderer and hardened sandboxed-iframe host: `ContentHost` turns a `Section` into live markup in an opaque-origin frame
-- `src/react` — React bindings as a separate subpath export (reserved; whether it ships in v1 is an open decision, so the directory is not created yet)
+- `src/react` — React 19 bindings over the reader facade (`useReader` hook + `Reader` component), written without JSX; importable by path today, published as its own subpath by the packaging work. See [`docs/domains/react.md`](domains/react.md)
 - `test/fixtures` — small, license-clean book fixtures (committed), including the hostile EPUB and the machine-readable vector manifest the view's security tests iterate
 - `test/browser` — the Playwright tier: the harness page plus the suites for anything a browser is load-bearing for (`npm run test:browser`)
 - `test/corpus` — Project Gutenberg / Standard Ebooks corpus (gitignored, downloaded by `scripts/fetch-corpus.mjs`)
