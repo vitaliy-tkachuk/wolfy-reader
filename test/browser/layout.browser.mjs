@@ -356,10 +356,14 @@ describe('corpus timing budgets (nice-to-have)', { ...skipAll, ...skipCorpus }, 
   // paginate calls would move with both, so a uniform slowdown would divide out
   // and the guard would be blind to exactly the regression it exists to catch.
   //
-  // Sampled on an M-series laptop, five runs: unit 3.4-3.8 ms, render 61-86 in-suite
-  // units, re-layout 0.9-3.9 units. The thresholds sit far above that spread —
-  // this is an order-of-magnitude tripwire, not a benchmark. `npm run bench` is
-  // where real numbers live.
+  // Sampled on an M-series laptop: unit 3.4-4.6 ms, render 61-86 units, re-layout
+  // 0.9-3.9 units. On ubuntu-latest: unit 6.5-11.0 ms, render 75-100 units,
+  // re-layout 0.9-5.1 units. Calibration removes most of the machine difference —
+  // 830 ms there and 250 ms here are ~75u and ~70u — but not all of it: the paginate
+  // path includes frame round-trips that do not scale with pure layout speed, so the
+  // ratio itself still drifts ~30% between runners. The thresholds clear the widest
+  // observation by ~2.5x. An order-of-magnitude tripwire, not a benchmark;
+  // `npm run bench` is where real numbers live.
   const RENDER_UNITS = 250;
   const RELAYOUT_UNITS = 25;
 

@@ -194,6 +194,15 @@ paginator — a ratio between two paginate calls moves with both, so a uniform
 slowdown would divide out and leave the guard blind to it. The case remains
 nice-to-have rather than gating, and skips when the corpus is absent.
 
+**Calibration removes most of the machine difference, not all of it.** Measured
+across two runners: a laptop renders the largest real section in ~250 ms and
+`ubuntu-latest` in ~830 ms, which is ~70 and ~75 machine units — the point of the
+unit. But the ratio still drifts about 30% between CI runs (75u and 100u on
+consecutive runs of one commit), because the paginate path includes frame
+round-trips that do not scale with pure layout speed. So the thresholds keep real
+headroom over the widest observation rather than hugging it; a guard tightened to
+the best-looking sample is a guard that goes red on a busy afternoon.
+
 **Stability.** Render times repeat to ±0.5 ms across separate full invocations,
 against effect sizes of 3–7×. Independently, the built paginator's *page count* is
 now asserted stable directly: `test/browser/layout.browser.mjs` paginates the same
