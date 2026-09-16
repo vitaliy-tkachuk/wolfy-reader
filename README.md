@@ -247,8 +247,9 @@ derives from the Conventional Commit subjects since the last tag. Merging it tag
 release and publishes to npm from GitHub Actions, authenticated by OIDC trusted
 publishing with provenance — there is no `NPM_TOKEN` in this repository and no manual
 `npm publish` step. The publish job re-runs the full check suite first, because a
-bot-opened pull request does not trigger CI. After publishing, a smoke job installs
-the released version from the registry and imports every subpath
+bot-opened pull request does not run CI until a maintainer approves it. After
+publishing, a smoke job installs the released version from the registry and
+imports every subpath
 (`npm run check:pack -- --from-registry=<version>`).
 
 See [`docs/domains/release.md`](docs/domains/release.md) for the flow and the
