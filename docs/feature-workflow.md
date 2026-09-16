@@ -25,7 +25,7 @@ Three Claude Code skills drive feature work (`.claude/skills/`):
 - `/implement <task-id-or-fix>` — runs the plan, verifies, distills knowledge into the domain doc, deletes the task file.
 - `/describe-project` — one-time docs bootstrap (README, architecture.md, AGENTS.md).
 
-A fourth, optional skill sits alongside them: `/graphify` builds the committed knowledge graph that `analyze` and `implement` query for cheap context. It is not part of the task lifecycle — see [Context review](#context-review-level-2) and [`README.md`](../README.md) for setup.
+A fourth, optional skill sits alongside them: `/graphify` builds the committed knowledge graph that `analyze` and `implement` query for cheap context. It is not part of the task lifecycle — see [Context review](#context-review-level-2) and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for setup.
 
 Other AI tools follow the same workflow by reading `AGENTS.md` — workflow is tool-agnostic.
 
@@ -226,7 +226,7 @@ See [`docs/domains/README.md`](domains/README.md) for the per-domain section str
 4. Distill durable knowledge into `docs/domains/<domain>.md` (create the file from the shape in `docs/domains/README.md` if the domain is new).
 5. If the work introduced or changed a cross-cutting choice → record it in `docs/architecture.md` (woven into the relevant section).
 6. If the work introduced a cross-domain reusable pattern → append it to `docs/patterns.md`. (Domain-local patterns go in the domain doc instead.)
-7. If the task established repo-level commands → update `README.md`.
+7. If the task established repo-level commands → update `CONTRIBUTING.md` (and `README.md` if the public surface changed).
 8. Decide whether the knowledge graph needs a **committed** refresh (skip entirely if the repo has no `graphify-out/`). The local `post-commit` hook already rebuilt it for free, so this is only about what lands in git: commit the refresh when this task changed the repo's *shape* — added, removed, renamed, or moved files/modules, or opened a new domain — or when it was doc/semantic-heavy (then run `graphify . --update` first; the semantic layer and community labels are not auto-refreshed). For a fix inside existing files, leave it; the graph locates code and the agent reads the real files anyway. When you do refresh, commit `graphify-out/` **separately** (`chore: refresh knowledge graph`) — never staged together with the task's own commit. See [`AGENTS.md`](../AGENTS.md#knowledge-graph--query-it-first-to-save-tokens) for the full cadence.
 9. Delete the local task file.
 10. Commit the change (see [Committing](#committing)).

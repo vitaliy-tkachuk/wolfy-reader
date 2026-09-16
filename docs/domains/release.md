@@ -96,7 +96,8 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
   renders it verbatim and caches it *per version*, so it is part of the release
   surface rather than repo furniture. It opens for a stranger deciding whether to
   install — what the library does, `npm install`, a working example — and everything
-  about developing the library sits below a `# Development` divider. Four statements
+  about developing the library sits in `CONTRIBUTING.md`, with a short `## Development`
+  pointer at the bottom of the README. Four statements
   must survive every edit: zero ***runtime*** dependencies (the qualifier is not
   optional — four devDependencies exist), the stability contract (`Book` and
   `Position` are the semver promise, honestly `0.x` until a real consumer has
