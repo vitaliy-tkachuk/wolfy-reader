@@ -271,9 +271,10 @@ pushing it is separate work.
   and `npm install <tarball>`. That is free on a GitHub-hosted runner, but it is the
   step most likely to fail for reasons that have nothing to do with the change.
 
-- **One browser test is a timing ceiling and sits close to it.** The corpus timing
-  budget in the layout suite asserts an order-of-magnitude tripwire against a
-  machine-specific reference; it has been observed to trip on a fast machine under
-  load and is the likeliest source of a red `browser` job on slower shared runners.
-  If it flakes in CI, re-baseline the ceiling in the layout domain — do not delete
-  the assertion and do not paper over it with a retry.
+- **A CI runner's speed is not a constant, so no test may assert wall-clock
+  milliseconds.** The same commit measured 574 ms and then 1139 ms for identical work
+  on consecutive `browser` runs. The corpus timing budget in the layout suite
+  therefore measures a fixed text-layout loop in the same run and asserts the
+  paginator's cost as a multiple of that unit — see [`layout.md`](layout.md). A guard
+  that compares against a number recorded on someone's laptop reports the runner's
+  mood, not a regression.

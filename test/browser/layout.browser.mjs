@@ -345,6 +345,24 @@ describe('decoration realization window', { ...skipAll }, () => {
 });
 
 describe('corpus timing budgets (nice-to-have)', { ...skipAll, ...skipCorpus }, () => {
+  // The ceiling is expressed in machine units, not milliseconds. A millisecond
+  // ceiling measured on one laptop says nothing on a shared 2-core runner, where
+  // the same commit has measured 574 ms and 1139 ms for identical work. So the
+  // page first times a fixed text-layout loop — the machine unit — and the
+  // paginator's cost is asserted as a multiple of it: machine speed cancels, a
+  // paginator regression does not.
+  //
+  // The calibration deliberately does not use the paginator. A ratio between two
+  // paginate calls would move with both, so a uniform slowdown would divide out
+  // and the guard would be blind to exactly the regression it exists to catch.
+  //
+  // Sampled on an M-series laptop, five runs: unit 3.4-3.8 ms, render 61-86 in-suite
+  // units, re-layout 0.9-3.9 units. The thresholds sit far above that spread —
+  // this is an order-of-magnitude tripwire, not a benchmark. `npm run bench` is
+  // where real numbers live.
+  const RENDER_UNITS = 250;
+  const RELAYOUT_UNITS = 25;
+
   test('rendering and re-layout of the largest real section stay within reference ceilings', async () => {
     const opened = await page.evaluate(() => window.harness.openBook('/corpus/gutenberg-pride-and-prejudice.epub'));
     if (opened === null) {
@@ -352,18 +370,48 @@ describe('corpus timing budgets (nice-to-have)', { ...skipAll, ...skipCorpus }, 
       return;
     }
     await page.evaluate(() => window.harness.createPaginator());
-    const render = await page.evaluate(async () => {
-      const t0 = performance.now();
-      await window.harness.paginateSection('item8', { mode: 'paginated', pageWidth: 700, pageHeight: 560 });
-      const renderMs = performance.now() - t0;
-      const t1 = performance.now();
-      await window.harness.refine();
-      return { renderMs, relayoutMs: performance.now() - t1 };
+    const measured = await page.evaluate(async () => {
+      // A fixed text-layout workload: rewrite a paragraph and force layout by
+      // reading its box. Same subsystem the paginator leans on, no paginator
+      // involved. The median of three absorbs a stray scheduling hiccup.
+      const calibrationMs = () => {
+        const host = document.createElement('div');
+        host.style.cssText = 'position:absolute;left:-9999px;top:0;width:640px;font:16px/1.5 serif;';
+        document.body.append(host);
+        const para = '<p>' + 'the quick brown fox jumps over the lazy dog '.repeat(40) + '</p>';
+        const t0 = performance.now();
+        for (let i = 0; i < 40; i += 1) {
+          host.innerHTML = para;
+          void host.getBoundingClientRect().height;
+        }
+        const ms = performance.now() - t0;
+        host.remove();
+        return ms;
+      };
+      const time = async (fn) => {
+        const t = performance.now();
+        await fn();
+        return performance.now() - t;
+      };
+      calibrationMs(); // warm-up, discarded
+      const unit = [calibrationMs(), calibrationMs(), calibrationMs()].sort((a, b) => a - b)[1];
+      const request = { mode: 'paginated', pageWidth: 700, pageHeight: 560 };
+      const renderMs = await time(() => window.harness.paginateSection('item8', request));
+      // relayout(), not refine(): refine returns immediately once the state is
+      // firm, so timing it measures an early return rather than a re-layout.
+      const relayoutMs = await time(() => window.harness.relayout());
+      return { unit, renderMs, relayoutMs };
     });
-    // Generous multiples of the recorded ceilings (render ≈20.2 ms, re-layout
-    // ≈9.6 ms on that machine): this is a regression tripwire on much slower CI,
-    // not a benchmark. It only fails on an order-of-magnitude regression.
-    assert.ok(render.renderMs < 20.2 * 20, `render took ${render.renderMs.toFixed(1)} ms`);
-    assert.ok(render.relayoutMs < 9.6 * 30, `re-layout took ${render.relayoutMs.toFixed(1)} ms`);
+
+    const renderUnits = measured.renderMs / measured.unit;
+    const relayoutUnits = measured.relayoutMs / measured.unit;
+    const report =
+      `unit=${measured.unit.toFixed(1)}ms render=${measured.renderMs.toFixed(1)}ms (${renderUnits.toFixed(1)}u) ` +
+      `re-layout=${measured.relayoutMs.toFixed(1)}ms (${relayoutUnits.toFixed(1)}u)`;
+    // Printed on success too: the ratios from real runners are the only evidence
+    // for tightening these thresholds later.
+    console.log(`  timing: ${report}`);
+    assert.ok(renderUnits < RENDER_UNITS, `render exceeded ${RENDER_UNITS} machine units — ${report}`);
+    assert.ok(relayoutUnits < RELAYOUT_UNITS, `re-layout exceeded ${RELAYOUT_UNITS} machine units — ${report}`);
   });
 });

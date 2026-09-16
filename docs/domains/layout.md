@@ -179,9 +179,20 @@ across runs.
 | naive | 89 | 59.2 | 38.4 | 0.10 / 0.20 | 0.10 / 0.20 | 1.6 MB | 1082 / 2125 |
 | chunked | 96 | **20.2** | **9.6** | 0.10 / 2.90 | 0.80 / 3.00 | 2.9 MB | 1103 / 2151 |
 
-These render (≈32.8 / 20.2 ms) and re-layout (≈14.6 / 9.6 ms) figures are the
-reference ceilings the browser timing test asserts against as a regression guard;
-they are nice-to-have, not gating, and skip when the corpus is absent.
+These figures are measurements of one machine through the bench harness. They are
+**not** what the browser timing test asserts, and they are not comparable to what it
+measures: the bench times a strategy's render, while the browser guard times the
+public `paginate()` path end to end, which is a different and larger piece of work.
+
+**The browser timing guard is denominated in machine units, not milliseconds.** The
+page first times a fixed text-layout loop — rewrite a paragraph, read its box, forty
+times — and then asserts the paginator's cost as a multiple of that unit. Machine
+speed cancels out, which is the whole point: the same commit measured 574 ms and
+1139 ms on consecutive CI runs, so any absolute ceiling is a statement about the
+runner rather than about the paginator. The calibration deliberately avoids the
+paginator — a ratio between two paginate calls moves with both, so a uniform
+slowdown would divide out and leave the guard blind to it. The case remains
+nice-to-have rather than gating, and skips when the corpus is absent.
 
 **Stability.** Render times repeat to ±0.5 ms across separate full invocations,
 against effect sizes of 3–7×. Independently, the built paginator's *page count* is
@@ -276,6 +287,11 @@ asserts `textContent` matches paginated mode modulo whitespace with no clipping.
 
 ## Gotchas
 
+- **`refine()` cannot be used to measure what a re-layout costs.** It returns the
+  current state immediately when that state is already firm, so timing it measures an
+  early return — a timing assertion built on it passes without any work happening.
+  `relayout()` is the unconditional path and the one to time; the browser harness
+  exposes both for exactly this reason.
 - **`content-visibility: auto` applies layout containment, and a layout-contained
   box cannot fragment across columns.** Measured: six blocks in one 400×300 column
   flow occupy 50 columns plain and 6 columns with `content-visibility: auto` — one

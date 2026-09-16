@@ -264,6 +264,15 @@
       return paginator.refine();
     },
 
+    /**
+     * Forces a full re-layout. `refine()` returns immediately once the state is
+     * firm, so it cannot be used to measure what a re-layout costs — a timing
+     * assertion built on it passes without doing any work.
+     */
+    async relayout() {
+      return paginator.relayout();
+    },
+
     async goToPage(page) {
       return paginator.goToPage(page);
     },
