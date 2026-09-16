@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * Browser tests for image handling + tap-to-zoom (T004). Column containment of an
+ * Browser tests for image handling + tap-to-zoom. Column containment of an
  * oversized image, the tap→overlay gesture, focus management across the sandbox
  * boundary, and prefers-reduced-motion emulation are real-DOM / real-layout /
  * real-input behaviours that headless node:test cannot observe — so full Chromium.

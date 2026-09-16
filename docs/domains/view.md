@@ -170,7 +170,7 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **Protocol is at v9.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below), then a `columnCount` field on `PaginateOptions` for the typography half's 1-or-2 columns (v8 — column geometry is the paginator's, so it rides the wire while the other typography knobs ride the srcdoc stylesheet; see [`appearance.md`](appearance.md)), then the draw-only decorations channel (`decorate`/`undecorate`/`decorated`, v9 — see Decorations below); `PROTOCOL_VERSION` is `9`, and the frame's hand-written validator (`coordinationScript`'s `validateHost`, a copy of `asHostMessage`) is kept in step with `asHostMessage`/`asFrameMessage` by hand.
 
-### Human input — keyboard, swipe, tap zones (T003)
+### Human input — keyboard, swipe, tap zones
 
 The reader is operable by hand: keyboard, touch swipe, and configurable tap zones turn pages, all direction-aware. The mapping logic lives in `src/reader/input.ts` — a pure, DOM-free, unit-checkable module of a key table plus swipe/tap geometry — and the facade wires it to navigation.
 
@@ -252,7 +252,7 @@ The host relays it through `ContentHostOptions.onImageTap({src, alt})`, which th
 
 **Zoom is reachable without a pointer.** A figure is tap-to-zoom, but a keyboard user must be able to open it too, so `frame.ts` makes each content image focusable and activatable: `markImage` gives every `<img>` `tabindex="0"`, `role="button"`, and an `aria-label` (from `alt`), and `Enter`/`Space` on a focused image forwards the **same** `imagetap` message a pointer tap does. Images are marked on `DOMContentLoaded` (the section content ships in the initial srcdoc, so the initial pass catches it) and by a `MutationObserver` as later chunks realize — idempotently, and adding only ARIA/tabindex attributes, so it grants the sandbox no new capability. On close, focus returns to the reader mount (the pre-open active element lives inside the opaque frame and is unreachable from the host), which is the sensible anchor.
 
-### Accessibility (T002 — the pointer-free contract)
+### Accessibility — the pointer-free contract
 
 Every reader function is operable from the keyboard, and the guarantee is tested, not assumed. `test/browser/a11y.browser.mjs` is a keyboard-only walkthrough: `Home`/`End`/arrows drive navigation with the frame focused (input forwarded from the frame, never caught on the host — see Human input); a focused image opens the zoom overlay on `Enter`, which traps focus and returns it to a sensible anchor (not the body) on `Escape`; and under `prefers-reduced-motion: reduce` the overlay appears instantly while input is never gated. The audit's one real finding — image-zoom had no keyboard path — is fixed above. The reduced-motion rule is a standing one: the reader's only animation is the zoom fade, gated on the preference; page-turning and all input are never gated, and any future page-turn animation gates the animation, never the input.
 

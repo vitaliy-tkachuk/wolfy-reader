@@ -321,7 +321,7 @@ asserts `textContent` matches paginated mode modulo whitespace with no clipping.
   XHTML into an HTML document. (A string-level `src/layout/normalize.ts` once
   duplicated this for a "raw-markup path" that no longer exists — every section now
   reaches the paginator through the host, so the module was deleted as dead code,
-  2026-08-26, T007.)
+  2026-08-26.)
 - **In this corpus, image policy is text policy.** Gutenberg sets each chapter's
   drop cap as `<img alt="T">`. A naive strip deletes the first letter of every
   chapter. The resource layer substitutes the `alt` text for an image it cannot

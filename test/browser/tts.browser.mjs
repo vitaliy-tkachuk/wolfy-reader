@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * The TTS enablers compose (T006/M3-6): `reader.sentences()` returns sentence ranges
+ * The TTS enablers compose: `reader.sentences()` returns sentence ranges
  * whose Positions both resolve and highlight through the existing draw-only
  * `decorate` machinery, and stepping sentence-to-sentence moves the highlight. This
  * is the browser proof that the segmentation, the content-anchored Position, and the

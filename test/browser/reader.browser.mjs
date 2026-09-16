@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * Browser tests for the public reader facade (T002). The facade only exists over
+ * Browser tests for the public reader facade. The facade only exists over
  * a live paginator + sandboxed frame, so navigation landing, the internal-link
  * back-stack, mode-switch position preservation, event firing order, and a
  * leak-free destroy() are all observable only in a real DOM — hence full

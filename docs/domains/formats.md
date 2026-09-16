@@ -84,7 +84,7 @@ Code:
   (`emphasis`→`em`, `strong`, `sub`/`sup`, …) and block tags (`section`, `title`→`h2..h6`
   by depth, `poem`/`stanza`/`v`, `cite`→`blockquote`, `epigraph`) map to XHTML.
 - **FB2 parses tolerantly; every other `parseXml` caller stays strict** (2026-08-26,
-  T005). Real-world FB2 is frequently hand-edited and sloppy — a valueless attribute,
+  2026-08-26). Real-world FB2 is frequently hand-edited and sloppy — a valueless attribute,
   an unquoted value, one mismatched close tag — and an all-or-nothing parse would
   discard an otherwise-readable book over a single slip. `parseXml(input, { tolerant:
   true })` recovers: valueless attributes become empty strings, unquoted values read
@@ -95,7 +95,7 @@ Code:
   really does mean corruption. Grossly malformed FB2 still fails and is wrapped in
   `CorruptContainerError`.
 - **`fb2.sniff` decodes a UTF-16 BOM head before testing for `<FictionBook`**
-  (2026-08-26, T005). The sniff reads the head as Latin-1 (one byte → one char) so
+  (2026-08-26). The sniff reads the head as Latin-1 (one byte → one char) so
   the root name is legible under any single-byte encoding — but in UTF-16 every other
   byte is NUL, `<FictionBook` never matches, and a BOM'd UTF-16 FictionBook fell
   through to `text.sniff` (which accepts any BOM as a positive text signal) and

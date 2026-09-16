@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 /**
- * Perf-shaped guard for the T001 rewrite: segmentation over a section must be
+ * Perf-shaped guard: segmentation over a section must be
  * ~linear, not quadratic. The counting subclass below is installed BEFORE the
  * position module creates its cached `Intl.Segmenter` instances (they are built
  * lazily on first use, and this file is its own `node --test` process), so every

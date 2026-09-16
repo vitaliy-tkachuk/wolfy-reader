@@ -72,7 +72,7 @@ caller-supplied plain text and UTF-16 offsets — no DOM, HTML, or Range.
   identity (batch vs single serialization) and the cost (a metered
   `Intl.Segmenter` work budget that the quadratic path exceeds ~300×). Any new
   per-sentence/per-occurrence code must take the precomputed arrays, not
-  re-segment. (Broader segmenter-cache consolidation across modules is T007's,
+  re-segment. (Broader segmenter-cache consolidation across modules is tracked separately,
   not settled here.)
 - `serializePosition` / `parsePosition` are exact inverses. `parsePosition`
   validates the prefix, JSON validity, required-field presence and types, and the

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * Browser tests for human input (T003): keyboard, touch swipe, and tap zones,
+ * Browser tests for human input: keyboard, touch swipe, and tap zones,
  * all direction-aware. Input only exists over a live sandboxed frame — the frame
  * captures the real key/pointer events and forwards *semantic* gestures over the
  * protocol (v5), because an opaque-origin frame's events never reach the host
@@ -257,7 +257,7 @@ describe('keyboard navigation (LTR)', { ...skipAll }, () => {
   });
 });
 
-describe('Space paging (T004)', { ...skipAll }, () => {
+describe('Space paging', { ...skipAll }, () => {
   test('Space pages forward, Shift+Space pages back', async () => {
     await openReader(HOSTILE);
     await landOnMultiPage();
@@ -306,7 +306,7 @@ describe('Space paging (T004)', { ...skipAll }, () => {
   });
 });
 
-describe('back-stack on link clicks (T004)', { ...skipAll }, () => {
+describe('back-stack on link clicks', { ...skipAll }, () => {
   test('an external/unresolvable link click pushes nothing — back() stays put', async () => {
     await openReader(HOSTILE);
     const start = await page.evaluate(() => window.harness.readerGoTo('start'));
@@ -347,7 +347,7 @@ describe('back-stack on link clicks (T004)', { ...skipAll }, () => {
   });
 });
 
-describe('keyboard gating (input.keyboard: false, T004)', { ...skipAll }, () => {
+describe('keyboard gating (input.keyboard: false)', { ...skipAll }, () => {
   test('nav keys are neither acted on nor preventDefaulted when keyboard input is off', async () => {
     await openReader(HOSTILE, { input: { keyboard: false } });
     await page.evaluate(() => window.harness.readerGoTo('start'));

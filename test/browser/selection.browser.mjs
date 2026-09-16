@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * Browser tests for selection events (T002). A text selection lives *inside* the
+ * Browser tests for selection events. A text selection lives *inside* the
  * opaque-origin content frame's document — the host cannot read the frame's
  * `Selection` — so the coordination script observes it, computes the selection's
  * UTF-16 offset range over the tiled section text, and forwards a semantic

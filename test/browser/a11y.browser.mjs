@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../../scripts/serve-demo.mjs';
 
 /**
- * Accessibility walkthrough (T002): every reader function is operable pointer-free,
+ * Accessibility walkthrough: every reader function is operable pointer-free,
  * focus lands sensibly, and `prefers-reduced-motion` never gates input. The
  * load-bearing case is keyboard image-zoom — a figure is tap-to-zoom by default, so
  * the frame makes each image focusable and forwards Enter/Space as an imagetap, and
