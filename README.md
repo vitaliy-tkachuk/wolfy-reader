@@ -1,10 +1,12 @@
-# wolfy-reader
+# 📖 wolfy-reader
 
 [![npm](https://img.shields.io/npm/v/wolfy-reader)](https://www.npmjs.com/package/wolfy-reader)
 
-Read ebooks in the browser — with pages that turn, text you can search, and typography you can change without losing your place.
+**The ebook reading engine you drop into your own app.** Hand it bytes and an element; it gives you a real reading view — pages that turn, text you can search, and typography you can change without losing your place.
 
-A from-scratch, MIT-licensed, ESM-only TypeScript reading engine for EPUB, FB2 and plain text. Bytes in, a `Book` out, and a real reading view: paginated and scrolled modes, table-of-contents and link navigation, full-text search, live theme and typography controls, selection events and decorations. Zero runtime dependencies, and untrusted book content renders inside a hardened sandboxed iframe.
+It is a library, not a reader app. No UI chrome, no routing, no settings screen, no shelf — and it never fetches and never persists. Your app owns the files, the storage and the look; wolfy-reader owns decoding, layout and the reading surface, and hands you a small API to drive them.
+
+From-scratch, MIT-licensed, ESM-only TypeScript for EPUB, FB2 and plain text. Zero runtime dependencies, tree-shakeable subpaths, a headless core that runs under Node — and untrusted book content rendered inside a hardened sandboxed iframe.
 
 ## Install
 
