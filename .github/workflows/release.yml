@@ -1,0 +1,129 @@
+name: Release
+
+# release-please keeps a Release PR open, carrying the version bump and the
+# CHANGELOG entry it derives from the Conventional Commits on main. Merging that
+# PR is the release: it tags, cuts a GitHub Release, and only then does anything
+# publish.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Two releases racing would publish two versions from one history.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    name: release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: publish to npm
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      # OIDC: the token npm exchanges for publish rights. No NPM_TOKEN exists in
+      # this repository, and none should — that is the point of trusted publishing.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1+. The runner's bundled npm is usually
+      # newer, but a silent fall back to token auth is not an acceptable failure
+      # mode, so the version is asserted rather than assumed.
+      - name: Require npm 11.5.1+
+        run: |
+          have=$(npm -v)
+          want=11.5.1
+          if [ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -n1)" != "$want" ]; then
+            echo "npm $have is older than $want — trusted publishing needs $want+" >&2
+            exit 1
+          fi
+          echo "npm $have"
+
+      - run: npm ci
+
+      # The Release PR is opened with GITHUB_TOKEN, so no workflow runs on it and
+      # it reaches main unverified. Everything CI would have checked runs here
+      # instead, before anything is published.
+      - run: npm run typecheck
+      - run: npm run check:core
+
+      - name: Cache the book corpus
+        uses: actions/cache@v6
+        with:
+          path: test/corpus
+          key: corpus-${{ hashFiles('scripts/fetch-corpus.mjs') }}
+
+      - run: npm run fetch-corpus
+      - run: npm run check:guards -- --require-corpus
+      - run: npm run build
+      - run: npm test
+      - run: npm run check:size
+      - run: npm run check:pack
+
+      # No --provenance flag: under trusted publishing npm generates and publishes
+      # the attestation itself. Passing it is not how provenance is enabled here.
+      - run: npm publish
+        env:
+          NPM_CONFIG_PROVENANCE: true
+
+  smoke:
+    name: install from the registry
+    needs: [release-please, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # Detection, not prevention: the version is already public and npm only
+      # allows unpublishing for 72 hours. A red job here means the published
+      # artifact is broken and the next version must fix it.
+      - name: Wait for the registry to serve the new version
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if npm view "wolfy-reader@${{ needs.release-please.outputs.version }}" version; then
+              exit 0
+            fi
+            echo "not yet visible (attempt $attempt)"
+            sleep 15
+          done
+          echo "the published version never became visible on the registry" >&2
+          exit 1
+
+      - run: npm run check:pack -- --from-registry=${{ needs.release-please.outputs.version }}

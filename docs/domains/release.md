@@ -10,9 +10,35 @@ the repo guards (`scripts/check-guards.mjs`), the per-subpath size budget
 (`scripts/check-size.mjs`), and the GitHub Actions workflow
 (`.github/workflows/ci.yml`) that runs the lot.
 
-Publishing itself is not here yet — there is no release workflow, no CHANGELOG, and
-no registry credentials. The package builds, packs and is continuously checked;
-pushing it is separate work.
+Publishing is here too: `release-please-config.json`, `.release-please-manifest.json`
+and `.github/workflows/release.yml` turn Conventional Commits on `main` into a
+Release PR, a tag, and an npm publish authenticated by OIDC.
+
+## Releasing
+
+A release is a pull request you merge. release-please keeps one open, carrying the
+version bump and the `CHANGELOG.md` entry it derives from the commit subjects since
+the last tag. Merging it tags `v<version>`, cuts a GitHub Release, and triggers the
+publish job; nothing else publishes, and there is no manual `npm publish` step.
+
+**One-time bootstrap, and it cannot be automated.** npm attaches a trusted publisher
+to a package that already exists — protection against name hijacking, with no
+pending-publisher escape hatch like PyPI's — so the first version goes out by hand:
+
+1. Confirm the repository is public. Provenance is recorded in a public
+   transparency log; from a private repo the publish succeeds and the attestation
+   silently does not.
+2. Enable **Settings → Actions → General → Allow GitHub Actions to create and
+   approve pull requests**, or release-please fails with a 403 and no PR appears.
+3. Land the README first. npm caches the page per version, so whatever ships with
+   the first version is frozen on it.
+4. `npm publish` once from a trusted machine, with 2FA. Do not store a token.
+5. On npmjs.com, add the trusted publisher: this repository, workflow
+   `release.yml`.
+6. Set **Require two-factor authentication and disallow tokens** on the package.
+   OIDC keeps working; token auth stops.
+7. Confirm no `NPM_TOKEN` secret exists in the repository. There is never a reason
+   for one to.
 
 ## Key decisions
 
@@ -77,6 +103,27 @@ pushing it is separate work.
   exercised them), the browser baseline (`DecompressionStream`: Chrome 80+, Safari
   16.4+, Firefox 113+, ESM only), and the DRM-free legal position. The first three
   are the entire pitch; the fourth is a legal position, not a feature note.
+
+- **The publish job re-runs every check itself, because the Release PR has none.**
+  A pull request opened with `GITHUB_TOKEN` does not trigger workflows — GitHub's
+  loop protection — so the bot's PR arrives with no checks and merges to `main`
+  unverified. A `workflow_run` dependency across workflows would be a race, and a
+  personal access token to make the PR trigger CI would reintroduce exactly the
+  long-lived credential OIDC exists to remove. So the publish job runs typecheck,
+  the guards, the corpus-backed suite, the build, the size budget and the pack
+  check between the tag and `npm publish`. It is not belt-and-braces: it is the
+  only verification that release ever gets.
+
+- **Trusted publishing (OIDC), never a stored token, and no `--provenance` flag.**
+  The workflow requests `id-token: write` and npm exchanges that for publish
+  rights; provenance is generated automatically on the trusted-publishing path, so
+  passing `--provenance` is not what enables it. The npm version is asserted
+  (11.5.1+) rather than assumed, because an older npm does not fail loudly — it
+  falls back to looking for a token that is deliberately not there.
+
+- **Version policy: honest `0.x`, and a breaking change bumps the minor**
+  (`bump-minor-pre-major`). `1.0` waits until the `Book` model and the `Position`
+  format have survived a real consumer, which is the promise the README makes.
 
 - **CI guards what a reviewer cannot see, and there is no lint job because there is
   no linter.** Formatting is hand-maintained by rule, so the workflow spends its
@@ -189,6 +236,15 @@ pushing it is separate work.
 - **`check-size.mjs` pins esbuild's `target` to `es2022`.** The default target drifts
   with esbuild's version, which would move every number here for reasons that have
   nothing to do with the library and quietly spend the headroom.
+
+- **`npm run check:pack -- --from-registry=<version>`** runs the identical assertion
+  set against the published package instead of a locally packed tarball — the
+  post-publish smoke job. The two paths differ only in where the install comes
+  from, so the published artifact is held to the same standard as the local one,
+  and a bad version argument fails rather than falling back to the tarball (proven
+  by a guard test — a smoke job that silently tested the wrong thing would be worse
+  than no smoke job). It is detection, not prevention: npm allows unpublishing for
+  72 hours and the version number is burned either way.
 
 - **Guard tests are the deliberate-violation proof** (`test/guards.test.ts`). Each
   guard is run against a scratch tree that violates it — an added dependency, a

@@ -190,3 +190,14 @@ test(
     assert.match(output, /size budget ok/);
   },
 );
+
+test('the pack check refuses a registry version that does not exist', () => {
+  // The post-publish smoke job asserts the *published* artifact is consumable.
+  // If a bad `--from-registry` target quietly fell back to the local tarball, that
+  // job would pass while proving nothing about what npm actually serves.
+  const { status, output } = runGuard('check-pack.mjs', [
+    '--from-registry=0.0.0-does-not-exist',
+  ]);
+  assert.equal(status, 1, output);
+  assert.match(output, /0\.0\.0-does-not-exist/);
+});

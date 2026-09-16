@@ -190,43 +190,64 @@ async function checkMapSources(installed) {
   }
 }
 
+/**
+ * `--from-registry[=<version>]` installs the published package instead of a local
+ * tarball. Same assertions, different source: after a release it answers "is what
+ * landed on the registry actually consumable", which a local pack cannot — the
+ * tarball npm serves is the one npm built, not the one this machine can rebuild.
+ */
+function registryTarget() {
+  const flag = process.argv.slice(2).find((arg) => arg.startsWith('--from-registry'));
+  if (flag === undefined) return null;
+  const [, version] = flag.split('=');
+  return version === undefined || version === '' ? manifest.version : version;
+}
+
 async function main() {
   checkManifest();
 
+  const fromRegistry = registryTarget();
   const workspace = await mkdtemp(join(tmpdir(), 'wolfy-reader-pack-'));
   const consumer = join(workspace, 'consumer');
   await mkdir(consumer, { recursive: true });
 
-  // `npm pack` fires `prepack`, so this packs a freshly built tree — the same path
-  // `npm publish` takes, rather than whatever happens to be sitting in dist. The
-  // filename is derived rather than parsed out of npm's stdout: lifecycle scripts
-  // print there too, so even `--json` output is not reliably JSON.
-  const tarball = join(workspace, `${manifest.name}-${manifest.version}.tgz`);
-  try {
-    run('npm', ['pack', '--pack-destination', workspace], repoRoot);
-  } catch (error) {
-    // A broken build or a bad `exports` target dies here, inside `prepack`. Report it
-    // as a finding: this script exists to diagnose packaging faults, so it must not
-    // hand back a raw lifecycle stack for the commonest one.
-    fail(`npm pack failed:\n${error.stderr || error.message}`);
-    console.error(`\nscratch workspace kept for inspection: ${workspace}`);
-    return;
+  let source;
+  if (fromRegistry === null) {
+    // `npm pack` fires `prepack`, so this packs a freshly built tree — the same path
+    // `npm publish` takes, rather than whatever happens to be sitting in dist. The
+    // filename is derived rather than parsed out of npm's stdout: lifecycle scripts
+    // print there too, so even `--json` output is not reliably JSON.
+    const tarball = join(workspace, `${manifest.name}-${manifest.version}.tgz`);
+    try {
+      run('npm', ['pack', '--pack-destination', workspace], repoRoot);
+    } catch (error) {
+      // A broken build or a bad `exports` target dies here, inside `prepack`. Report it
+      // as a finding: this script exists to diagnose packaging faults, so it must not
+      // hand back a raw lifecycle stack for the commonest one.
+      fail(`npm pack failed:\n${error.stderr || error.message}`);
+      console.error(`\nscratch workspace kept for inspection: ${workspace}`);
+      return;
+    }
+    const { size } = await stat(tarball);
+    pass(`packed ${manifest.name}-${manifest.version}.tgz (${size} bytes)`);
+    source = tarball;
+  } else {
+    source = `${manifest.name}@${fromRegistry}`;
+    pass(`target is the published ${source}`);
   }
-  const { size } = await stat(tarball);
-  pass(`packed ${manifest.name}-${manifest.version}.tgz (${size} bytes)`);
 
   await writeFile(
     join(consumer, 'package.json'),
     `${JSON.stringify({ name: 'pack-fidelity-consumer', version: '0.0.0', private: true, type: 'module' }, null, 2)}\n`,
   );
   try {
-    run('npm', ['install', tarball, '--no-audit', '--no-fund', '--no-package-lock'], consumer);
+    run('npm', ['install', source, '--no-audit', '--no-fund', '--no-package-lock'], consumer);
   } catch (error) {
-    fail(`installing the tarball failed:\n${error.stderr || error.message}`);
+    fail(`installing ${fromRegistry === null ? 'the tarball' : source} failed:\n${error.stderr || error.message}`);
     console.error(`\nscratch workspace kept for inspection: ${workspace}`);
     return;
   }
-  pass('installed the tarball into a scratch consumer');
+  pass(`installed ${fromRegistry === null ? 'the tarball' : source} into a scratch consumer`);
 
   const installed = join(consumer, 'node_modules', 'wolfy-reader');
 

@@ -234,6 +234,26 @@ This starts a dependency-free dev server (Node built-ins only) and prints the UR
 
 The demo is the primary development surface: pick an EPUB and it opens the book through the public API and shows what the decoder produced — metadata and cover, the nested table of contents, and the reading order. Clicking a chapter renders it as live markup inside the hardened sandboxed frame, with the book's own stylesheets and images, next to a panel listing everything the sanitizer removed and everything the Content Security Policy blocked. Decode failures surface as the library's typed errors by class name. It stays framework-free by rule. Opening `demo/index.html` as a `file://` URL does not work — browsers block ES module loading over `file://`.
 
+## Building & Releasing
+
+```bash
+npm run build      # tsc -> dist (plain ESM + .d.ts + sourcemaps), then the @license banner
+npm run check:pack # pack, install the tarball, import and typecheck every subpath
+```
+
+Releases are pull requests. [release-please](https://github.com/googleapis/release-please)
+keeps one open on `main`, carrying the version bump and the `CHANGELOG.md` entry it
+derives from the Conventional Commit subjects since the last tag. Merging it tags the
+release and publishes to npm from GitHub Actions, authenticated by OIDC trusted
+publishing with provenance — there is no `NPM_TOKEN` in this repository and no manual
+`npm publish` step. The publish job re-runs the full check suite first, because a
+bot-opened pull request does not trigger CI. After publishing, a smoke job installs
+the released version from the registry and imports every subpath
+(`npm run check:pack -- --from-registry=<version>`).
+
+See [`docs/domains/release.md`](docs/domains/release.md) for the flow and the
+one-time bootstrap that had to be done by hand.
+
 ## Working with AI agents
 
 This repo uses a [lightweight spec-driven workflow](https://github.com/vitaliy-tkachuk/ai-spec-template). AI agents (Claude Code, Cursor, Codex, Copilot, Aider, etc.) follow the rules in [`AGENTS.md`](AGENTS.md).

@@ -13,6 +13,7 @@ wolfy-reader renders ebooks in the browser — EPUB, FB2 and plain text today, M
 - Language: TypeScript — ESM only (`"type": "module"`), no CJS build
 - Build system: TypeScript compiler (`tsc`) emitting plain ESM to `dist`, no bundler; `node:test` for tests, Playwright for browser tests, esbuild for the packaging and size-budget assertions (all dev-only)
 - Package registry: npm — `wolfy-reader` (unscoped; availability confirmed)
+- CI / release: GitHub Actions — checks on every push and pull request; releases are Conventional-Commit-driven via release-please, published by OIDC trusted publishing with provenance and no stored token (2026-09-16)
 - Target platforms / runtimes: Browsers with `DecompressionStream` — Chrome 80+, Safari 16.4+, Firefox 113+
 - CI: GitHub Actions (2026-09-16) — typecheck, the guards, the headless `node:test` suite, the build, the size budget and the pack-fidelity check on every push to `main` and every pull request; the Playwright tier on pull requests only. Node is pinned by `.nvmrc` so local and CI cannot drift. **There is no lint job, because there is no linter**: formatting is hand-maintained by rule, so CI enforces the constraints a reviewer cannot see (dependency count, layer boundaries, bundle size, packaged shape) rather than the ones a reviewer can. See [`docs/domains/release.md`](domains/release.md).
 
