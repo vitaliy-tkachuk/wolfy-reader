@@ -57,6 +57,76 @@ Starts a dependency-free dev server (Node built-ins only) and prints the URL —
 
 The demo is the primary development surface: pick an EPUB and it opens the book through the public API and shows what the decoder produced — metadata and cover, the nested TOC, the reading order. Clicking a chapter renders it inside the hardened sandboxed frame next to a panel listing everything the sanitizer removed and everything the CSP blocked. Decode failures surface as the library's typed errors by class name. It stays framework-free by rule. Opening `demo/index.html` over `file://` does not work — browsers block ES module loading there.
 
+## Developing a consumer against source
+
+When an app that depends on `wolfy-reader` is being built alongside a change to the library, point the app at a local checkout's TypeScript source with one environment variable instead of a `file:` or `link:` dependency. The app's `package.json` keeps the ordinary registry dependency and its lockfile never carries a local path, so a production build cannot inherit one by accident; the alias exists only in the shell that set the variable.
+
+```bash
+READER_SRC=/path/to/wolfy-reader npm run dev   # or vite build
+```
+
+Add this to the app's `vite.config.ts`. It reads the library's `exports` map and aliases every published subpath — `wolfy-reader`, `/core`, `/epub`, `/fb2`, `/text`, and whatever is added later — to the matching `src/**/index.ts`, so a new subpath needs no change here. With `READER_SRC` unset the function is never called and the config is your app's own.
+
+```ts
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { defineConfig, mergeConfig, searchForWorkspaceRoot } from 'vite';
+import type { Alias, UserConfig } from 'vite';
+
+// Your app's ordinary config. Nothing below changes it unless READER_SRC is set.
+const app: UserConfig = {
+  define: { __WOLFY_READER_SRC__: 'null' },
+};
+
+// Point `wolfy-reader` and every published subpath at a local checkout's TypeScript
+// source. Set READER_SRC=/path/to/wolfy-reader; leave it unset to use node_modules.
+function readerFromSource(root: string): UserConfig {
+  const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
+    name: string;
+    exports: Record<string, string | { default: string }>;
+  };
+  const alias: Alias[] = [];
+  for (const [subpath, target] of Object.entries(pkg.exports)) {
+    const entry = typeof target === 'string' ? target : target.default;
+    if (!entry.startsWith('./dist/')) continue;
+    const specifier = pkg.name + subpath.slice(1);
+    const source = entry.replace(/^\.\/dist\//, 'src/').replace(/\.js$/, '.ts');
+    const escaped = specifier.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    alias.push({ find: new RegExp(`^${escaped}$`), replacement: resolve(root, source) });
+  }
+  console.warn(`\n  wolfy-reader is served from source: ${root}\n`);
+  return {
+    resolve: { alias },
+    server: { fs: { allow: [searchForWorkspaceRoot(process.cwd()), root] } },
+    define: { __WOLFY_READER_SRC__: JSON.stringify(root) },
+  };
+}
+
+const readerSrc = process.env.READER_SRC;
+
+export default defineConfig(
+  readerSrc ? mergeConfig(app, readerFromSource(resolve(readerSrc))) : app,
+);
+```
+
+Declare the constant once in the app's `vite-env.d.ts` and render it somewhere visible, so a tab served from source says so:
+
+```ts
+declare const __WOLFY_READER_SRC__: string | null;
+```
+
+What each part is for:
+
+- **Exact-match aliases** (`/^wolfy-reader\/epub$/`, not a prefix) mean the order of the entries does not matter, which is what makes deriving the list from `exports` safe. The library's sources import each other with explicit `.ts` extensions, which Vite resolves as-is — the checkout needs no build.
+- **`server.fs.allow`** is required: the checkout is outside the app's root and Vite's dev server refuses to serve it otherwise (a 403 on `/@fs/...`). Setting `allow` switches off Vite's automatic workspace-root detection, so the app's own root has to be put back with `searchForWorkspaceRoot`.
+- **The banner** is printed when the config is evaluated and stamped into the bundle through `define`, so both the terminal and the page say where the library came from. Both are inert when the variable is unset.
+- Once a `/react` subpath ships, add `resolve: { dedupe: ['react', 'react-dom'] }` to the returned config so the aliased source and the app share one React.
+
+Two rules that follow from it:
+
+- **Typechecking stays on the installed package.** The alias is a Vite resolution only; `tsc` and the editor keep resolving `wolfy-reader` to `node_modules`. A `paths` entry in `tsconfig.json` would put a local path back into a committed file, which is the thing this pattern exists to avoid, so there is none. API that exists only in the checkout is invisible to the app's typecheck until it is published — which is the right pressure.
+- **`npm run check:pack` before any release, without exception.** An app developed against source never touches `dist`, the `exports` map, the emitted `.d.ts` or the `@license` banner — exactly the surfaces the fidelity check exercises. Aliasing hides packaging faults; the check is what finds them.
+
 ## Releasing
 
 ```bash

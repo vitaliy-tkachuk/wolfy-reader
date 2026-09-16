@@ -165,6 +165,20 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
   `exports` key missing from its table. A guard that silently ignores what it has
   not been told about is not a guard.
 
+- **A consumer develops against the library's source through an env-gated Vite
+  alias, never a `file:`/`link:` dependency.** The pattern (`CONTRIBUTING.md`,
+  "Developing a consumer against source") keeps the app's ordinary registry
+  dependency and lockfile, and only when `READER_SRC` is set does `vite.config.ts`
+  alias every published subpath to `src/**/index.ts` in that checkout — so a
+  production build cannot inherit a local path, because no committed file names
+  one. The alias list is derived from `exports` (each `./dist/<p>/index.js` has a
+  `src/<p>/index.ts` twin) for the same reason `banner.mjs` derives its entry list:
+  a new subpath must not need a consumer edit. Exact-match aliases make entry order
+  irrelevant, which is what makes the derived list safe. The tsconfig is deliberately
+  not mirrored — a `paths` entry would put a local path back into a committed file —
+  so typechecking stays on the installed package and checkout-only API is invisible
+  until published.
+
 ## Implementation notes
 
 - `npm run build` = `clean` → `tsc -p tsconfig.build.json` → `node scripts/banner.mjs`.
@@ -337,3 +351,19 @@ pending-publisher escape hatch like PyPI's — so the first version goes out by 
   paginator's cost as a multiple of that unit — see [`layout.md`](layout.md). A guard
   that compares against a number recorded on someone's laptop reports the runner's
   mood, not a regression.
+
+- **An aliased consumer never exercises the published shape.** Developing against
+  source bypasses `dist`, the `exports` map, the emitted `.d.ts` and the banner —
+  precisely what `npm run check:pack` asserts — so a packaging fault is invisible to
+  the app that is exercising the library hardest. The check is mandatory before a
+  release for that reason, not as ceremony.
+
+- **Vite refuses files outside the app root unless `server.fs.allow` names them**,
+  and setting `allow` at all switches off its workspace-root detection. The alias
+  config therefore lists both the checkout and `searchForWorkspaceRoot(process.cwd())`;
+  dropping the second silently 403s the app's own files.
+
+- **The library's explicit `.ts` import extensions are what make the alias
+  build-free.** Vite resolves `./errors.ts` as written, so a checkout is consumable
+  from source with no `tsc` run. Anything that reintroduced extensionless or `.js`
+  specifiers in `src/` would break the pattern before it broke the build.
