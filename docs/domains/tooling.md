@@ -18,6 +18,15 @@ The repo skeleton and dev tooling: `package.json`, `tsconfig.json`, `.nvmrc`, np
 - **The demo server exposes exactly two mounts by default: `demo/` at `/` and `src/` at `/src/`.** `/` maps to `demo/index.html`, and `/src/...` serves the library modules the demo imports. Nothing else in the repo is reachable over HTTP.
 - **Mounts are a parameter, and the default set is the only one `npm run demo` ever uses.** `scripts/serve-demo.mjs` exports `startServer({ mounts, port })` so the browser test harness can add its own (`test/browser/`, `test/fixtures/epub/`, `test/corpus/`) and take an ephemeral port with `port: 0`. The alternative — a second server — would duplicate the type-stripping logic, which is the non-trivial part. The widening is opt-in and lives in the test harness; the deliberately narrow default is unchanged.
 - **The server strips TypeScript types on the way out, so the browser runs `src/` directly.** Browsers cannot execute type annotations; each `.ts` response is passed through `stripTypeScriptTypes` from `node:module` with `mode: 'strip'`, which blanks type syntax in place and preserves line/column numbers, so browser stack traces point at the real source. Stripped output keeps its relative `./x.ts` specifiers; the browser requests those and each is stripped in turn, so the whole import graph works transitively. No bundler, no build step, no dependency — `node:module` is a built-in.
+- **Browser suites wait on a signal the code emits, never on elapsed time.** Every
+  wait is a `waitForFunction` over observable state — `window.harnessReady`, a frame's
+  box, an event count. A `setTimeout` is a race that a fast machine hides and a loaded
+  CI runner loses, and widening the duration only moves the failure to a slower
+  machine. For a container resize the settle signal is the reader's own
+  `positionchange`: `ResizeObserver` → rAF → `paginator.resize()` → emit, so the event
+  firing *is* "the re-layout finished". The harness already records every reader event
+  in order, so a test counts `positionchange` entries before the action and waits for
+  the count to advance.
 - **Corpus is downloaded, never committed.** `test/corpus/` is gitignored; only small license-clean fixtures live in `test/fixtures/` (committed).
 - **`npm run check:core` guards the headless core, and it is enforced from before there is anything to guard.** Nothing reachable from `src/core/index.ts` may import `src/layout` or `src/view`. The cost is not only bundle weight: view modules touch `document`/`window`, so without a guaranteed-headless entry a Node consumer importing `.` risks a **throw on import**. The guard is cheap while `src/view` is still a placeholder and expensive once view imports have accumulated silently, so it shipped as a standalone npm script long before CI existed. CI **adopts** this script; it did not author it, and the only change CI asked for was a `--root` argument so the guard's own failure path could be tested against a scratch tree.
 - **The check is a static source walk, not a parse and not a build.** `scripts/check-core-purity.mjs` uses Node built-ins only (`node:fs/promises`, `node:path`, `node:url`), matching the shape of the other `scripts/`. It walks the real import graph from `src/core/index.ts` — resolving `.ts`-extension specifiers against each importer's directory and memoizing — so it needs neither a compile step nor a bundle. A parser would be a new dependency and `tsc`'s API would be a build step, both disproportionate to a graph a few dozen files wide with a uniform import style.
@@ -41,6 +50,19 @@ The repo skeleton and dev tooling: `package.json`, `tsconfig.json`, `.nvmrc`, np
 
 ## Gotchas
 
+- **An assertion that can only fail on CI must carry its measurements.** Nobody can
+  attach a debugger to a shared runner, so a bare `v=true h=true` costs a full
+  push-and-wait cycle to learn nothing. The frame-overflow assertions report
+  `clientWidth`/`scrollWidth`, `clientHeight`/`scrollHeight`, the frame's inner size
+  and the settled page count, which is what separates a reflow that had not finished
+  from content that genuinely does not fit, and both of those from a classic
+  (non-overlay) scrollbar eating client width.
+- **macOS cannot reproduce a Linux scrollbar failure, and CPU throttling does not
+  stand in for it.** The resize-overflow failure seen on `ubuntu-latest` survives
+  neither an 8× nor a 20× CDP CPU throttle locally, and `--disable-features=
+  OverlayScrollbar` is a no-op on macOS, where the OS draws scrollbars. When a
+  browser failure is platform-shaped, the runner is the reproduction environment —
+  make the assertion self-diagnosing and re-run there rather than theorising locally.
 - `stripTypeScriptTypes` emits an `ExperimentalWarning` on first use. The server replaces the default `warning` listener with one that drops exactly that warning and prints everything else — do not suppress warnings process-wide (`--no-warnings` would hide real ones).
 - The demo server deliberately does not serve the repo root. Any browser tab can issue requests to localhost, so a root mount would put `.git/` (whose config can carry remote URLs with embedded credentials), the multi-megabyte downloaded corpus, and gitignored local scratch on the wire. Only `demo/` and `src/` are exposed by `npm run demo`; the test harness passes wider mounts explicitly and binds an ephemeral port for the life of one test run.
 - A browser test that leaves an extra iframe in the harness page breaks any later test that identifies the content frame positionally — Playwright's `childFrames()` order is attach order, not document order. The protocol spoof test removes its sibling frame again, and `contentFrame()` asserts there is exactly one child frame rather than trusting an index.

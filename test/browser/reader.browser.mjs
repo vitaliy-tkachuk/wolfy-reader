@@ -394,11 +394,36 @@ describe('destroy leaves nothing behind', { ...skipAll }, () => {
 });
 
 describe('the frame does not scroll and re-paginates on resize', { ...skipAll, ...skipCorpus }, () => {
+  /**
+   * Overflow on either axis, with the measurements behind the verdict. The numbers
+   * ride along because this assertion fails on machines nobody can attach a debugger
+   * to: a bare `v=true h=true` cannot distinguish a reflow that had not finished
+   * from content that genuinely does not fit, and a classic (non-overlay) scrollbar
+   * eating client width from the column arithmetic being wrong on its own.
+   */
   async function frameScrolls() {
     return contentFrame().evaluate(() => {
       const de = document.documentElement;
-      return { v: de.scrollHeight > de.clientHeight, h: de.scrollWidth > de.clientWidth };
+      return {
+        v: de.scrollHeight > de.clientHeight,
+        h: de.scrollWidth > de.clientWidth,
+        clientW: de.clientWidth,
+        scrollW: de.scrollWidth,
+        clientH: de.clientHeight,
+        scrollH: de.scrollHeight,
+        innerW: window.innerWidth,
+        innerH: window.innerHeight,
+      };
     });
+  }
+  const scrollReport = (sc) =>
+    `v=${sc.v} h=${sc.h} client=${sc.clientW}x${sc.clientH} scroll=${sc.scrollW}x${sc.scrollH} ` +
+    `inner=${sc.innerW}x${sc.innerH}`;
+  /** How many re-layouts the reader has announced so far — the settle signal. */
+  async function reflowCount() {
+    return page.evaluate(
+      () => window.harness.readerEvents().filter((e) => e.type === 'positionchange').length,
+    );
   }
   async function setStage(w, h) {
     await page.evaluate(
@@ -414,14 +439,14 @@ describe('the frame does not scroll and re-paginates on resize', { ...skipAll, .
   test('a paginated frame shows no scrollbar at page 0 or after paging', async () => {
     await openReader(PP);
     let sc = await frameScrolls();
-    assert.ok(!sc.v && !sc.h, `frame scrolled at page 0 (v=${sc.v} h=${sc.h})`);
+    assert.ok(!sc.v && !sc.h, `frame scrolled at page 0 — ${scrollReport(sc)}`);
     // Paging translates the off-page columns into view; without html/body clipping
     // their width would leak a stray horizontal scrollbar.
     await page.evaluate(async () => {
       for (let i = 0; i < 4; i += 1) await window.harness.readerNext();
     });
     sc = await frameScrolls();
-    assert.ok(!sc.v && !sc.h, `frame scrolled after paging (v=${sc.v} h=${sc.h})`);
+    assert.ok(!sc.v && !sc.h, `frame scrolled after paging — ${scrollReport(sc)}`);
   });
 
   test('shrinking the container re-paginates, stays scroll-free, and holds the section', async () => {
@@ -432,17 +457,28 @@ describe('the frame does not scroll and re-paginates on resize', { ...skipAll, .
       });
       const before = await page.evaluate(() => window.harness.readerPosition());
 
+      const reflowsBefore = await reflowCount();
       await setStage(560, 420);
-      // Wait for the iframe to actually resize, then for the ResizeObserver's rAF +
-      // re-paginate to settle.
+      // Two separate events, both load-bearing: the iframe taking its new box, then
+      // the ResizeObserver's rAF + re-paginate settling. The reflow announces itself
+      // with `positionchange`, so wait for that rather than for a duration — a clock
+      // makes the assertion sample mid-reflow on a slow machine, where the frame is
+      // still laid out for the old size and both axes overflow.
       await page.waitForFunction(() => {
         const f = document.querySelector('#stage iframe');
         return f !== null && f.getBoundingClientRect().width < 700;
       });
-      await new Promise((r) => setTimeout(r, 300));
+      await page.waitForFunction(
+        (seen) =>
+          window.harness.readerEvents().filter((e) => e.type === 'positionchange').length > seen,
+        reflowsBefore,
+      );
 
       const sc = await frameScrolls();
-      assert.ok(!sc.v && !sc.h, `frame scrolled after shrink (v=${sc.v} h=${sc.h})`);
+      assert.ok(
+        !sc.v && !sc.h,
+        `frame scrolled after shrink — ${scrollReport(sc)} pages=${(await page.evaluate(() => window.harness.readerPosition())).totalPages}`,
+      );
       const after = await page.evaluate(() => window.harness.readerPosition());
       assert.equal(after.section, before.section, 'the resize lost the section');
       assert.notEqual(
