@@ -1036,7 +1036,7 @@
       selectionResolvesEl.className = 'ok';
       // Remember the selection so the button can draw a highlight over it and the
       // highlight menu can show its text later.
-      lastSelection = { text, position };
+      lastSelection = { text, position, rect };
       highlightEl.disabled = false;
       showMenu('selection', text, rect);
     });
@@ -1169,11 +1169,14 @@
     // Key the id by the span itself: the same selection yields the same serialized
     // Position, so a repeat click reuses the id and the library redraws in place
     // rather than stacking a second overlay over identical text.
-    const { text, position } = lastSelection;
+    const { text, position, rect } = lastSelection;
     const id = `hl:${position.serialized}`;
     void reader.decorate(id, position, { className: 'demo-highlight' });
     drawnHighlights.set(id, { position, text });
-    clearHighlightsEl.hidden = false;
+    // The menu now belongs to the highlight just drawn: flip it to the highlight
+    // mode in place, so Remove is one click away without re-tapping the text.
+    menuHighlightId = id;
+    showMenu('decoration', text, rect);
   });
 
   // Remove the one highlight the menu is open for: undecorate that id alone and
