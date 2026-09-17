@@ -362,6 +362,76 @@ test('an EPUB with encrypted entries raises EncryptedContentError', async () => 
   );
 });
 
+// The plaintext "fonts" the obfuscated fixture was built from — same formulas
+// as make-epub-fixtures.mjs, so the assertion is on bytes, not shape.
+function inventedFont(length: number, head: number[], step: number, offset: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i += 1) {
+    bytes[i] = i < head.length ? (head[i] as number) : (i * step + offset) & 0xff;
+  }
+  return bytes;
+}
+const FONT_BIG = inventedFont(2048, [0x00, 0x01, 0x00, 0x00], 7, 3);
+const FONT_SMALL = inventedFont(600, [0x4f, 0x54, 0x54, 0x4f], 13, 5);
+
+test('IDPF-obfuscated fonts load as their original bytes', async () => {
+  const book = await openFixture('obfuscated-font.epub');
+  assert.equal(book.metadata.title, 'Lettering for the Lighthouse');
+
+  const big = book.resources.get('font-big');
+  assert.ok(big);
+  assert.equal(big.mediaType, 'font/ttf');
+  assert.deepEqual(await big.load(), FONT_BIG, 'bytes past the 1040-byte prefix are copied untouched');
+
+  const small = book.resources.get('font-small');
+  assert.ok(small, 'a percent-encoded CipherReference matches the manifest entry');
+  const smallBytes = await small.load();
+  assert.equal(smallBytes.length, FONT_SMALL.length, 'a font shorter than the prefix keeps its length');
+  assert.deepEqual(smallBytes, FONT_SMALL);
+
+  const chapter = book.section('chapter');
+  assert.ok(chapter?.resolve);
+  const viaSection = chapter.resolve('../fonts/big.ttf');
+  assert.ok(viaSection, 'the chapter reaches the font through its own directory');
+  assert.deepEqual(await viaSection.load(), FONT_BIG);
+});
+
+test('resources not listed in encryption.xml are untouched', async () => {
+  const book = await openFixture('obfuscated-font.epub');
+  const plain = book.resources.get('image-plain');
+  assert.ok(plain);
+  assert.deepEqual((await plain.load()).slice(0, 8), PNG_MAGIC);
+  const chapter = book.section('chapter');
+  assert.ok(chapter);
+  assert.ok(new TextDecoder().decode(await chapter.load()).includes('painted every letter twice'));
+});
+
+test('a resource under a foreign EncryptionMethod refuses on load() but the book opens', async () => {
+  const book = await openFixture('obfuscated-font.epub');
+  const locked = book.resources.get('image-locked');
+  assert.ok(locked, 'the resource is still listed');
+  await assert.rejects(
+    locked.load(),
+    (error: unknown) => error instanceof EncryptedContentError && error instanceof BookError,
+  );
+  const chapter = book.section('chapter');
+  assert.ok(chapter?.resolve);
+  const resolved = chapter.resolve('../images/locked.png');
+  assert.ok(resolved, 'resolve() still names it; only load() refuses');
+  await assert.rejects(resolved.load(), EncryptedContentError);
+});
+
+test('a malformed encryption.xml degrades: the book opens and nothing is de-obfuscated', async () => {
+  const book = await openFixture('encryption-not-xml.epub');
+  assert.equal(book.sections.length, 1);
+  const big = book.resources.get('font-big');
+  assert.ok(big);
+  assert.deepEqual(await big.load(), FONT_BIG, 'stored plaintext is served as-is');
+  const locked = book.resources.get('image-locked');
+  assert.ok(locked);
+  assert.deepEqual((await locked.load()).slice(0, 8), PNG_MAGIC, 'no refusal without a readable declaration');
+});
+
 test('a plain zip without a mimetype entry is not claimed', async () => {
   await assert.rejects(openFixture('not-epub.zip'), UnrecognizedFormatError);
 });

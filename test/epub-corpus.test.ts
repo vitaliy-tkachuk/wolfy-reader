@@ -125,6 +125,23 @@ test('corpus sections resolve their own references to loadable resources', { ski
   }
 });
 
+const OBFUSCATION_BOOK = 'ocf-font_obfuscation.epub';
+
+test('W3C ocf-font_obfuscation: the obfuscated TrueType font loads as a real sfnt', { skip: !testsuiteEpubs.includes(OBFUSCATION_BOOK) && 'testsuite not downloaded (npm run fetch-corpus)' }, async () => {
+  const bytes = await readFile(new URL(OBFUSCATION_BOOK, testsuiteDir));
+  const book = await open(new Uint8Array(bytes).buffer, { formats: [epub] });
+  const font = book.resources.get('font_truetype');
+  assert.ok(font, 'the font is a non-spine manifest item');
+  assert.equal(font.mediaType, 'font/ttf');
+  const payload = await font.load();
+  assert.deepEqual([...payload.slice(0, 4)], [0x00, 0x01, 0x00, 0x00], 'de-obfuscated bytes start with the TrueType sfnt version');
+  const chapter = book.sections[0];
+  assert.ok(chapter?.resolve);
+  const viaSection = chapter.resolve('fonts/Lobster.ttf');
+  assert.ok(viaSection);
+  assert.deepEqual(await viaSection.load(), payload);
+});
+
 test('W3C epub-testsuite books never crash: every one yields a Book or a typed BookError', { skip: testsuiteEpubs.length === 0 && 'testsuite not downloaded (npm run fetch-corpus)' }, async () => {
   let decoded = 0;
   let refused = 0;

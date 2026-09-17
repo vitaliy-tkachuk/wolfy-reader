@@ -1,6 +1,7 @@
 // Regenerates the committed EPUB fixtures in test/fixtures/epub/.
 // All book text is invented for this project. The writer keeps the OCF rule:
 // the mimetype entry is first in the archive and stored (method 0).
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -800,6 +801,133 @@ writeFileSync(
     { name: 'ledger.xhtml', data: searchAnchorsLedger },
     // images/dropcap-t.png is declared above and deliberately not written: the
     // unresolvable drop cap is what forces the alt substitution.
+  ]),
+);
+
+// --- IDPF font obfuscation (EPUB 3.3 §4.4) ---------------------------------
+//
+// Two invented binary "fonts" written pre-XORed the way a publisher's tool
+// would: one longer than the 1040-byte obfuscated prefix, one shorter so the
+// whole file is covered. The key is SHA-1 of the unique identifier with XML
+// whitespace stripped, so the identifier deliberately carries a tab, a space
+// and a trailing newline, and a decoy dc:identifier comes first in the
+// metadata so only the one named by unique-identifier yields the right key.
+// test/epub.test.ts re-derives the plaintext blobs from the same formulas.
+
+const OBFUSCATION_IDENTIFIER_RAW = 'urn:wolfy:obfus\t2026 09\n';
+const OBFUSCATION_KEY = createHash('sha1')
+  .update(OBFUSCATION_IDENTIFIER_RAW.replace(/[ \t\r\n]/g, ''), 'utf8')
+  .digest();
+
+function inventedFont(length, head, step, offset) {
+  const bytes = Buffer.alloc(length);
+  for (let i = 0; i < length; i += 1) {
+    bytes[i] = i < head.length ? head[i] : (i * step + offset) & 0xff;
+  }
+  return bytes;
+}
+
+function obfuscate(bytes) {
+  const out = Buffer.from(bytes);
+  for (let i = 0; i < Math.min(1040, out.length); i += 1) {
+    out[i] ^= OBFUSCATION_KEY[i % OBFUSCATION_KEY.length];
+  }
+  return out;
+}
+
+const fontBig = inventedFont(2048, [0x00, 0x01, 0x00, 0x00], 7, 3);
+const fontSmall = inventedFont(600, [0x4f, 0x54, 0x54, 0x4f], 13, 5);
+
+const obfuscatedOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="isbn">978-0-00-000000-0</dc:identifier>
+    <dc:identifier id="uid">${OBFUSCATION_IDENTIFIER_RAW}</dc:identifier>
+    <dc:title>Lettering for the Lighthouse</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="text/chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="font-big" href="fonts/big.ttf" media-type="font/ttf"/>
+    <item id="font-small" href="fonts/small%20caps.otf" media-type="font/otf"/>
+    <item id="image-locked" href="images/locked.png" media-type="image/png"/>
+    <item id="image-plain" href="images/plain.png" media-type="image/png"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter"/>
+  </spine>
+</package>
+`;
+
+const obfuscatedEncryptionXml = `<?xml version="1.0" encoding="UTF-8"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/fonts/big.ttf"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/fonts/small%20caps.otf"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="urn:example:not-idpf"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/images/locked.png"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+</encryption>
+`;
+
+const obfuscatedChapter = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Lettering for the Lighthouse</title>
+<style>
+@font-face { font-family: "Beacon"; src: url(../fonts/big.ttf); }
+body { font-family: "Beacon", serif; }
+</style>
+</head>
+<body>
+<h1>Lettering for the Lighthouse</h1>
+<p>The keeper painted every letter twice: once for the ships, once for the fog.</p>
+<img src="../images/plain.png" alt="A plain lamp"/>
+</body>
+</html>
+`;
+
+writeFileSync(
+  join(outDir, 'obfuscated-font.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('OEBPS/content.opf') },
+    { name: 'META-INF/encryption.xml', data: obfuscatedEncryptionXml },
+    { name: 'OEBPS/content.opf', data: obfuscatedOpf },
+    { name: 'OEBPS/text/chapter.xhtml', data: obfuscatedChapter },
+    { name: 'OEBPS/fonts/big.ttf', data: obfuscate(fontBig), method: 0 },
+    { name: 'OEBPS/fonts/small caps.otf', data: obfuscate(fontSmall), method: 0 },
+    { name: 'OEBPS/images/locked.png', data: makePng(20, 20, 20), method: 0 },
+    { name: 'OEBPS/images/plain.png', data: makePng(200, 180, 40), method: 0 },
+  ]),
+);
+
+// A damaged encryption.xml must degrade, not fail the book: nothing is
+// declared, so the (unscrambled) font is served exactly as stored.
+writeFileSync(
+  join(outDir, 'encryption-not-xml.epub'),
+  buildZip([
+    mimetypeEntry,
+    { name: 'META-INF/container.xml', data: containerXml('OEBPS/content.opf') },
+    { name: 'META-INF/encryption.xml', data: '<encryption><EncryptedData>' },
+    { name: 'OEBPS/content.opf', data: obfuscatedOpf },
+    { name: 'OEBPS/text/chapter.xhtml', data: obfuscatedChapter },
+    { name: 'OEBPS/fonts/big.ttf', data: fontBig, method: 0 },
+    { name: 'OEBPS/fonts/small caps.otf', data: fontSmall, method: 0 },
+    { name: 'OEBPS/images/locked.png', data: makePng(20, 20, 20), method: 0 },
+    { name: 'OEBPS/images/plain.png', data: makePng(200, 180, 40), method: 0 },
   ]),
 );
 

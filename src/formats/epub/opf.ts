@@ -31,6 +31,8 @@ export interface OpfPackage {
   readonly ncxId?: string;
   readonly direction?: 'ltr' | 'rtl';
   readonly fixedLayout?: boolean;
+  /** The dc:identifier named by package[unique-identifier], verbatim (whitespace included). */
+  readonly uniqueIdentifier?: string;
 }
 
 const PACKAGE_MEDIA_TYPE = 'application/oebps-package+xml';
@@ -89,6 +91,10 @@ export function parseOpf(xml: string, path: string): OpfPackage {
   const language = metadataElement === undefined ? undefined : dcText(metadataElement, 'language');
   const coverItem = findCoverItem(metadataElement, manifest, itemById);
   const fixedLayout = metadataElement === undefined ? undefined : renditionLayout(metadataElement);
+  const uniqueIdentifier =
+    metadataElement === undefined
+      ? undefined
+      : uniqueIdentifierOf(metadataElement, attribute(root, 'unique-identifier'));
 
   return {
     path,
@@ -102,7 +108,18 @@ export function parseOpf(xml: string, path: string): OpfPackage {
     ...(ncxId === undefined || ncxId === '' ? {} : { ncxId }),
     ...(direction === undefined ? {} : { direction }),
     ...(fixedLayout === undefined ? {} : { fixedLayout }),
+    ...(uniqueIdentifier === undefined ? {} : { uniqueIdentifier }),
   };
+}
+
+// The identifier is kept verbatim: the font-obfuscation key strips XML
+// whitespace itself, and trimming here would hide that rule from its test.
+function uniqueIdentifierOf(metadata: XmlElement, id: string | undefined): string | undefined {
+  const identifiers = descendantsNamed(metadata, 'identifier');
+  const named = id === undefined ? undefined : identifiers.find((element) => attribute(element, 'id') === id);
+  const chosen = named ?? identifiers.find((element) => element.text.trim() !== '');
+  if (chosen === undefined || chosen.text.trim() === '') return undefined;
+  return chosen.text;
 }
 
 function renditionLayout(metadata: XmlElement): boolean | undefined {

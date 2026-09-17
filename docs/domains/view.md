@@ -115,7 +115,7 @@ The coordination script sits in `<head>`, immediately after the CSP element, so 
 
 - **MathML is unwrapped, not rendered.** Its elements are absent from the allowlist, so equations degrade to run-together text. `<annotation-xml encoding="text/html">` is a known injection surface and a MathML allowlist needs designing rather than guessing.
 - **`<audio>`, `<video>` and media overlays are unwrapped.** EPUB 3 media overlays are not supported at all yet.
-- **Obfuscated fonts decode to garbage and will not load.** De-obfuscation is decoder work — see [`epub.md`](epub.md).
+- **Fonts arrive de-obfuscated from the decoder.** An IDPF-obfuscated font loads as its original bytes and its `data:` URL renders; the view never learns a resource was scrambled — see [`epub.md`](epub.md).
 - **Only Chromium is verified.** Safari and Firefox parse-error shapes, opaque-origin cookie behaviour, and `data:` stylesheet handling are unverified by test.
 
 ## The boundary with the paginator

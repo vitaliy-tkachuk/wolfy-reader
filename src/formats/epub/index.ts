@@ -11,12 +11,14 @@ import { CorruptContainerError, EncryptedContentError } from '../../core/index.t
 import { sectionLookup } from '../../core/lookup.ts';
 import { openZip, ZipEncryptedEntryError, ZipError, type ZipArchive } from '../../zip/index.ts';
 import { directoryOf, resolveHref } from './href.ts';
+import { deobfuscate, obfuscationKey, parseEncryption, type Encryption } from './obfuscation.ts';
 import { opfPathFromContainer, parseOpf, type ManifestItem, type OpfPackage } from './opf.ts';
 import { parseNavToc, parseNcxToc, type SectionByPath } from './toc.ts';
 import { decodeXml } from '../xml.ts';
 
 const EPUB_MIMETYPE = 'application/epub+zip';
 const CONTAINER_PATH = 'META-INF/container.xml';
+const ENCRYPTION_PATH = 'META-INF/encryption.xml';
 
 export const epub: BookFormat = {
   name: 'epub',
@@ -53,9 +55,21 @@ export const epub: BookFormat = {
         cause: error,
       });
     }
-    return buildBook(zip, pkg);
+    return buildBook(zip, pkg, await readEncryption(zip));
   },
 };
+
+// Absence or damage of encryption.xml degrades to "nothing is declared": the
+// book still opens and every load() stays plain, matching the TOC's rule that
+// a broken auxiliary document never fails an otherwise readable book.
+async function readEncryption(zip: ZipArchive): Promise<Encryption | undefined> {
+  if (zip.entry(ENCRYPTION_PATH) === undefined) return undefined;
+  try {
+    return parseEncryption(decodeXml(await readEntry(zip, ENCRYPTION_PATH)));
+  } catch {
+    return undefined;
+  }
+}
 
 async function hasZipSignature(source: ByteSource): Promise<boolean> {
   const head = await source.read(0, 4);
@@ -95,9 +109,10 @@ function bridged(error: unknown, what: string): unknown {
 const SPINE_MEDIA_TYPES = new Set(['application/xhtml+xml', 'image/svg+xml', 'text/html']);
 const NCX_MEDIA_TYPE = 'application/x-dtbncx+xml';
 
-async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
+async function buildBook(zip: ZipArchive, pkg: OpfPackage, encryption: Encryption | undefined): Promise<Book> {
   const baseDir = directoryOf(pkg.path);
   const entryPath = (item: ManifestItem): string => resolveHref(baseDir, item.href)?.path ?? item.href;
+  const loaderFor = loaderFactory(zip, pkg, encryption);
 
   // Content references resolve against the document that carries them, and the
   // manifest is the only statement of a media type — so a reference is
@@ -109,7 +124,7 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
   for (const item of pkg.manifest) {
     const path = entryPath(item);
     if (!present.has(path) || resourceByPath.has(path)) continue;
-    resourceByPath.set(path, { mediaType: item.mediaType, load: () => readEntry(zip, path) });
+    resourceByPath.set(path, { mediaType: item.mediaType, load: loaderFor(path) });
   }
   const resolveFrom = (fromDir: string, reference: string): Resource | undefined => {
     const target = resolveHref(fromDir, reference);
@@ -134,7 +149,7 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
       id: item.id,
       mediaType: content.mediaType,
       ...(scripted ? { scripted } : {}),
-      load: () => readEntry(zip, path),
+      load: loaderFor(path),
       resolve: (reference) => resolveFrom(contentDir, reference),
       // Resolve a section-relative href to the section it names, reusing the same
       // resolved-entry-name → section-id table the TOC is built from. `sectionByPath`
@@ -158,10 +173,7 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
   for (const item of pkg.manifest) {
     if (spineIds.has(item.id)) continue;
     const path = entryPath(item);
-    resources.set(item.id, {
-      mediaType: item.mediaType,
-      load: () => readEntry(zip, path),
-    });
+    resources.set(item.id, { mediaType: item.mediaType, load: loaderFor(path) });
   }
 
   const coverItem = pkg.coverItem;
@@ -169,7 +181,7 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
   const cover: Resource | undefined =
     coverItem === undefined || coverPath === undefined
       ? undefined
-      : { mediaType: coverItem.mediaType, load: () => readEntry(zip, coverPath) };
+      : { mediaType: coverItem.mediaType, load: loaderFor(coverPath) };
 
   const metadata: BookMetadata = {
     ...(pkg.title === undefined ? {} : { title: pkg.title }),
@@ -186,6 +198,34 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage): Promise<Book> {
     resources,
     ...(pkg.direction === undefined ? {} : { direction: pkg.direction }),
     ...(pkg.fixedLayout === undefined ? {} : { fixedLayout: pkg.fixedLayout }),
+  };
+}
+
+// One authority for every load() closure — sections, resources, cover. The
+// refusal of foreign algorithms is lazy on purpose: like a zip-encrypted entry,
+// a resource the decoder cannot serve never fails the book, only its own load().
+function loaderFactory(
+  zip: ZipArchive,
+  pkg: OpfPackage,
+  encryption: Encryption | undefined,
+): (path: string) => () => Promise<Uint8Array> {
+  let key: Promise<Uint8Array> | undefined;
+  return (path) => {
+    if (encryption?.encrypted.has(path)) {
+      return async () => {
+        throw new EncryptedContentError(`${path} is encrypted`);
+      };
+    }
+    if (encryption?.obfuscated.has(path)) {
+      const identifier = pkg.uniqueIdentifier;
+      if (identifier === undefined) {
+        return async () => {
+          throw new EncryptedContentError(`${path} is obfuscated and the package has no unique identifier to key it`);
+        };
+      }
+      return async () => deobfuscate(await readEntry(zip, path), await (key ??= obfuscationKey(identifier)));
+    }
+    return () => readEntry(zip, path);
   };
 }
 
