@@ -1,22 +1,22 @@
 # Graph Report - wolfy-reader  (2026-09-17)
 
 ## Corpus Check
-- 130 files · ~166,993 words
+- 131 files · ~173,103 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1395 nodes · 2605 edges · 82 communities (78 shown, 4 thin omitted)
-- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 13 edges (avg confidence: 0.83)
+- 1425 nodes · 2687 edges · 88 communities (80 shown, 8 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 14 edges (avg confidence: 0.83)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8fb65057`
+- Built from commit: `1820d79f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - ContentHost
-- fb2/index.ts
+- epub/index.ts
 - reader/index.ts
 - ReaderImpl
 - zip/index.ts
@@ -46,7 +46,7 @@
 - Layout domain
 - react-entry.mjs
 - view.browser.mjs
-- react/index.ts
+- resources.ts
 - decorations.browser.mjs
 - imagezoom.browser.mjs
 - Describe-project skill
@@ -64,30 +64,32 @@
 - view/index.ts
 - Appearance domain
 - EPUB domain
-- position.ts
+- Section
 - Architecture
 - Core domain
 - Position domain
 - ZIP domain
 - check-guards.mjs
 - Tooling domain
-- chunk.ts
+- text/index.ts
 - layout.browser.mjs
-- protocol.ts
+- view.test.ts
+- architecture.md
 - tts.browser.mjs
 - Testing domain
 - frame.ts
 - react
 - reader.browser.mjs
 - position-segmentation-perf.test.ts
-- peerDependenciesMeta
+- [0.2.0](https://github.com/vitaliy-tkachuk/wolfy-reader/compare/wolfy-reader-v0.1.0...wolfy-reader-v0.2.0) (2026-09-16)
 - 📖 wolfy-reader
-- layout/index.ts
+- input.ts
 - React domain
 - AGENTS.md
-- Section
+- core.test.ts
 - patterns.md
 - scripts
+- Book
 - release-please-config.json
 - keywords
 - Release domain
@@ -95,51 +97,50 @@
 - repository
 - {{PROJECT_NAME}}
 - a11y.browser.mjs
+- position.test.ts
+- .#resolveHrefToSection
+- SentenceRange
 
 ## God Nodes (most connected - your core abstractions)
 1. `ReaderImpl` - 50 edges
-2. `Paginator` - 40 edges
-3. `ContentHost` - 30 edges
+2. `Paginator` - 41 edges
+3. `ContentHost` - 31 edges
 4. `Section` - 24 edges
-5. `Book` - 19 edges
-6. `Reader` - 18 edges
-7. `Position` - 18 edges
-8. `attribute()` - 18 edges
+5. `Book` - 23 edges
+6. `attribute()` - 21 edges
+7. `Reader` - 20 edges
+8. `Position` - 19 edges
 9. `compilerOptions` - 18 edges
-10. `startServer()` - 16 edges
+10. `open()` - 17 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `element()` --indirect_call--> `Reader()`  [INFERRED]
-  test/browser/react-entry.mjs → src/react/index.ts
+- `decode()` --calls--> `open()`  [EXTRACTED]
+  test/differential.test.ts → src/core/open.ts
+- `openFixture()` --calls--> `open()`  [EXTRACTED]
+  test/epub.test.ts → src/core/open.ts
 - `openFb2()` --calls--> `open()`  [EXTRACTED]
   test/fb2.test.ts → src/core/open.ts
 - `openText()` --calls--> `open()`  [EXTRACTED]
   test/text.test.ts → src/core/open.ts
-- `HookConsumer()` --calls--> `useReader()`  [EXTRACTED]
+- `element()` --indirect_call--> `Reader()`  [INFERRED]
   test/browser/react-entry.mjs → src/react/index.ts
-- `values()` --calls--> `findCssReferences()`  [EXTRACTED]
-  test/view.test.ts → src/view/css.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (82 total, 4 thin omitted)
+## Communities (88 total, 8 thin omitted)
 
-### Community 1 - "fb2/index.ts"
+### Community 1 - "epub/index.ts"
 Cohesion: 0.07
-Nodes (68): sectionLookup(), collapseWhitespace(), escapeXmlAttribute(), escapeXmlText(), decodeSegment(), directoryOf(), HrefTarget, resolveHref() (+60 more)
+Nodes (75): sectionLookup(), collapseWhitespace(), escapeXmlAttribute(), escapeXmlText(), decodeSegment(), directoryOf(), HrefTarget, resolveHref() (+67 more)
 
 ### Community 2 - "reader/index.ts"
-Cohesion: 0.12
-Nodes (19): decodeFragment(), GoToTarget, lastSegment(), ReaderError, ReaderEvent, ReaderEventHandler, ReaderEventMap, ReaderOptions (+11 more)
-
-### Community 3 - "ReaderImpl"
-Cohesion: 0.17
-Nodes (3): isPosition(), ReaderImpl, NavIntent
+Cohesion: 0.11
+Nodes (26): APPEARANCE_KEYS, appearanceDiff(), MutableAppearance, ReaderCallbacks, ReaderProps, sameRecord(), UseReaderOptions, UseReaderResult (+18 more)
 
 ### Community 4 - "zip/index.ts"
-Cohesion: 0.10
-Nodes (36): CentralRecord, parseCentralDirectory(), crc32(), TABLE, CentralDirectoryLocation, findEocd(), locateCentralDirectory(), readZip64() (+28 more)
+Cohesion: 0.11
+Nodes (35): CentralRecord, parseCentralDirectory(), crc32(), TABLE, CentralDirectoryLocation, findEocd(), locateCentralDirectory(), readZip64() (+27 more)
 
 ### Community 5 - "check-pack.mjs"
 Cohesion: 0.10
@@ -151,7 +152,7 @@ Nodes (27): allowedAttributes, altTextOf(), buildSynthetic(), corpusDir, cursorO
 
 ### Community 7 - "extract.ts"
 Cohesion: 0.12
-Nodes (27): decodeText(), attributeOf(), decodeEntities(), endsTagName(), extractSectionText(), extractText(), findEndTag(), NAMED (+19 more)
+Nodes (27): ReadingResolver, attributeOf(), decodeEntities(), endsTagName(), extractSectionText(), extractText(), findEndTag(), NAMED (+19 more)
 
 ### Community 8 - "harness.js"
 Cohesion: 0.13
@@ -170,24 +171,24 @@ Cohesion: 0.08
 Nodes (25): dom, dom.iterable, es2022, node, test, compilerOptions, allowImportingTsExtensions, exactOptionalPropertyTypes (+17 more)
 
 ### Community 12 - "make-epub-fixtures.mjs"
-Cohesion: 0.09
-Nodes (18): buildZip(), chapterStub, epub2Entries, epub3Entries, hostileEntries, hostileVectors, makePng(), makeSolidPng() (+10 more)
+Cohesion: 0.08
+Nodes (21): buildZip(), chapterStub, epub2Entries, epub3Entries, fontBig, fontSmall, hostileEntries, hostileVectors (+13 more)
 
 ### Community 13 - "package.json"
-Cohesion: 0.15
-Nodes (12): author, bugs, url, description, homepage, license, main, name (+4 more)
+Cohesion: 0.12
+Nodes (15): author, bugs, url, description, homepage, license, main, name (+7 more)
 
 ### Community 15 - "core/index.ts"
-Cohesion: 0.05
-Nodes (52): Book, BookMetadata, ReadingDirection, Resource, SectionRef, TocItem, BookError, CorruptContainerError (+44 more)
+Cohesion: 0.15
+Nodes (17): BookMetadata, ReadingDirection, SectionRef, TocItem, BookFormat, FormatContext, OpenOptions, BookInput (+9 more)
 
 ### Community 16 - "run.mjs"
 Cohesion: 0.17
 Nodes (19): benchDir, fmt(), fmtSpread(), main(), measureOnce(), median(), metricsToObject(), pad() (+11 more)
 
 ### Community 17 - "Paginator"
-Cohesion: 0.16
-Nodes (4): clamp(), Paginator, PaginateOptions, PaginationState
+Cohesion: 0.05
+Nodes (48): codeUnitOffsetToGraphemeIndex(), countGraphemes(), Grapheme, graphemeIndexToCodeUnitOffset(), graphemeSegmenter, segmentGraphemes(), capturePosition(), CapturePositionOptions (+40 more)
 
 ### Community 18 - "Branch A — New work (intake + scaffold)"
 Cohesion: 0.11
@@ -222,28 +223,28 @@ Cohesion: 0.15
 Nodes (14): alpha, buildZip(), contentDir, dataBin, fakeEncryptedPayload, lorem, loremLines, outDir (+6 more)
 
 ### Community 26 - "sanitize.ts"
-Cohesion: 0.05
-Nodes (62): baseMediaType(), ClassifiedReference, classifyReference(), DISCARDED_HTML_ELEMENTS, DISCARDED_SVG_ELEMENTS, FONT_TYPES, imageReadingText(), isServableResource() (+54 more)
+Cohesion: 0.10
+Nodes (27): DISCARDED_SVG_ELEMENTS_LOWER, CELL, GRADIENT, HTML_ELEMENTS, HTML_GLOBAL_ATTRIBUTES, HTML_NAMESPACE, isAllowedReference(), LINK_SCHEMES (+19 more)
 
 ### Community 27 - "appearance.browser.mjs"
-Cohesion: 0.12
-Nodes (19): allSectionText(), browserDir, chunkColumnWidth(), contentFrame(), CORPUS_BOOKS, corpusDir, corpusPresent, fixtureDir (+11 more)
+Cohesion: 0.11
+Nodes (22): allSectionText(), assertAnchorAtTop(), browserDir, chunkColumnWidth(), contentFrame(), CORPUS_BOOKS, corpusDir, corpusPresent (+14 more)
 
 ### Community 28 - "Layout domain"
 Cohesion: 0.14
 Nodes (14): Architecture, Chunk-boundary strategy, Correctness checks, Cross-browser status, Estimated-page-count churn (resolved — now documented and surfaced), Eviction (resolved — was "unmeasured" in the prototype), Gotchas, Implementation notes (+6 more)
 
 ### Community 29 - "react-entry.mjs"
-Cohesion: 0.18
-Nodes (14): calls, element(), events, frames(), HookConsumer(), mount(), mountHook(), observe() (+6 more)
+Cohesion: 0.16
+Nodes (16): Reader(), useReader(), calls, element(), events, frames(), HookConsumer(), mount() (+8 more)
 
 ### Community 30 - "view.browser.mjs"
 Cohesion: 0.18
 Nodes (8): browserDir, contentFrame(), corpusDir, fixtureDir, probes, renderSection(), renderSynthetic(), repoRoot
 
-### Community 31 - "react/index.ts"
-Cohesion: 0.18
-Nodes (15): APPEARANCE_KEYS, appearanceDiff(), MutableAppearance, Reader(), ReaderCallbacks, ReaderProps, sameRecord(), useReader() (+7 more)
+### Community 31 - "resources.ts"
+Cohesion: 0.14
+Nodes (19): baseMediaType(), ClassifiedReference, classifyReference(), DISCARDED_HTML_ELEMENTS, DISCARDED_SVG_ELEMENTS, FONT_TYPES, imageReadingText(), isServableResource() (+11 more)
 
 ### Community 32 - "decorations.browser.mjs"
 Cohesion: 0.24
@@ -262,16 +263,16 @@ Cohesion: 0.17
 Nodes (11): Coding Conventions, Comments, Commits, Demonstrating, Dependencies, Documentation, General, Language & framework specifics (+3 more)
 
 ### Community 36 - "Implement skill"
-Cohesion: 0.13
-Nodes (12): Hard rules, Implement skill, Step 1 — Identify the target, Step 2 — Load context, Step 3 — Re-check conflicts, Step 4 — Execute, Step 5 — Verify, Step 6 — Close out (+4 more)
+Cohesion: 0.18
+Nodes (10): Hard rules, Implement skill, Step 1 — Identify the target, Step 2 — Load context, Step 3 — Re-check conflicts, Step 4 — Execute, Step 5 — Verify, Step 6 — Close out (+2 more)
 
 ### Community 37 - "Reader"
-Cohesion: 0.10
-Nodes (4): SentenceRange, PaginateRequest, Reader, LayoutMode
+Cohesion: 0.12
+Nodes (3): PaginateRequest, Reader, LayoutMode
 
 ### Community 38 - "differential.test.ts"
 Cohesion: 0.19
-Nodes (11): corpusDir, FORMAT_BY_EXT, formats, normalizedBody(), pairs, testsuiteDir, differentialScore(), extractBookText() (+3 more)
+Nodes (12): corpusDir, decode(), FORMAT_BY_EXT, formats, normalizedBody(), pairs, testsuiteDir, differentialScore() (+4 more)
 
 ### Community 39 - "appearance.ts"
 Cohesion: 0.19
@@ -291,7 +292,7 @@ Nodes (9): Do not route the whole-book scan through the frame, Gotchas, Highligh
 
 ### Community 43 - "devDependencies"
 Cohesion: 0.13
-Nodes (15): esbuild, devDependencies, esbuild, playwright, react-dom, @types/node, @types/react, @types/react-dom (+7 more)
+Nodes (15): devDependencies, esbuild, playwright, react-dom, @types/node, @types/react, @types/react-dom, typescript (+7 more)
 
 ### Community 44 - "search.browser.mjs"
 Cohesion: 0.25
@@ -302,8 +303,8 @@ Cohesion: 0.14
 Nodes (13): contentTypes, demoMounts, listen(), makeHandler(), notFound(), repoRoot, startServer(), browserDir (+5 more)
 
 ### Community 46 - "view/index.ts"
-Cohesion: 0.27
-Nodes (11): ContentHostError, ContentHostOptions, Pending, RenderReport, SectionRenderCache, ViolationReport, FrameMessage, Measurement (+3 more)
+Cohesion: 0.18
+Nodes (18): ContentHostError, ContentHostOptions, Pending, RenderReport, SectionRenderCache, ViolationReport, asFrameMessage(), asHostMessage() (+10 more)
 
 ### Community 47 - "Appearance domain"
 Cohesion: 0.25
@@ -312,10 +313,6 @@ Nodes (8): Appearance domain, Gotchas, Implementation notes, Key decisions, Over
 ### Community 48 - "EPUB domain"
 Cohesion: 0.33
 Nodes (6): EPUB domain, Gotchas, Implementation notes, Key decisions, Overview, Patterns
-
-### Community 49 - "position.ts"
-Cohesion: 0.15
-Nodes (22): codeUnitOffsetToGraphemeIndex(), capturePosition(), CapturePositionOptions, captureSegmented(), collapseWhitespace(), endsOnSentenceTerminal(), isSerialPayload(), join() (+14 more)
 
 ### Community 50 - "Architecture"
 Cohesion: 0.33
@@ -341,17 +338,17 @@ Nodes (20): checkCorpus(), checkDependencies(), checkPeers(), checkVocabulary(),
 Cohesion: 0.40
 Nodes (5): Gotchas, Implementation notes, Key decisions, Overview, Tooling domain
 
-### Community 56 - "chunk.ts"
-Cohesion: 0.19
-Nodes (9): ATOMIC, Chunk, chunkElement(), ChunkNode, chunkNodes(), ChunkResult, ChunkStats, DEFAULT_CHUNK_CHARS (+1 more)
+### Community 56 - "text/index.ts"
+Cohesion: 0.27
+Nodes (6): buildSections(), BuiltSection, collapseParagraph(), isHeading(), readGutenbergMetadata(), renderXhtml()
 
 ### Community 57 - "layout.browser.mjs"
 Cohesion: 0.22
 Nodes (7): browserDir, corpusBook, corpusDir, fixtureDir, imageSection(), longSection(), repoRoot
 
-### Community 59 - "protocol.ts"
-Cohesion: 0.39
-Nodes (7): asFrameMessage(), asHostMessage(), asPaginateOptions(), asPaginationState(), asRecord(), HostMessage, PageAnchor
+### Community 59 - "view.test.ts"
+Cohesion: 0.16
+Nodes (18): Resource, CssReference, CssReferenceKind, escapeCssUrl(), findCssReferences(), isIdentChar(), matchesAt(), readReference() (+10 more)
 
 ### Community 61 - "tts.browser.mjs"
 Cohesion: 0.40
@@ -377,17 +374,17 @@ Nodes (9): browserDir, contentFrame(), corpusBook, corpusDir, fixtureDir, frameS
 Cohesion: 0.33
 Nodes (5): CountingSegmenter, graphemeSlice(), meter, sentenceTexts, TEXT
 
-### Community 67 - "peerDependenciesMeta"
-Cohesion: 0.67
-Nodes (3): peerDependenciesMeta, react, optional
+### Community 67 - "[0.2.0](https://github.com/vitaliy-tkachuk/wolfy-reader/compare/wolfy-reader-v0.1.0...wolfy-reader-v0.2.0) (2026-09-16)"
+Cohesion: 0.33
+Nodes (5): [0.2.0](https://github.com/vitaliy-tkachuk/wolfy-reader/compare/wolfy-reader-v0.1.0...wolfy-reader-v0.2.0) (2026-09-16), Bug Fixes, Changelog, Features, Performance
 
 ### Community 68 - "📖 wolfy-reader"
 Cohesion: 0.17
 Nodes (12): Development, Features, Install, License, Package surface, Quickstart, React, Scope (+4 more)
 
-### Community 69 - "layout/index.ts"
-Cohesion: 0.15
-Nodes (16): countGraphemes(), Grapheme, graphemeIndexToCodeUnitOffset(), graphemeSegmenter, segmentGraphemes(), contextScore(), findGraphemeOccurrences(), Position (+8 more)
+### Community 69 - "input.ts"
+Cohesion: 0.53
+Nodes (5): edgeIntent(), keyIntent(), swipeIntent(), tapIntent(), TapZones
 
 ### Community 70 - "React domain"
 Cohesion: 0.33
@@ -397,6 +394,10 @@ Nodes (5): Gotchas, Implementation notes, Key decisions, Overview, React domain
 Cohesion: 0.33
 Nodes (5): Complexity levels, Core rules, Knowledge graph — query it first to save tokens, Project-specific guidance, Response style for Level 2+ work
 
+### Community 72 - "core.test.ts"
+Cohesion: 0.12
+Nodes (17): BookError, CorruptContainerError, EncryptedContentError, UnrecognizedFormatError, inputShapes, makeBook(), payload, stubBytes (+9 more)
+
 ### Community 73 - "patterns.md"
 Cohesion: 0.40
 Nodes (4): Anti-pattern template, Pattern name, Pattern template, Patterns
@@ -404,6 +405,10 @@ Nodes (4): Anti-pattern template, Pattern name, Pattern template, Patterns
 ### Community 74 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, bench, build, check:core, check:guards, check:pack, check:size, clean (+6 more)
+
+### Community 75 - "Book"
+Cohesion: 0.13
+Nodes (13): Book, open(), epub, fb2, text, corpusDir, countToc(), testsuiteDir (+5 more)
 
 ### Community 77 - "keywords"
 Cohesion: 0.29
@@ -415,7 +420,7 @@ Nodes (6): Gotchas, Implementation notes, Key decisions, Overview, Release domai
 
 ### Community 79 - "files"
 Cohesion: 0.67
-Nodes (3): files, dist, src
+Nodes (3): files, src, dist
 
 ### Community 80 - "repository"
 Cohesion: 0.67
@@ -429,25 +434,29 @@ Nodes (5): Knowledge graph, Overview, {{PROJECT_NAME}}, Stack, Working with AI a
 Cohesion: 0.29
 Nodes (3): browserDir, fixtureDir, repoRoot
 
+### Community 83 - "position.test.ts"
+Cohesion: 0.31
+Nodes (5): parsePosition(), serializePosition(), assertRoundTrip(), boundaryCases, corpusDir
+
 ## Knowledge Gaps
-- **476 isolated node(s):** `Stack`, `Setup on a new machine`, `Checks`, `Demo`, `Developing a consumer against source` (+471 more)
+- **483 isolated node(s):** `strategies`, `viewport`, `benchDir`, `repoRoot`, `contentTypes` (+478 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **4 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **8 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Paginator` connect `Paginator` to `ContentHost`, `reader/index.ts`, `ReaderImpl`, `layout/index.ts`, `Section`, `view/index.ts`?**
-  _High betweenness centrality (0.057) - this node is a cross-community bridge._
-- **Why does `Section` connect `Section` to `fb2/index.ts`, `reader/index.ts`, `ReaderImpl`, `layout/index.ts`, `extract.ts`, `view/index.ts`, `core/index.ts`, `Paginator`?**
-  _High betweenness centrality (0.043) - this node is a cross-community bridge._
-- **Why does `ReaderImpl` connect `ReaderImpl` to `reader/index.ts`, `layout/index.ts`, `Reader`, `extract.ts`, `Section`, `appearance.ts`, `core/index.ts`, `Paginator`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
-- **What connects `Stack`, `Setup on a new machine`, `Checks` to the rest of the system?**
-  _476 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `fb2/index.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.0691333982473223 - nodes in this community are weakly interconnected._
+- **Why does `Section` connect `Section` to `epub/index.ts`, `reader/index.ts`, `ReaderImpl`, `extract.ts`, `view/index.ts`, `core/index.ts`, `Paginator`, `text/index.ts`?**
+  _High betweenness centrality (0.031) - this node is a cross-community bridge._
+- **Why does `Paginator` connect `Paginator` to `ContentHost`, `reader/index.ts`, `ReaderImpl`, `view/index.ts`, `Section`?**
+  _High betweenness centrality (0.029) - this node is a cross-community bridge._
+- **Why does `ContentHost` connect `ContentHost` to `Paginator`, `view/index.ts`, `Section`?**
+  _High betweenness centrality (0.027) - this node is a cross-community bridge._
+- **What connects `strategies`, `viewport`, `benchDir` to the rest of the system?**
+  _483 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `epub/index.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.06896551724137931 - nodes in this community are weakly interconnected._
 - **Should `reader/index.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.12333333333333334 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.1103448275862069 - nodes in this community are weakly interconnected._
 - **Should `zip/index.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.09577677224736049 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.1054421768707483 - nodes in this community are weakly interconnected._

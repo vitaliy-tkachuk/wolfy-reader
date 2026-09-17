@@ -126,15 +126,15 @@
     "semantic_hash": "b5b202878f553fa4ba57c6f8db0f6727"
   },
   "src/formats/epub/index.ts": {
-    "mtime": 1787700827.7556436,
-    "seen": 1787701106.0646038,
-    "ast_hash": "95e350bb90cd8d1e78ae7f8155a72edb",
+    "mtime": 1789605260.3120449,
+    "seen": 1789605972.02929,
+    "ast_hash": "3e17bd629cdd28c02c0e8f8a43596f83",
     "semantic_hash": ""
   },
   "src/formats/epub/opf.ts": {
-    "mtime": 1787695277.2220526,
-    "seen": 1787695399.59801,
-    "ast_hash": "cba3c322ff21edf7d183ec4096773b31",
+    "mtime": 1789605260.31319,
+    "seen": 1789605972.029292,
+    "ast_hash": "9dff2ee7c38d364c37485169e74626b7",
     "semantic_hash": ""
   },
   "src/formats/epub/toc.ts": {
@@ -150,15 +150,15 @@
     "semantic_hash": ""
   },
   "src/layout/index.ts": {
-    "mtime": 1787784094.3404195,
-    "seen": 1787784338.552632,
-    "ast_hash": "c9b6b9e5c72a90534b3e2799059b35bf",
+    "mtime": 1789605797.7798133,
+    "seen": 1789605972.0292969,
+    "ast_hash": "c45892be1eb217f930268185b19f42ca",
     "semantic_hash": ""
   },
   "src/view/allowlist.ts": {
-    "mtime": 1787694418.6952147,
-    "seen": 1787694861.261271,
-    "ast_hash": "4754971bec0f46a57146d7877572c88c",
+    "mtime": 1789603485.4508042,
+    "seen": 1789603520.398705,
+    "ast_hash": "dcdef1dae678ea40a4a422ea8472f538",
     "semantic_hash": ""
   },
   "src/view/css.ts": {
@@ -168,15 +168,15 @@
     "semantic_hash": "56c7eafd4da62466b8a48e9e636e27d6"
   },
   "src/view/frame.ts": {
-    "mtime": 1789511945.0873704,
-    "seen": 1789512007.738273,
-    "ast_hash": "9ca0d7c3fc8b88729b0c0638cfa64302",
+    "mtime": 1789605797.7804668,
+    "seen": 1789605972.029304,
+    "ast_hash": "85d727b38f7750f7ee9735a4e0c1737c",
     "semantic_hash": ""
   },
   "src/view/host.ts": {
-    "mtime": 1787695252.587823,
-    "seen": 1787695399.598021,
-    "ast_hash": "8b95cdadb5ac742c7ac50b75255f6a43",
+    "mtime": 1789605797.7806911,
+    "seen": 1789605972.029305,
+    "ast_hash": "71e3f33b47a2998aee35a55be357ae6d",
     "semantic_hash": ""
   },
   "src/view/index.ts": {
@@ -186,10 +186,10 @@
     "semantic_hash": "6f7ee6213085c56b138f2715b552659c"
   },
   "src/view/protocol.ts": {
-    "mtime": 1787676242.0351741,
-    "seen": 1787677275.9428968,
-    "ast_hash": "80a3642e36572c0caa242199a4f1b50f",
-    "semantic_hash": "80a3642e36572c0caa242199a4f1b50f"
+    "mtime": 1789605797.7811108,
+    "seen": 1789605972.0293062,
+    "ast_hash": "426511adcd0f34c5e262e31b847d7bfa",
+    "semantic_hash": ""
   },
   "src/view/reference.ts": {
     "mtime": 1787694426.6648717,
@@ -204,10 +204,10 @@
     "semantic_hash": ""
   },
   "src/view/sanitize.ts": {
-    "mtime": 1787609591.7111797,
-    "seen": 1787677275.942899,
-    "ast_hash": "f1cdd62b006e8c7f820b3a0121b53c84",
-    "semantic_hash": "f1cdd62b006e8c7f820b3a0121b53c84"
+    "mtime": 1789603485.4511743,
+    "seen": 1789603520.398711,
+    "ast_hash": "26392bc60bfeaea68c578ed1bf7f5912",
+    "semantic_hash": ""
   },
   "src/zip/central.ts": {
     "mtime": 1787609591.7115204,
@@ -246,9 +246,9 @@
     "semantic_hash": "d0b314e1fd13d12a845b3d7abd6fe5e1"
   },
   "test/browser/view.browser.mjs": {
-    "mtime": 1789511945.0925074,
-    "seen": 1789512007.7382889,
-    "ast_hash": "7684d823362390ce428fce87504fae19",
+    "mtime": 1789603462.3498824,
+    "seen": 1789603520.398725,
+    "ast_hash": "a8b623783d7808785ec1cf966806521c",
     "semantic_hash": ""
   },
   "test/core.test.ts": {
@@ -258,15 +258,15 @@
     "semantic_hash": "abb0a761879c2a052fd5ec9152f5e10a"
   },
   "test/epub-corpus.test.ts": {
-    "mtime": 1787609591.712808,
-    "seen": 1787677275.942909,
-    "ast_hash": "0a785025ea37c06b5ebfe7186471e076",
-    "semantic_hash": "0a785025ea37c06b5ebfe7186471e076"
+    "mtime": 1789605260.3135056,
+    "seen": 1789605972.029325,
+    "ast_hash": "223b3b5b7a40eb2897d832c9874a34c6",
+    "semantic_hash": ""
   },
   "test/epub.test.ts": {
-    "mtime": 1787700913.4796996,
-    "seen": 1787701106.0646348,
-    "ast_hash": "867fa8d9d9b74691fe039bd4b29eb7ec",
+    "mtime": 1789605260.3136704,
+    "seen": 1789605972.029325,
+    "ast_hash": "45365a32559c7db15e5a6c6e3bcba29c",
     "semantic_hash": ""
   },
   "test/fixtures/epub/hostile-vectors.json": {
@@ -276,9 +276,9 @@
     "semantic_hash": "5c1c4d7905fe4277cf8ce54ff4b49531"
   },
   "test/fixtures/epub/make-epub-fixtures.mjs": {
-    "mtime": 1787694635.3496385,
-    "seen": 1787694861.2612941,
-    "ast_hash": "0a1e7cf2de1f5810e13d9e30e4f7dee7",
+    "mtime": 1789605260.3142133,
+    "seen": 1789605972.0293272,
+    "ast_hash": "76e2531a17938dfda6d687a1424e80f4",
     "semantic_hash": ""
   },
   "test/fixtures/zip/node-range.manifest.json": {
@@ -294,10 +294,10 @@
     "semantic_hash": "4346ed13f361b47cacbe0f9ccd24a74f"
   },
   "test/view.test.ts": {
-    "mtime": 1787676464.2306132,
-    "seen": 1787677275.942914,
-    "ast_hash": "d8393702f0bbcd6f257689083cb68805",
-    "semantic_hash": "d8393702f0bbcd6f257689083cb68805"
+    "mtime": 1789605797.7819474,
+    "seen": 1789605972.029335,
+    "ast_hash": "259c730c28832de2e387fe770df84476",
+    "semantic_hash": ""
   },
   "test/zip.test.ts": {
     "mtime": 1787692327.3109806,
@@ -354,15 +354,15 @@
     "semantic_hash": ""
   },
   "demo/index.html": {
-    "mtime": 1789518351.2529137,
-    "seen": 1789518380.2189639,
-    "ast_hash": "de50b049aa39ba2ee85850698d657c16",
+    "mtime": 1789605476.885731,
+    "seen": 1789605972.029344,
+    "ast_hash": "78bb2cd96909d46bd20b55da63fe14ea",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1789599828.7219667,
-    "seen": 1789599841.4796412,
-    "ast_hash": "163824f303d5fdfd1e6db3c4f48bbb85",
+    "mtime": 1789605797.7788596,
+    "seen": 1789605972.029345,
+    "ast_hash": "3742531d094de34485435957760f33b1",
     "semantic_hash": ""
   },
   "docs/coding-conventions.md": {
@@ -384,27 +384,27 @@
     "semantic_hash": ""
   },
   "docs/domains/epub.md": {
-    "mtime": 1787701063.5233705,
-    "seen": 1787701106.064654,
-    "ast_hash": "8f3db4d5de3b0a8a94439f69b146de09",
+    "mtime": 1789605260.310594,
+    "seen": 1789605972.0293481,
+    "ast_hash": "4be6b9f52363827493ba44cf02699ec0",
     "semantic_hash": ""
   },
   "docs/domains/layout.md": {
-    "mtime": 1789518351.2536502,
-    "seen": 1789518380.218969,
-    "ast_hash": "1106e18b6f86b53957b0554351361395",
+    "mtime": 1789605797.779209,
+    "seen": 1789605972.029349,
+    "ast_hash": "63cf07bcd5a82f5c2f87f04c8d033064",
     "semantic_hash": ""
   },
   "docs/domains/tooling.md": {
-    "mtime": 1789517164.276378,
-    "seen": 1789517173.712158,
-    "ast_hash": "6e43283dec3c5b564070c88e79f6431d",
+    "mtime": 1789605476.8860688,
+    "seen": 1789605972.029353,
+    "ast_hash": "2d2411d55da68115d840ffb1f693a673",
     "semantic_hash": ""
   },
   "docs/domains/view.md": {
-    "mtime": 1789518351.2544787,
-    "seen": 1789518380.218972,
-    "ast_hash": "c991f84061e4c73e45b713cc7af8b14b",
+    "mtime": 1789605797.779443,
+    "seen": 1789605972.029354,
+    "ast_hash": "9cf503a66544d5d490afc04570eb0c6b",
     "semantic_hash": ""
   },
   "docs/domains/zip.md": {
@@ -468,9 +468,9 @@
     "semantic_hash": ""
   },
   "test/browser/layout.browser.mjs": {
-    "mtime": 1789518144.1003277,
-    "seen": 1789518174.014195,
-    "ast_hash": "617194250af1a9e4f2718867e3392add",
+    "mtime": 1789603462.351701,
+    "seen": 1789603520.39872,
+    "ast_hash": "5cf23e809e7294201ba0c759543829f0",
     "semantic_hash": ""
   },
   "test/layout.test.ts": {
@@ -480,15 +480,15 @@
     "semantic_hash": ""
   },
   "src/reader/index.ts": {
-    "mtime": 1787702131.0627043,
-    "seen": 1787702463.423341,
-    "ast_hash": "170cd03e46b20674cab05941dcaeeeaf",
+    "mtime": 1789605797.7802763,
+    "seen": 1789605972.0292978,
+    "ast_hash": "8af6a7dea60deb902ad22767d3a200b8",
     "semantic_hash": ""
   },
   "test/browser/reader.browser.mjs": {
-    "mtime": 1789518351.2561314,
-    "seen": 1789518380.218941,
-    "ast_hash": "f435b238575bcc4ffea24a5510f8e49b",
+    "mtime": 1789605797.781598,
+    "seen": 1789605972.02932,
+    "ast_hash": "ac9a74564b507d1b4d90453a5e282f8b",
     "semantic_hash": ""
   },
   "src/reader/input.ts": {
@@ -516,15 +516,15 @@
     "semantic_hash": ""
   },
   "test/browser/appearance.browser.mjs": {
-    "mtime": 1789511945.0886123,
-    "seen": 1789512007.738283,
-    "ast_hash": "46d1691196151a2090d7e98f9763ac23",
+    "mtime": 1789605797.7813423,
+    "seen": 1789605972.029315,
+    "ast_hash": "a9db8e9fc0efa9e96148adc42d8869b1",
     "semantic_hash": ""
   },
   "docs/domains/appearance.md": {
-    "mtime": 1789511945.081387,
-    "seen": 1789512007.7383091,
-    "ast_hash": "e129343a07f23003ad4df4587695c3f2",
+    "mtime": 1789605797.7790287,
+    "seen": 1789605972.0293472,
+    "ast_hash": "5afdddc6f664ddfedd5278febd8bd6a0",
     "semantic_hash": ""
   },
   "test/browser/selection.browser.mjs": {
@@ -534,9 +534,9 @@
     "semantic_hash": ""
   },
   "src/search/extract.ts": {
-    "mtime": 1787695257.9783835,
-    "seen": 1787695399.598016,
-    "ast_hash": "98952c4a08716124a06909c19cc57c19",
+    "mtime": 1789603485.4506528,
+    "seen": 1789603520.3987021,
+    "ast_hash": "6f050c100eefb163b1826ef74a9d6c80",
     "semantic_hash": ""
   },
   "src/search/index.ts": {
@@ -570,9 +570,9 @@
     "semantic_hash": ""
   },
   "docs/domains/search.md": {
-    "mtime": 1787694832.5817475,
-    "seen": 1787694861.2613142,
-    "ast_hash": "a04ddd9d58b532db41c26ef7839866bd",
+    "mtime": 1789603519.555444,
+    "seen": 1789603520.398755,
+    "ast_hash": "23091c9a4da52fbbcecf5b58778bf99d",
     "semantic_hash": ""
   },
   "test/browser/imagezoom.browser.mjs": {
@@ -684,9 +684,9 @@
     "semantic_hash": ""
   },
   "src/core/reading-text.ts": {
-    "mtime": 1787694399.1570761,
-    "seen": 1787694861.261258,
-    "ast_hash": "977295625d393527aa0c9037c848a08d",
+    "mtime": 1789603485.4504766,
+    "seen": 1789603520.39869,
+    "ast_hash": "1232caf48289d985659ac868de6250ea",
     "semantic_hash": ""
   },
   "src/core/lookup.ts": {
@@ -825,6 +825,12 @@
     "mtime": 1789599492.9681022,
     "seen": 1789599628.728904,
     "ast_hash": "ccd86e9d04e8978b62af37220668085e",
+    "semantic_hash": ""
+  },
+  "src/formats/epub/obfuscation.ts": {
+    "mtime": 1789605260.3123791,
+    "seen": 1789605972.029291,
+    "ast_hash": "02621aee2b66399d94e5297925c8551c",
     "semantic_hash": ""
   }
 }
