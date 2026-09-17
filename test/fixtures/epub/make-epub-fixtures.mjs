@@ -757,11 +757,13 @@ const searchAnchorsOpf = `<?xml version="1.0" encoding="UTF-8"?>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="opening" href="opening.xhtml" media-type="application/xhtml+xml"/>
     <item id="ledger" href="ledger.xhtml" media-type="application/xhtml+xml"/>
+    <item id="accents" href="accents.xhtml" media-type="application/xhtml+xml"/>
     <item id="image-dropcap" href="images/dropcap-t.png" media-type="image/png"/>
   </manifest>
   <spine>
     <itemref idref="opening"/>
     <itemref idref="ledger"/>
+    <itemref idref="accents"/>
   </spine>
 </package>
 `;
@@ -774,6 +776,7 @@ const searchAnchorsNav = `<?xml version="1.0" encoding="UTF-8"?>
 <ol>
 <li><a href="opening.xhtml">A Quiet Opening</a></li>
 <li><a href="ledger.xhtml">The Tide Ledger</a></li>
+<li><a href="accents.xhtml">Die schoene Aussicht</a></li>
 </ol>
 </nav>
 </body>
@@ -790,6 +793,31 @@ const searchAnchorsOpening = `<?xml version="1.0" encoding="UTF-8"?>
 </html>
 `;
 
+// A section long enough to paginate, whose target phrase is spelled with named
+// entities — the way a German or French book routinely spells its accents. The
+// file declares no DTD, so the frame's XML parse fails on `&ouml;` and it
+// re-parses as HTML, which decodes the name; a hit's quote therefore spans
+// decoded characters, and extraction has to produce the same ones. The phrase
+// sits deep in the section so landing on it proves a jump to the hit's own page
+// rather than to the section's first.
+const accentedFiller = Array.from(
+  { length: 64 },
+  (_, i) =>
+    `<p>Der Schreiber am Kai ordnete Kiste ${i + 1}, pruefte das Seil, das Segel und die Lampe, und trug die Stunde in sein Heft ein, bevor der naechste Kahn anlegte.</p>`,
+).join('\n');
+
+const searchAnchorsAccents = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Die schoene Aussicht</title></head>
+<body>
+<h1>Die schoene Aussicht</h1>
+${accentedFiller}
+<p>Am Abend las sie die Notiz laut vor: die sch&ouml;ne Aussicht &uuml;ber die Stra&szlig;e geh&ouml;rt dem Caf&eacute; gegen&uuml;ber, und der Preis stand mit 10&nbsp;&euro; in der Spalte &laquo;&nbsp;netto&nbsp;&raquo;.</p>
+${accentedFiller}
+</body>
+</html>
+`;
+
 writeFileSync(
   join(outDir, 'search-anchors.epub'),
   buildZip([
@@ -799,6 +827,7 @@ writeFileSync(
     { name: 'nav.xhtml', data: searchAnchorsNav },
     { name: 'opening.xhtml', data: searchAnchorsOpening },
     { name: 'ledger.xhtml', data: searchAnchorsLedger },
+    { name: 'accents.xhtml', data: searchAnchorsAccents },
     // images/dropcap-t.png is declared above and deliberately not written: the
     // unresolvable drop cap is what forces the alt substitution.
   ]),

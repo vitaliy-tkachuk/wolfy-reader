@@ -7,7 +7,9 @@ section text and yields jumpable hits. Its public surface is the `reader.search`
 facade method (see [`view.md`](view.md)); the engine underneath is three modules:
 
 - `extract.ts` — decode a section's bytes (BOM-aware) and strip its markup to the
-  canonical reading text (see the key decision below), plus entity decoding.
+  canonical reading text (see the key decision below).
+- `entities.ts` — the named-character-reference table extraction decodes with, and
+  `decodeEntities` itself.
 - `normalize.ts` — the folding policy that decides when two strings match, with an
   offset map back to raw text.
 - `matcher.ts` — normalized literal substring search over one section (`matchText`),
@@ -44,6 +46,35 @@ Query and section text are folded the same way before matching:
 
 Matching is **literal (normalized) substring** only — no ranking, fuzzy/stemmed
 matching, or regex. Those are deliberately out of scope for the current engine.
+
+### The entity table is HTML 4.01's, not HTML5's (2026-09-17)
+
+Extraction decodes the 252 names of HTML 4.01's Latin-1, symbol and special sets
+(read off the W3C DTDs) plus `apos` and the all-uppercase aliases the current HTML
+table defines — 260 in all, each carrying the character *today's* HTML table gives
+it (`lang`/`rang` moved to the mathematical angle brackets after HTML 4.01). Names
+are matched **exactly**: `&Ouml;` is Ö and `&ouml;` is ö, so folding a name's case
+decodes the wrong character.
+
+This is fidelity with the frame, not convenience. Outside the XML five, a named
+entity is declared only by the XHTML DTD, which no browser fetches — so the frame's
+`DOMParser('application/xhtml+xml')` fails on `&ouml;` and falls back to
+`text/html`, whose parser decodes every name it knows (see [`view.md`](view.md)).
+A name left verbatim fails twice over: the query misses (`Schön` never matches
+`Sch&ouml;n`) *and* the captured anchor quotes `Sch&oum…`, which the frame's text
+does not contain, so the jump soft-misses to the section's first page.
+
+The full HTML5 table (2231 names) is not worth its bytes. The 260-name table costs
+**+1,223 gzipped bytes on the root subpath** (34,357 → 35,580 of a 38,000-byte
+budget; `./react` 34,025 → 35,246 of 37,500), and HTML5's remaining ~1,900 names are
+maths and Unicode-block aliases books do not use: across the corpus (five Gutenberg
+books, Standard Ebooks, the EPUB test suite) nothing beyond `&lt;`, `&gt;` and
+`&amp;` is spelled as a name at all — accents arrive as literal UTF-8 or numeric
+references. Re-measure before growing the table; the root subpath sits at 94% of its
+budget. The table is one string literal — a name immediately followed by its single
+character, no separator, because every value is one non-alphanumeric code unit — split
+into a `Map` at module load, which is the cheapest encoding measured (a hex-code-point
+form costs ~100 bytes more gzipped).
 
 ### Do not route the whole-book scan through the frame
 
@@ -92,8 +123,9 @@ error): a resource that resolves servable but whose bytes fail to *load* (the fr
 substitutes alt, the mirror cannot see the failure); a surviving body `<style>`'s
 CSS text (present in frame text, deliberately never extracted — CSS is source, not
 prose, and resolution is content-addressed so extra frame text cannot break an
-anchor); named entities outside the extractor's table; and heavily malformed markup
-where the tokenizer's approximation of the HTML parser diverges. Change
+anchor); a named entity the table below does not carry, or one spelled without its
+semicolon; and heavily malformed markup where the tokenizer's approximation of the
+HTML parser diverges. Change
 `src/core/reading-text.ts` and the `applyResources` image branch together.
 
 ## Implementation notes
@@ -148,18 +180,26 @@ a time.
 - **Sections are the scan unit — a match spanning a section boundary is not found.**
   Each section is extracted and matched independently; a query whose text straddles
   two sections yields nothing. This is an accepted limitation of the current engine.
+- **Decoded invisible characters stay in the text, and the fold does not remove
+  them.** `&shy;`, `&zwnj;` and friends decode to real code units because the frame
+  shows them, so an anchor over them is right; but normalization folds only
+  whitespace and smart punctuation, so a query for `Silbentrennung` still misses
+  `Silben&shy;trennung`. That is the matching policy's edge, not extraction's.
 - **A blank (empty or whitespace-only) query yields nothing** — `normalizeQuery`
   folds it to `''` and both `matchText` and `searchBook` return immediately.
 - **Extraction is a tag-stripping tokenizer, not `DOMParser`.** `DOMParser` is a
   browser primitive with no headless Node global, and search only needs text content,
   so extraction hand-strips tags, skips `head` and every discarded/raw-text container
-  by jumping to its matching end tag, and decodes the common named + numeric HTML
-  entities. An unknown entity is left verbatim.
+  by jumping to its matching end tag, and decodes numeric entities plus the named
+  table above. A name the table does not carry is left verbatim, and so is one
+  spelled without its semicolon — the HTML parser resolves a few of those (`&amp`,
+  `&copy`), extraction requires the terminator.
 - **The hit's `text`/`Position` re-resolve against the *frame's* section text.**
   Capture mirrors it through the shared reading-text policy (see the key decision
   above); the residual divergences listed there surface as a jump that lands on the
   section's first page (a soft resolution miss) rather than the hit's page. Proven
   both headlessly (`test/search.test.ts`, capture text equals the simulated frame
-  text) and in the browser (`test/browser/search.browser.mjs`, a hit spanning an
-  alt-substituted drop cap and a discarded element jumps and highlights —
-  `test/fixtures/epub/search-anchors.epub`).
+  text) and in the browser (`test/browser/search.browser.mjs`: a hit spanning an
+  alt-substituted drop cap and a discarded element jumps and highlights, and a hit
+  whose quote spans entity-spelled accents lands on its own page deep in a long
+  section and paints — `test/fixtures/epub/search-anchors.epub`).

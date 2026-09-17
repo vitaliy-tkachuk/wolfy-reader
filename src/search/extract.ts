@@ -40,6 +40,7 @@ import {
   type ReadingResolver,
 } from '../core/reading-text.ts';
 import { decodeText } from '../core/text.ts';
+import { decodeEntities } from './entities.ts';
 
 export type { ReadingResolver } from '../core/reading-text.ts';
 
@@ -350,54 +351,4 @@ function attributeOf(rawTag: string, wanted: string): string | null {
     if (attribute === wanted) return decodeEntities(value);
   }
   return null;
-}
-
-const NAMED: ReadonlyMap<string, string> = new Map([
-  ['amp', '&'],
-  ['lt', '<'],
-  ['gt', '>'],
-  ['quot', '"'],
-  ['apos', "'"],
-  ['nbsp', ' '],
-  ['mdash', '—'],
-  ['ndash', '–'],
-  ['hellip', '…'],
-  ['lsquo', '‘'],
-  ['rsquo', '’'],
-  ['ldquo', '“'],
-  ['rdquo', '”'],
-  ['copy', '©'],
-  ['reg', '®'],
-  ['trade', '™'],
-  ['deg', '°'],
-  ['times', '×'],
-  ['eacute', 'é'],
-  ['egrave', 'è'],
-  ['agrave', 'à'],
-  ['ccedil', 'ç'],
-  ['uuml', 'ü'],
-  [' ', ' '],
-]);
-
-/**
- * Decodes numeric (`&#233;`, `&#xe9;`) and the common named HTML entities. An
- * unknown entity is left verbatim — a book's literal `&` in prose stays `&`.
- */
-function decodeEntities(text: string): string {
-  if (!text.includes('&')) return text;
-  return text.replace(/&(#x?[0-9a-f]+|[a-z][a-z0-9]*);/gi, (whole, body: string) => {
-    if (body[0] === '#') {
-      const code =
-        body[1] === 'x' || body[1] === 'X'
-          ? Number.parseInt(body.slice(2), 16)
-          : Number.parseInt(body.slice(1), 10);
-      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return whole;
-      try {
-        return String.fromCodePoint(code);
-      } catch {
-        return whole;
-      }
-    }
-    return NAMED.get(body.toLowerCase()) ?? whole;
-  });
 }

@@ -172,6 +172,39 @@ describe('reader.search — anchors align with the sanitized frame text', { ...s
     assert.ok(boxes.length > 0, 'the aligned anchor must paint at least one overlay box');
   });
 
+  test('a hit whose quote spans named entities jumps to its own page and highlights', async () => {
+    await openReader(SEARCH_ANCHORS);
+    // The accented section spells its accents as named entities. The file carries
+    // no DTD, so the frame's XML parse fails on them and it re-parses as HTML,
+    // which decodes every name it knows — the text the reader shows, and the text
+    // a hit's anchor must quote. The phrase sits deep in a long section, so the
+    // jump has to land on the hit's own page, not the section's first.
+    const query = 'schöne Aussicht über die Straße';
+    const hits = await page.evaluate((q) => window.harness.readerSearch(q), query);
+    assert.ok(hits.length >= 1, 'the entity-spelled phrase must be found');
+    const hit = hits[0];
+    assert.equal(hit.text, query, 'the hit must carry the decoded run, not the source spelling');
+    assert.ok(!hit.context.includes('&'), `context still shows source entities: ${hit.context}`);
+
+    const targetSection = await page.evaluate((id) => window.harness.sectionIndexOf(id), 'accents');
+    assert.equal(hit.sectionIndex, targetSection, 'the hit reported the wrong section');
+
+    await page.evaluate(() => window.harness.readerGoTo('start'));
+    const before = await page.evaluate(() => window.harness.readerPosition());
+    assert.notEqual(before.section, targetSection, 'test must start off the target section');
+
+    const landed = await page.evaluate((s) => window.harness.readerGoToSearchHit(s), hit.serialized);
+    assert.equal(landed.section, targetSection, 'goTo(hit.position) landed in the wrong section');
+    assert.ok(landed.totalPages > 1, 'the accented section must span several pages');
+    assert.ok(landed.page > 0, `jump landed on page ${landed.page}, wanted the hit's own page`);
+
+    // The same anchor paints: resolution against the frame text produced geometry.
+    await page.evaluate((s) => window.harness.readerDecorate('entity-hit', s, 'entity-hl'), hit.serialized);
+    const boxes = await overlayBoxes('entity-hit', 'entity-hl');
+    assert.ok(boxes.length > 0, 'the entity-spanning anchor must paint at least one overlay box');
+    for (const box of boxes) assert.ok(box.width > 0 && box.height > 0, 'a painted box has real geometry');
+  });
+
   test("the hostile book's Gutenberg-style drop cap is searchable through its substituted alt", async () => {
     await openReader(HOSTILE);
     // "The lamplighter" exists in the frame only because <img alt="T"> is

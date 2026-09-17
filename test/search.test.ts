@@ -19,6 +19,49 @@ test('extraction skips script/style/head content and decodes entities', () => {
   assert.equal(extractText('<p>a<!-- comment -->b</p>'), 'ab');
 });
 
+test('the named entities real books spell accents with are decoded', () => {
+  // A book that writes Schön as Sch&ouml; is shown decoded by the frame's parser,
+  // so extraction has to decode the same names or the query never matches and the
+  // captured anchor quotes text the frame does not contain.
+  assert.equal(
+    extractText('<p>Sch&ouml;n, &Agrave; la carte, Stra&szlig;e, &oelig;uvre</p>'),
+    'Schön, À la carte, Straße, œuvre',
+  );
+  assert.equal(extractText('<p>&laquo;&nbsp;12&nbsp;&euro;&nbsp;&raquo;</p>'), '«\u00a012\u00a0€\u00a0»');
+  // Invisible formatting characters are reading text too: the frame's textContent
+  // carries them, so an anchor captured over them must span the same code units.
+  assert.equal(
+    extractText('<p>Silben&shy;trennung, auf&zwnj;fallen</p>'),
+    'Silben\u00adtrennung, auf\u200cfallen',
+  );
+  // The symbol and Greek blocks come with the same table.
+  assert.equal(extractText('<p>&alpha;&beta; &frac12; &dagger; &hellip;</p>'), 'αβ ½ † …');
+});
+
+test('entity names are matched exactly, and an unknown name stays verbatim', () => {
+  // Case picks different characters; the HTML parser never folds a name's case.
+  assert.equal(extractText('<p>&Agrave;&agrave;&Eacute;&eacute;&Ouml;&ouml;</p>'), 'ÀàÉéÖö');
+  // The uppercase spellings HTML does define resolve; the ones it does not are
+  // left alone, like any other unknown name and like a name missing its semicolon.
+  assert.equal(extractText('<p>&AMP;&COPY;&GT;</p>'), '&©>');
+  assert.equal(extractText('<p>&NBSP; &foo; &Ouml</p>'), '&NBSP; &foo; &Ouml');
+});
+
+test('a query matches prose whose source spells it with entities', () => {
+  const german = extractText('<p>Die sch&ouml;ne Aussicht &uuml;ber die Stra&szlig;e am Caf&eacute;.</p>');
+  const hits = [...matchText(german, 'schöne', 'sec', 0)];
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]!.text, 'schöne');
+  assert.ok(hits[0]!.context.includes('schöne Aussicht'), hits[0]!.context);
+  // Straße and Café are only findable once ß and é decode.
+  assert.equal([...matchText(german, 'straße', 'sec', 0)].length, 1);
+  assert.equal([...matchText(german, 'café', 'sec', 0)].length, 1);
+
+  const french = extractText('<p>&Agrave; l&rsquo;&oelig;uvre&nbsp;: 10&nbsp;&euro; &laquo;&nbsp;net&nbsp;&raquo;</p>');
+  assert.equal([...matchText(french, "à l'œuvre", 'sec', 0)].length, 1);
+  assert.equal([...matchText(french, '10 €', 'sec', 0)].length, 1);
+});
+
 test('extraction keeps CDATA text and tolerates malformed markup', () => {
   assert.equal(extractText('<p><![CDATA[raw & text]]></p>'), 'raw & text');
   assert.equal(extractText('<p>dangling < not a tag'), 'dangling < not a tag');
