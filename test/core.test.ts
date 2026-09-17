@@ -216,6 +216,52 @@ test('open wraps a non-BookError decode failure in CorruptContainerError with ca
   );
 });
 
+test('open wraps a non-BookError sniff failure in CorruptContainerError with cause', async () => {
+  const failure = new Error('network down');
+  let decoded = false;
+  const sniffing: BookFormat = {
+    name: 'sniffing',
+    sniff: async (source) => new TextDecoder().decode(await source.read(0, 4)) === 'stub',
+    decode: async () => {
+      throw new Error('must not decode');
+    },
+  };
+  const later: BookFormat = {
+    name: 'later',
+    sniff: () => true,
+    decode: async (source, context) => {
+      decoded = true;
+      return stubFormat.decode(source, context);
+    },
+  };
+  const hostileReader: BookInput = {
+    size: stubBytes.byteLength,
+    read: () => Promise.reject(failure),
+  };
+  await assert.rejects(
+    open(hostileReader, { formats: [sniffing, later] }),
+    (error: unknown) => error instanceof CorruptContainerError && error.cause === failure,
+  );
+  assert.equal(decoded, false, 'a throwing sniffer must not fall through to the next format');
+});
+
+test('open surfaces a BookError thrown by a sniffer unchanged', async () => {
+  const refusing: BookFormat = {
+    name: 'refusing',
+    sniff: () => {
+      throw new EncryptedContentError('content is encrypted');
+    },
+    decode: async () => {
+      throw new Error('must not decode');
+    },
+  };
+  await assert.rejects(
+    open(stubBytes.buffer, { formats: [refusing] }),
+    (error: unknown) =>
+      error instanceof EncryptedContentError && error.message === 'content is encrypted',
+  );
+});
+
 test('the first format that claims the input wins', async () => {
   let secondDecoded = false;
   const second: BookFormat = {

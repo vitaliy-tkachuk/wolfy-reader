@@ -17,12 +17,16 @@ export async function open(input: BookInput, options: OpenOptions): Promise<Book
   const context: FormatContext =
     options.storage === undefined ? {} : { storage: options.storage };
   for (const format of options.formats) {
-    if (!(await format.sniff(source))) continue;
+    // A sniffer reads the input too, so it can fail for the same untyped
+    // reasons a decoder can — a host range reader that rejects, most of all.
+    let stage = 'sniff';
     try {
+      if (!(await format.sniff(source))) continue;
+      stage = 'decode';
       return await format.decode(source, context);
     } catch (error) {
       if (error instanceof BookError) throw error;
-      throw new CorruptContainerError(`${format.name} failed to decode the input`, {
+      throw new CorruptContainerError(`${format.name} failed to ${stage} the input`, {
         cause: error,
       });
     }
