@@ -266,7 +266,7 @@
 
   .reader-wrap { position: relative; }
   #reader {
-    height: 34rem;
+    height: clamp(24rem, calc(100vh - 12rem), 64rem);
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius);
