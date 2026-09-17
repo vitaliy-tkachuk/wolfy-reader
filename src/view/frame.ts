@@ -23,7 +23,11 @@ const RESET_CSS = [
   'html{box-sizing:border-box}',
   '*,*::before,*::after{box-sizing:inherit}',
   'body{margin:0}',
-  'img,svg{max-width:100%;height:auto}',
+  // Both axes: a column is a page, so a replaced element taller than the page (a
+  // portrait cover at column width) would overflow it and be clipped by the root —
+  // monolithic boxes do not fragment across columns. relayout publishes the page
+  // height as --wr-page-height; the viewport is the fallback before first layout.
+  'img,svg{max-width:100%;max-height:var(--wr-page-height,100vh);height:auto}',
   // A draw-only decoration overlay: pointer-transparent and given a visible default
   // so a bare `decorate` shows without host CSS. It carries the caller's class too, so
   // an appearance stylesheet can restyle it; a host that wants a different look targets
@@ -234,6 +238,7 @@ function relayout(){
   pinBoxModel(document.documentElement, true);
   pinBoxModel(document.body, true);
   if (root !== document.body) pinBoxModel(root, false);
+  document.documentElement.style.setProperty('--wr-page-height', layout.pageHeight ? (layout.pageHeight + 'px') : '100vh');
   if (layout.mode === 'scrolled'){
     // The document scrolls vertically to read, so restore that; but clip the
     // horizontal axis so an over-wide element (a broad table, a long pre) cannot add

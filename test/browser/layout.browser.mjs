@@ -456,3 +456,46 @@ describe('publisher box model on html/body', { ...skipAll }, () => {
     }
   });
 });
+
+describe('tall image containment', { ...skipAll }, () => {
+  // Regression: the reset capped replaced elements at the column width only. A
+  // portrait cover (Gutenberg wraps it in <svg viewBox width="100%" height="100%">)
+  // sized to the column width was far taller than the page, and a monolithic box
+  // does not fragment across columns, so the page clipped its lower half.
+  test('an image taller than the page is capped at the page height', async () => {
+    const pageWidth = 700;
+    const pageHeight = 560;
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1824 2726" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">' +
+      '<rect width="1824" height="2726" fill="#345"/></svg>';
+    const spec = {
+      id: 'tall-cover',
+      source:
+        '<html xmlns="http://www.w3.org/1999/xhtml"><body>' +
+        `<div>${svg}</div><p><img src="tall.png" alt="tall"/></p></body></html>`,
+      // A 1×3 PNG scales to 700×2100 at column width; a real portrait cover's shape.
+      resources: {
+        'tall.png': {
+          mediaType: 'image/png',
+          base64:
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAADCAIAAADdv/LVAAAAEUlEQVR4nGNgYGD4z8DAAABKAAX/2hTn5AAAAABJRU5ErkJggg==',
+        },
+      },
+    };
+    await paginateSynthetic(spec, { mode: 'paginated', pageWidth, pageHeight });
+    await page.evaluate(() => window.harness.refine());
+    const boxes = await contentFrame().evaluate(() => {
+      const root = document.getElementById('wolfy-reader-content').getBoundingClientRect();
+      const measure = (el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, height: r.height, width: r.width };
+      };
+      return { root: measure({ getBoundingClientRect: () => root }), svg: measure(document.querySelector('svg')), img: measure(document.querySelector('img')) };
+    });
+    for (const [name, box] of [['svg', boxes.svg], ['img', boxes.img]]) {
+      assert.ok(box.height > 0, `${name} did not render`);
+      assert.ok(box.height <= pageHeight + 1, `${name} is ${box.height}px tall on a ${pageHeight}px page`);
+    }
+    assert.ok(boxes.svg.bottom <= boxes.root.bottom + 1, `the cover's bottom (${boxes.svg.bottom}) is below the page (${boxes.root.bottom})`);
+  });
+});
