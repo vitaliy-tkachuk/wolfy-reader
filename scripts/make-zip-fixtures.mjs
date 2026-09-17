@@ -85,7 +85,8 @@ function u64(v) {
   return b;
 }
 
-// entries: { name, data, method: 0|8|other, encrypted?, payload? (overrides compressed bytes) }
+// entries: { name, data, method: 0|8|other, encrypted?, payload? (overrides
+// compressed bytes), declaredSize? (overrides the recorded uncompressed size) }
 // opts: { forceZip64 } masks CD sizes/offsets with 0xffffffff and emits the
 // zip64 extra field, zip64 EOCD record, and locator.
 function buildZip(entries, opts = {}) {
@@ -99,12 +100,13 @@ function buildZip(entries, opts = {}) {
     const payload =
       e.payload ?? (e.method === 8 ? deflateRawSync(e.data) : Buffer.from(e.data));
     const crc = e.encrypted ? 0xdeadbeef : crc32(e.data) >>> 0;
+    const declaredSize = e.declaredSize ?? e.data.length;
     const flags = e.encrypted ? 0x0001 : 0;
     const localHeaderOffset = offset;
 
     const local = Buffer.concat([
       u32(0x04034b50), u16(20), u16(flags), u16(e.method), u32(0),
-      u32(crc), u32(payload.length), u32(e.data.length),
+      u32(crc), u32(payload.length), u32(declaredSize),
       u16(nameBytes.length), u16(0), nameBytes,
     ]);
     parts.push(local, payload);
@@ -117,14 +119,14 @@ function buildZip(entries, opts = {}) {
 
     const zip64 = opts.forceZip64 && !e.encrypted;
     const extra = zip64
-      ? Buffer.concat([u16(0x0001), u16(24), u64(e.data.length), u64(payload.length), u64(localHeaderOffset)])
+      ? Buffer.concat([u16(0x0001), u16(24), u64(declaredSize), u64(payload.length), u64(localHeaderOffset)])
       : Buffer.alloc(0);
     central.push(
       Buffer.concat([
         u32(0x02014b50), u16(20), u16(zip64 ? 45 : 20), u16(flags), u16(e.method), u32(0),
         u32(crc),
         u32(zip64 ? 0xffffffff : payload.length),
-        u32(zip64 ? 0xffffffff : e.data.length),
+        u32(zip64 ? 0xffffffff : declaredSize),
         u16(nameBytes.length), u16(extra.length), u16(0), u16(0), u16(0), u32(0),
         u32(zip64 ? 0xffffffff : localHeaderOffset),
         nameBytes, extra,
@@ -196,6 +198,33 @@ writeFileSync(
     { name: 'data.bin', data: dataBin, method: 0 },
     { name: 'secret.txt', data: Buffer.alloc(32), method: 8, encrypted: true, payload: fakeEncryptedPayload },
     { name: 'weird.bin', data: dataBin, method: 12, payload: Buffer.from(dataBin) },
+  ]).bytes,
+);
+
+// Two records under one name, distinguishable by method, size and payload:
+// entry() and read() must both answer with the first.
+const duplicateFirst = Buffer.from('first record wins\n', 'utf-8');
+const duplicateSecond = Buffer.from('second record is shadowed, and longer\n', 'utf-8');
+writeFileSync(
+  join(outDir, 'node-duplicate.zip'),
+  buildZip([
+    { name: 'dup.txt', data: duplicateFirst, method: 0 },
+    { name: 'dup.txt', data: duplicateSecond, method: 8 },
+    { name: 'alpha.txt', data: alpha, method: 8 },
+  ]).bytes,
+);
+
+// A zip bomb in miniature: the central directory declares 100 bytes, the
+// deflate stream expands to 8 MiB. Reading it must abort mid-stream, so the
+// declared size — not the stream — bounds what gets buffered.
+const overInflateSize = 8 * 1024 * 1024;
+const overInflate = Buffer.alloc(overInflateSize);
+for (let i = 0; i < overInflate.length; i++) overInflate[i] = (i >> 12) & 0x0f;
+writeFileSync(
+  join(outDir, 'node-overinflate.zip'),
+  buildZip([
+    { name: 'alpha.txt', data: alpha, method: 8 },
+    { name: 'bomb.bin', data: overInflate, method: 8, declaredSize: 100 },
   ]).bytes,
 );
 

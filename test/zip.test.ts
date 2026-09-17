@@ -217,3 +217,59 @@ test('range reader touches only the byte ranges it needs', async () => {
   }
   assert.ok(touched.size < manifest.size, 'reads covered the whole file');
 });
+
+test('duplicate names resolve to the first record in both entry() and read()', async () => {
+  const zip = await openZip(await fixture('node-duplicate.zip'));
+  assert.deepEqual(
+    zip.entries.map((e) => e.name),
+    ['dup.txt', 'dup.txt', 'alpha.txt'],
+  );
+
+  const listed = zip.entry('dup.txt');
+  assert.ok(listed);
+  assert.equal(listed.method, 0);
+  assert.equal(listed, zip.entries[0]);
+
+  const bytes = await zip.read('dup.txt');
+  assert.equal(new TextDecoder().decode(bytes), 'first record wins\n');
+  assert.equal(bytes.byteLength, listed.uncompressedSize);
+});
+
+test('an entry that inflates past its declared size aborts mid-stream', async () => {
+  const bytes = await fixture('node-overinflate.zip');
+  // The fixture's deflate stream expands to 8 MiB behind a declared 100 bytes;
+  // counting what leaves DecompressionStream is what proves the read stopped
+  // instead of buffering the whole expansion and rejecting afterwards.
+  const real = globalThis.DecompressionStream;
+  let inflated = 0;
+  class CountingDecompressionStream {
+    readonly readable: ReadableStream<Uint8Array>;
+    readonly writable: WritableStream<BufferSource>;
+    constructor(format: CompressionFormat) {
+      const inner = new real(format);
+      this.writable = inner.writable;
+      this.readable = inner.readable.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            inflated += chunk.byteLength;
+            controller.enqueue(chunk);
+          },
+        }),
+      );
+    }
+  }
+  Reflect.set(globalThis, 'DecompressionStream', CountingDecompressionStream);
+  try {
+    const zip = await openZip(bytes);
+    assert.equal(zip.entry('bomb.bin')?.uncompressedSize, 100);
+    await assert.rejects(zip.read('bomb.bin'), (err: unknown) => {
+      assert.ok(err instanceof ZipFormatError);
+      assert.ok(!(err instanceof ZipCrcMismatchError));
+      return true;
+    });
+    assert.deepEqual(await zip.read('alpha.txt'), await content('alpha.txt'));
+  } finally {
+    Reflect.set(globalThis, 'DecompressionStream', real);
+  }
+  assert.ok(inflated < 1024 * 1024, `inflate ran on past the declared size: ${inflated} bytes`);
+});
