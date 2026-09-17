@@ -27,7 +27,11 @@ into the frame. `ContentHost.renderChunked` calls `chunkElement` on the sanitize
 document body and wraps each chunk in a container
 (`<div class="wolfy-reader-chunk" data-chunk-index data-chunk-start data-chunk-end>`)
 carrying its cumulative, end-exclusive character range over the tiled section
-text. Only *measurement* (`Range.getClientRects`, per-chunk multi-column geometry)
+text, with the chunk's own markup one level in, inside a
+`<div class="wolfy-reader-chunk-content">` (the container is the multi-column box
+and owns the column flow; the wrapper owns the writing direction — see Key
+decisions). Neither wrapper contributes text, so the char ranges, `sectionText`
+and every offset seam read exactly the chunk's own content. Only *measurement* (`Range.getClientRects`, per-chunk multi-column geometry)
 must run in-frame under the opaque origin; chunking is pure string/DOM work that
 does not, so it stays host-side where it is testable and where the same sanitize +
 resources pipeline already holds the DOM. See "Where chunking runs" below.
@@ -111,7 +115,7 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   (`firm === true`). Callers surface `firm` so the churn is visible rather than
   presented as precise. See "Estimated-page-count churn" below.
 - **2026-08-25 — Protocol versioning: hand-maintained, now at `PROTOCOL_VERSION =
-  12`.** The layout message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/
+  13`.** The layout message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/
   `pageOfOffset`/`scrollToOffset`/`sectionText`/`diagnostics` and their replies) is
   typed and validated on both sides; the wire is shared with the reader facade,
   which grew the version well past the layout-only `2` (link/input/selection/
@@ -184,6 +188,23 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   lives on the `#wolfy-reader-content` root. Regression:
   `test/browser/layout.browser.mjs` "paginated pages paint their content" probes
   with `elementFromPoint` (which honours the clip) rather than rects.
+- **2026-09-17 — Column flow is pinned `ltr`; the book's direction lives one level
+  in.** CSS multi-column lays its overflow columns out along the *inline* axis, so
+  under a publisher `body{direction:rtl}` columns 2..N grow to the **left** of the
+  chunk box — while a page turn translates left and `stride()`/`bandOf()` count
+  rightward. Page 1 painted and every later page went blank or repeated, and
+  `offsetOfPage`/`pageOfOffset` landed short. Column order is page geometry and
+  therefore the paginator's, so `relayout` pins `direction: ltr` on every chunk
+  container inline and `!important` — the same device the box model is pinned with,
+  the one thing no publisher stylesheet outranks — and re-applies the content root's
+  own computed direction to the inner `wolfy-reader-chunk-content` wrapper, where it
+  still lays the text out right-to-left. One rule, and the band math keeps a single
+  direction rather than growing a mirrored second path. Regression:
+  `test/browser/layout.browser.mjs` "RTL content pagination" — every page of a
+  Hebrew chapter paints (`elementFromPoint`, which honours the clip), the page count
+  matches an LTR twin of the same text, pages round-trip through capture/resolve,
+  and the paragraphs still compute `direction: rtl`. Vertical writing modes
+  (`writing-mode: vertical-rl`) are a different axis and are still unhandled.
 - **`content-visibility: auto` is kept, for re-layout only.** It makes bulk
   realization ~4× slower (93.4 ms vs 22.1 ms to resolve the exact page count on the
   synthetic fixture). It earns its place because appearance changes are frequent

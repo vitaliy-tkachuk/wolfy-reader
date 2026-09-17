@@ -4,6 +4,13 @@ export const CONTENT_ROOT_ID = 'wolfy-reader-content';
 
 /** Class marking each per-chunk container the host emits into the frame body. */
 export const CHUNK_CLASS = 'wolfy-reader-chunk';
+/**
+ * Class of the wrapper holding a chunk's own markup inside its container. The
+ * container is the multi-column box, whose column flow the frame pins to `ltr`
+ * because column order is page geometry; the wrapper carries the content's real
+ * writing direction, so right-to-left prose still reads right-to-left.
+ */
+export const CHUNK_CONTENT_CLASS = 'wolfy-reader-chunk-content';
 /** Cumulative character offset of a chunk's first glyph into the section text. */
 export const CHUNK_START_ATTR = 'data-chunk-start';
 /** Cumulative character offset just past a chunk's last glyph. */
@@ -82,6 +89,7 @@ var target = ${JSON.stringify(hostOrigin)};
 var KEYBOARD_NAV = ${JSON.stringify(keyboardNav)};
 var ROOT_ID = ${JSON.stringify(CONTENT_ROOT_ID)};
 var CHUNK_CLASS = ${JSON.stringify(CHUNK_CLASS)};
+var CHUNK_CONTENT_CLASS = ${JSON.stringify(CHUNK_CONTENT_CLASS)};
 var START_ATTR = ${JSON.stringify(CHUNK_START_ATTR)};
 var END_ATTR = ${JSON.stringify(CHUNK_END_ATTR)};
 function send(message){ try { host.postMessage(message, target); } catch (error) {} }
@@ -231,6 +239,26 @@ function pinBoxModel(el, sizing){
   if (sizing) props.push(['width','auto'],['height','auto']);
   for (var i = 0; i < props.length; i++) el.style.setProperty(props[i][0], props[i][1], 'important');
 }
+// The wrapper the host puts a chunk's markup in, or null for a body assembled
+// before it existed (a plain, unchunked render).
+function chunkContent(el){
+  var child = el.firstElementChild;
+  if (child === null || !child.className) return null;
+  return (' ' + child.className + ' ').indexOf(' ' + CHUNK_CONTENT_CLASS + ' ') === -1 ? null : child;
+}
+// Column order is page geometry, so it is the paginator's and not the book's. CSS
+// multi-column lays its overflow columns out along the inline axis: under a
+// publisher \`body{direction:rtl}\` they grow to the LEFT of the chunk box, while a
+// page turn translates left and the column-band math counts rightward — so page 1
+// painted and every later page went blank. Pinning the chunk box to \`ltr\`
+// (inline important, the one thing no stylesheet outranks, exactly as the box model
+// above) gives the band math a single direction; the content's own direction moves
+// onto the inner wrapper, where it still lays the text out right-to-left.
+function pinDirection(el, direction){
+  el.style.setProperty('direction', 'ltr', 'important');
+  var content = chunkContent(el);
+  if (content !== null) content.style.setProperty('direction', direction, 'important');
+}
 function relayout(){
   var els = chunkContainers();
   layout.chunks = [];
@@ -238,6 +266,11 @@ function relayout(){
   pinBoxModel(document.documentElement, true);
   pinBoxModel(document.body, true);
   if (root !== document.body) pinBoxModel(root, false);
+  // Read before the chunks are pinned: the root is what the chunks inherit from,
+  // and nothing here ever pins the root's own direction, so this stays stable
+  // across repeated relayouts.
+  var contentDirection = getComputedStyle(root).direction;
+  for (var d = 0; d < els.length; d++) pinDirection(els[d], contentDirection);
   document.documentElement.style.setProperty('--wr-page-height', layout.pageHeight ? (layout.pageHeight + 'px') : '100vh');
   if (layout.mode === 'scrolled'){
     // The document scrolls vertically to read, so restore that; but clip the
@@ -1165,9 +1198,12 @@ export interface ChunkPart {
  * overlap. The frame reads these attributes to build per-chunk multi-column
  * contexts and to map pages to character offsets.
  *
- * The container is a `<div class="wolfy-reader-chunk">`; the char count comes from
- * `chunkElement` (`textContent.length` of the chunk's nodes), so it matches what
- * the frame measures with `textContent` at runtime.
+ * The container is a `<div class="wolfy-reader-chunk">` holding one
+ * `<div class="wolfy-reader-chunk-content">` — the container is the multi-column
+ * box and carries the frame's pinned `ltr` column flow, the inner wrapper carries
+ * the content's own writing direction. The char count comes from `chunkElement`
+ * (`textContent.length` of the chunk's nodes), so it matches what the frame
+ * measures with `textContent` at runtime; neither wrapper adds text.
  */
 export function assembleChunkedBody(chunks: readonly ChunkPart[]): string {
   const parts: string[] = [];
@@ -1179,7 +1215,8 @@ export function assembleChunkedBody(chunks: readonly ChunkPart[]): string {
     offset = end;
     parts.push(
       `<div class="${CHUNK_CLASS}" ${CHUNK_INDEX_ATTR}="${index}" ` +
-        `${CHUNK_START_ATTR}="${start}" ${CHUNK_END_ATTR}="${end}">${chunk.html}</div>`,
+        `${CHUNK_START_ATTR}="${start}" ${CHUNK_END_ATTR}="${end}">` +
+        `<div class="${CHUNK_CONTENT_CLASS}">${chunk.html}</div></div>`,
     );
   }
   return parts.join('');

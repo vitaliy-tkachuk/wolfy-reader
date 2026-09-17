@@ -55,6 +55,22 @@ function longSection(paragraphs, id = 'synthetic-long') {
   };
 }
 
+// The same Hebrew prose under a publisher `body{direction:...}` rule, so an RTL
+// section and its LTR twin differ in nothing but the direction the columns flow.
+function directionalSection(paragraphs, direction, id = `prose-${direction}`) {
+  const words =
+    'הספר נפתח בעמוד הראשון ואחריו באים עוד עמודים שכולם חייבים להיצבע בשעת הדפדוף. ' +
+    'כל פסקה נושאת די טקסט כדי למלא טור שלם ולדחוף את הזרימה אל תוך עמוד חדש לגמרי. ';
+  const body = Array.from({ length: paragraphs }, (_, i) => `<p>${i + 1}. ${words.repeat(6)}</p>`).join('');
+  return {
+    id,
+    source:
+      '<html xmlns="http://www.w3.org/1999/xhtml">' +
+      `<head><style>body{direction:${direction}}</style></head>` +
+      `<body>${body}</body></html>`,
+  };
+}
+
 let server = null;
 let browser = null;
 let page = null;
@@ -179,6 +195,69 @@ describe('paginated pages paint their content', { ...skipAll }, () => {
     });
     assert.notEqual(painted[1], painted[0], 'page 2 shows the same text as page 1 — the turn painted nothing new');
     assert.notEqual(painted[2], painted[1], 'page 3 shows the same text as page 2 — the turn painted nothing new');
+  });
+});
+
+describe('RTL content pagination', { ...skipAll }, () => {
+  // Regression: under a publisher `body{direction:rtl}` CSS multi-column lays the
+  // overflow columns out to the LEFT of the chunk box, while the page turn
+  // translates left and the column-band math counts rightward — so page 1 painted
+  // and every later page was blank. Column flow is pinned LTR and the content's
+  // own direction rides an inner wrapper, so the band math has one direction only.
+  const GEOMETRY = { mode: 'paginated', pageWidth: 700, pageHeight: 560 };
+
+  const paintedAtCentre = () =>
+    contentFrame().evaluate(() => {
+      const root = document.getElementById('wolfy-reader-content');
+      const box = root.getBoundingClientRect();
+      const el = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return el ? (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    });
+
+  test('every page of an RTL section paints, and the text still reads right-to-left', async () => {
+    const state = await paginateSynthetic(directionalSection(30, 'rtl'), GEOMETRY);
+    const firm = await page.evaluate(() => window.harness.refine());
+    assert.ok(firm.pageCount >= 10, `need a long RTL chapter, got ${firm.pageCount} pages`);
+    assert.ok(state.pageCount > 0);
+
+    const painted = [];
+    for (let p = 0; p < firm.pageCount; p += 1) {
+      await page.evaluate((n) => window.harness.goToPage(n), p);
+      painted.push(await paintedAtCentre());
+    }
+    painted.forEach((text, p) => {
+      assert.ok(text.length > 0, `RTL page ${p} painted no text at its centre — the column flowed off-page`);
+    });
+    const distinct = new Set(painted).size;
+    assert.ok(distinct > firm.pageCount / 2, `RTL pages repeat their content: ${distinct} distinct of ${painted.length}`);
+
+    // The fix must not straighten the prose: the reading direction stays RTL.
+    const direction = await contentFrame().evaluate(() => {
+      const paragraph = document.querySelector('.wolfy-reader-chunk p');
+      return getComputedStyle(paragraph).direction;
+    });
+    assert.equal(direction, 'rtl', 'the content lost its right-to-left direction');
+  });
+
+  test('an RTL section paginates to the same page count as its LTR twin', async () => {
+    const rtl = await paginateSynthetic(directionalSection(30, 'rtl'), GEOMETRY);
+    const rtlFirm = await page.evaluate(() => window.harness.refine());
+    const ltr = await paginateSynthetic(directionalSection(30, 'ltr'), GEOMETRY);
+    const ltrFirm = await page.evaluate(() => window.harness.refine());
+    assert.equal(rtlFirm.pageCount, ltrFirm.pageCount, 'RTL and LTR copies of the same text paginate differently');
+    assert.equal(rtl.firm, ltr.firm);
+  });
+
+  test('pages of an RTL section round-trip through capture/resolve', async () => {
+    await paginateSynthetic(directionalSection(30, 'rtl'), GEOMETRY);
+    const firm = await page.evaluate(() => window.harness.refine());
+    const total = firm.pageCount;
+    const samples = [...new Set([0, Math.floor(total / 3), Math.floor((2 * total) / 3), total - 1])];
+    for (const target of samples) {
+      await page.evaluate((p) => window.harness.goToPage(p), target);
+      const landed = await page.evaluate((p) => window.harness.pageOfPositionAt(p), target);
+      assert.equal(landed, target, `RTL page ${target} round-tripped to ${landed}`);
+    }
   });
 });
 
