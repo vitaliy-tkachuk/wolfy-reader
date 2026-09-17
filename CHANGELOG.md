@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.3.0](https://github.com/vitaliy-tkachuk/wolfy-reader/compare/wolfy-reader-v0.2.0...wolfy-reader-v0.3.0) (2026-09-17)
+
+
+### Features
+
+* add React 19 bindings over the reader facade ([1befe5d](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/1befe5daae658d28361199d474ce703bcc3b15db))
+* **core:** add Section.linear, metadata.identifier, Uint8Array input ([1db3d95](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/1db3d951a410ee56bb3b2de3366c3915c6d9d56e))
+* **epub:** de-obfuscate IDPF-obfuscated fonts ([8be0462](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/8be0462846e5f42b358e07127626c663350ac5a5))
+* publish the react subpath ([8fb6505](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/8fb650577a31467c0c5dc2d7bf203ea10ba3153b))
+* **reader:** emit selectionclear when a reported selection goes away ([ca5e612](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/ca5e612fca39d537c0e9bbd3d552603d53a93ad4))
+* **reader:** report selection geometry so hosts can anchor a popover ([c1eb6ec](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/c1eb6ec59a5cdaa727fda918d76dee5717c9ea5e))
+* **reader:** report taps and decoration taps so hosts can open a highlight menu ([c39d67b](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/c39d67be9599db8d0edf909c7bdae21e74f0acc3))
+
+
+### Bug Fixes
+
+* **core:** wrap sniffer failures in CorruptContainerError ([92685b8](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/92685b8d5e3eae5d188f51443c4db9ae4938e0dd))
+* **demo:** flip the menu to the highlight after Highlight is clicked ([2722e77](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/2722e77944867c8a296e8346e728f3460e3449ae))
+* **demo:** size the reader to the viewport instead of a fixed 34rem ([862e9df](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/862e9df2c8a9fce43c8670e978815ae75413adf7))
+* **fb2:** keep broken binaries, body preamble, tables and deep TOC ([3eb409a](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/3eb409ae3ce83fd0be4e94531ea013b31b1f5f89))
+* **layout:** keep the exact reading place across the scrolled switch ([1820d79](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/1820d79f48fa155a44083f12da10b0f461c2bcca))
+* **layout:** keep wide tables, pre blocks and long tokens in their page ([a6e3db7](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/a6e3db7a3852574f438fffaa863e35f7f35e7318))
+* **layout:** paginate right-to-left sections past the first page ([78d8b33](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/78d8b339e3922a5146710ae07742d6e93bc00e7b))
+* **search:** decode the named entities books spell accents with ([d26b4cc](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/d26b4cc6836940d9fb0b8a3f7bf0d2b6af5beaf8))
+* **view:** cap replaced elements at the page height, not just the column width ([9795645](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/9795645487459ffe127196e507fdc75e3d3ddb8f))
+* **view:** match SVG names case-sensitively in the sanitizer ([a69f5a3](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/a69f5a3dfb6c8a84042d7ca9e79776366a54091e))
+* **view:** pin the frame's html/body box model against publisher CSS ([1de29a3](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/1de29a3f15638810ec1e20fdee63f236727361cc))
+* **zip:** bound inflation by the declared size, mid-stream ([7058b7e](https://github.com/vitaliy-tkachuk/wolfy-reader/commit/7058b7e1c5d19bceb1696036c9aad1ec97deedd2))
+
 ## [0.2.0](https://github.com/vitaliy-tkachuk/wolfy-reader/compare/wolfy-reader-v0.1.0...wolfy-reader-v0.2.0) (2026-09-16)
 
 
