@@ -243,6 +243,11 @@ test('frame messages are accepted only in a known shape', () => {
       rects: [],
     },
   );
+  // The clear carries nothing: the host already has the selection it reported.
+  assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'selectioncleared' }), {
+    v: PROTOCOL_VERSION,
+    type: 'selectioncleared',
+  });
   assert.deepEqual(
     asFrameMessage({ v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' }),
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' },
@@ -293,6 +298,8 @@ test('frame messages are accepted only in a known shape', () => {
     { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: { ...box, height: '18' }, rects: [box] },
     { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: [{ ...box, height: -2 }] },
     { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: [box, { x: 1, y: 2, width: 3 }] },
+    { type: 'selectioncleared' },
+    { v: PROTOCOL_VERSION - 1, type: 'selectioncleared' },
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:x' },
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 5, alt: 'x' },
     { v: PROTOCOL_VERSION, type: 'imagetap', alt: 'x' },
@@ -379,6 +386,12 @@ test('host decorate/undecorate messages are accepted only in a known shape', () 
   ]) {
     assert.equal(asHostMessage(rejected), null, JSON.stringify(rejected));
   }
+});
+
+test('the frame script sends selectioncleared only while a selection stands reported', () => {
+  const script = coordinationScript('https://example.test');
+  assert.match(script, /var selectionReported = false;/, 'the frame must track what it reported');
+  assert.match(script, /type: 'selectioncleared'/, 'the frame must send selectioncleared');
 });
 
 test('the frame validator copy carries the decorate/undecorate host cases in step', () => {

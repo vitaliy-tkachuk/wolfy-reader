@@ -46,6 +46,7 @@ function element(refCapture) {
     onSectionChange: (change) => events.push({ type: 'sectionchange', payload: change }),
     onLinkClick: (click) => events.push({ type: 'linkclick', payload: click }),
     onSelection: (selection) => events.push({ type: 'selection', payload: selection }),
+    onSelectionClear: () => events.push({ type: 'selectionclear', payload: {} }),
     onError: (error) => events.push({ type: 'error', payload: String(error) }),
   };
   const node = createElement(Reader, {

@@ -42,6 +42,8 @@ export interface ReaderCallbacks {
   readonly onLinkClick?: (click: LinkClick) => void;
   /** The user selected text in the frame. */
   readonly onSelection?: (selection: SelectionEvent) => void;
+  /** A selection reported by `onSelection` is gone (collapsed, or its document was replaced). */
+  readonly onSelectionClear?: () => void;
   /** A navigation or render failed. */
   readonly onError?: (error: Error) => void;
 }
@@ -140,6 +142,7 @@ export function useReader(book: Book, options: UseReaderOptions = {}): UseReader
       live.on('sectionchange', (change) => latest.current.onSectionChange?.(change)),
       live.on('linkclick', (click) => latest.current.onLinkClick?.(click)),
       live.on('selection', (selection) => latest.current.onSelection?.(selection)),
+      live.on('selectionclear', () => latest.current.onSelectionClear?.()),
       live.on('error', (error) => latest.current.onError?.(error)),
     ];
     setReader(live);

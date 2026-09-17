@@ -127,9 +127,21 @@ export interface ReaderEventMap {
   readonly linkclick: LinkClick;
   /** Fires when the user selects text in the frame. Payload: the text, a resolvable Position, and its geometry. */
   readonly selection: SelectionEvent;
+  /**
+   * Fires once when a selection reported by `selection` is gone: the user
+   * collapsed it (a bare click in the frame), or the section changed, or the frame
+   * document was rebuilt by a mode switch, an appearance change or a resize. Never
+   * fires for a page turn (the selection survives it), never when nothing was
+   * selected, and never between two successive non-empty selections. Payload: an
+   * empty object, reserved for growth.
+   */
+  readonly selectionclear: SelectionClear;
   /** Fires when a navigation or render fails. Payload: the error. */
   readonly error: Error;
 }
+
+/** The `selectionclear` payload. Carries nothing today; hosts keep what `selection` gave them. */
+export type SelectionClear = Record<string, never>;
 
 export interface SectionChange {
   /** 0-based index of the now-active section. */
@@ -311,10 +323,20 @@ class ReaderImpl implements Reader {
     sectionchange: new Set(),
     linkclick: new Set(),
     selection: new Set(),
+    selectionclear: new Set(),
     error: new Set(),
   };
   /** Internal-link back-stack: positions to return to via {@link back}. */
   #backStack: Position[] = [];
+  /** Whether a `selection` has been emitted since the last `selectionclear`. */
+  #selectionReported = false;
+  /**
+   * Serializes selection reports and clears so they emit in the order the frame
+   * sent them: a report awaits position capture, and a clear that arrived during
+   * that wait must still follow it rather than being judged against a stale flag.
+   * Separate from the navigation queue — selection never navigates.
+   */
+  #selectionChain: Promise<void> = Promise.resolve();
   #sectionIndex = 0;
   #mode: LayoutMode;
   #destroyed = false;
@@ -396,7 +418,10 @@ class ReaderImpl implements Reader {
         this.#openZoom(image);
       },
       onSelection: (selection) => {
-        void this.#onSelection(selection);
+        this.#onSelection(selection);
+      },
+      onSelectionClear: () => {
+        this.#onSelectionClear();
       },
     });
     // Kick off the initial render; `ready` fires when it settles.
@@ -433,6 +458,7 @@ class ReaderImpl implements Reader {
     // `null` means the size did not actually change (or the container is hidden):
     // nothing re-laid out, so nothing to announce.
     if (this.#destroyed || state === null) return;
+    this.#clearReportedSelection();
     this.#emit('positionchange', this.#snapshot());
   }
 
@@ -675,6 +701,8 @@ class ReaderImpl implements Reader {
     // or a Position within the current chapter — and just seek within the layout
     // already in place.
     if (changed) {
+      // The outgoing document takes any reported selection with it.
+      this.#clearReportedSelection();
       await this.#paginator.paginate(section, { mode: this.#mode, ...this.#requestExtras() });
       this.#sectionIndex = index;
     }
@@ -900,17 +928,47 @@ class ReaderImpl implements Reader {
    * always carries real text. Position capture reads the section text but moves
    * nothing, so it is not enqueued behind navigation.
    */
-  async #onSelection(selection: {
+  #onSelection(selection: {
     start: number;
     end: number;
     text: string;
     rect: SelectionRect;
     rects: readonly SelectionRect[];
-  }): Promise<void> {
-    if (this.#destroyed || this.#paginator.section === null) return;
-    const position = await this.#paginator.positionOfOffsetRange(selection.start, selection.end);
-    if (this.#destroyed) return;
-    this.#emit('selection', { text: selection.text, position, rect: selection.rect, rects: selection.rects });
+  }): void {
+    this.#inSelectionOrder(async () => {
+      if (this.#destroyed || this.#paginator.section === null) return;
+      const position = await this.#paginator.positionOfOffsetRange(selection.start, selection.end);
+      if (this.#destroyed) return;
+      this.#emit('selection', { text: selection.text, position, rect: selection.rect, rects: selection.rects });
+      this.#selectionReported = true;
+    });
+  }
+
+  /** The frame settled a collapsed or empty selection while one stood reported. */
+  #onSelectionClear(): void {
+    this.#inSelectionOrder(async () => {
+      this.#clearReportedSelection();
+    });
+  }
+
+  #inSelectionOrder(task: () => Promise<void>): void {
+    this.#selectionChain = this.#selectionChain.then(task).catch((error: unknown) => {
+      if (!this.#destroyed) {
+        this.#emit('error', error instanceof Error ? error : new ReaderError(String(error)));
+      }
+    });
+  }
+
+  /**
+   * Emits `selectionclear` if a `selection` has been reported since the last
+   * clear, and nothing otherwise — so a clear is never announced for a selection
+   * the host never heard of, and never twice for the same one. Called for the
+   * frame's own clear and by every path that replaces the frame document.
+   */
+  #clearReportedSelection(): void {
+    if (!this.#selectionReported || this.#destroyed) return;
+    this.#selectionReported = false;
+    this.#emit('selectionclear', {});
   }
 
   // --- back-stack -----------------------------------------------------------
@@ -946,7 +1004,9 @@ class ReaderImpl implements Reader {
       return;
     }
     // The paginator itself captures a Position, re-paginates, and seeks back,
-    // so position is preserved across the switch (M1-2 machinery).
+    // so position is preserved across the switch (M1-2 machinery). The switch
+    // renders a fresh frame document, so a reported selection does not survive it.
+    this.#clearReportedSelection();
     await this.#paginator.switchMode(mode);
     this.#mode = mode;
     this.#emit('positionchange', this.#snapshot());
@@ -974,15 +1034,20 @@ class ReaderImpl implements Reader {
     const reflows = isReflowingUpdate(appearance);
     this.#appearance = mergeAppearance(this.#appearance, appearance);
     const css = themeStyleSheet(this.#appearance);
+    let reassembled: boolean;
     if (reflows) {
       const geometry: { columnCount?: number; columnGap?: number } = {};
       if (this.#appearance.columns !== undefined) geometry.columnCount = this.#appearance.columns;
       if (this.#appearance.margin !== undefined) geometry.columnGap = this.#appearance.margin;
-      await this.#paginator.applyAppearance(css, geometry);
+      reassembled = await this.#paginator.applyAppearance(css, geometry);
     } else {
-      await this.#paginator.setThemeCss(css);
+      reassembled = await this.#paginator.setThemeCss(css);
     }
     if (this.#destroyed) return;
+    // Both paths rebuild the srcdoc when they do anything at all (the theme rides
+    // it), and a rebuilt document has no selection; a no-op change rebuilds nothing
+    // and clears nothing.
+    if (reassembled) this.#clearReportedSelection();
     // Emitted after the change settles so a host can refresh anything keyed on the
     // settled state (parity with setMode). A reflowing knob may have moved the page
     // number even though the reading place is held.

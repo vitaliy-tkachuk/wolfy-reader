@@ -1034,6 +1034,11 @@
     reader.on('positionchange', () => {
       selectionEl.hidden = true;
     });
+    // The selection itself is gone — a bare click in the page collapsed it, or its
+    // document was replaced — so there is nothing left to anchor the menu on.
+    reader.on('selectionclear', () => {
+      selectionEl.hidden = true;
+    });
     reader.on('positionchange', onPositionChange);
     reader.on('ready', (position) => {
       onPositionChange(position);

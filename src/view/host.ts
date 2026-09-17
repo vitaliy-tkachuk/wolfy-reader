@@ -64,6 +64,15 @@ export interface ContentHostOptions {
     rects: readonly SelectionRect[];
   }) => void;
   /**
+   * A selection the frame reported through `onSelection` is gone: the release
+   * that settled a collapsed or empty selection while one stood reported. Fires
+   * once per reported selection and never for a bare click on nothing. A
+   * replacement selection arrives as another `onSelection`, not a clear. The
+   * frame's record dies with its document, so a re-render never fires this —
+   * the caller owns that case.
+   */
+  readonly onSelectionClear?: () => void;
+  /**
    * The appearance theme stylesheet injected at document assembly (see
    * {@link themeStyleSheet}). Applied to every render; update it live with
    * {@link ContentHost.setThemeCss} and re-render. Omit for an unthemed frame.
@@ -192,6 +201,9 @@ export class ContentHost {
           rect: message.rect,
           rects: message.rects,
         });
+        return;
+      case 'selectioncleared':
+        this.#options.onSelectionClear?.();
         return;
       case 'pong':
       case 'measured':

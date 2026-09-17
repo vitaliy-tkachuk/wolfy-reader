@@ -613,3 +613,188 @@ describe('selection geometry', { ...skipAll, ...skipCorpus }, () => {
     assert.deepEqual(rect, { x: 0, y: 0, width: 0, height: 0 });
   });
 });
+
+// --- clearing ---------------------------------------------------------------
+
+/**
+ * Collapses the live selection at a point and fires the release — what a bare click
+ * in the page does. Dispatched without a preceding pointerdown, so the frame's
+ * gesture tracker sees no tap and no page turns: the clear is observed on its own.
+ */
+async function collapseSelection(frame) {
+  await frame.evaluate(() => {
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    const root = document.getElementById('wolfy-reader-content') || document.body;
+    const node = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null).nextNode();
+    if (node !== null) selection.collapse(node, 0);
+    return new Promise((done) => {
+      setTimeout(() => {
+        document.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, bubbles: true, pointerId: 1 }));
+        done();
+      }, 20);
+    });
+  });
+}
+
+const countOf = (log, type) => log.filter((e) => e.type === type).length;
+const typesOf = (log) => log.map((e) => e.type);
+const settle = () => new Promise((done) => setTimeout(done, 150));
+
+/** Waits until the log holds at least `n` events of `type`, or a bounded number of polls. */
+async function waitForCount(type, n) {
+  for (let i = 0; i < 40; i += 1) {
+    const log = await events();
+    if (countOf(log, type) >= n) return log;
+    await new Promise((done) => setTimeout(done, 25));
+  }
+  return events();
+}
+
+/** Selects the first sizeable text run in the frame and waits for the `selection` it reports. */
+async function selectAndReport(frame, nth = 1) {
+  const picked = await selectWhere(frame, '() => true');
+  assert.ok(picked !== null, 'no text run to select');
+  await releaseSelection(frame);
+  const log = await waitForCount('selection', nth);
+  assert.equal(countOf(log, 'selection'), nth, `selection #${nth} was not reported`);
+}
+
+describe('selection clearing', { ...skipAll, ...skipCorpus }, () => {
+  test('a bare click after a reported selection fires one selectionclear; a second click none', async () => {
+    const frame = await openAliceChapter();
+    await selectAndReport(frame);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+
+    await collapseSelection(frame);
+    let log = await waitForCount('selectionclear', 1);
+    await settle();
+    log = await events();
+    assert.deepEqual(typesOf(log), ['selectionclear'], 'exactly one clear, nothing else');
+    assert.deepEqual(log[0].payload, {}, 'the clear carries no fields');
+
+    // Nothing is reported now, so the same click is silent: the clear is a
+    // transition, not a state.
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await collapseSelection(frame);
+    await settle();
+    assert.deepEqual(typesOf(await events()), []);
+  });
+
+  test('a release that beats the queued selectionchange still clears exactly once', async () => {
+    const frame = await openAliceChapter();
+    await selectAndReport(frame);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    // Collapse and release in the same task: selectionchange is queued behind
+    // both, which is what a synthetic mouse.click (or a real click under load)
+    // looks like to the frame.
+    await frame.evaluate(() => {
+      const selection = window.getSelection();
+      const root = document.getElementById('wolfy-reader-content') || document.body;
+      const node = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null).nextNode();
+      selection.removeAllRanges();
+      if (node !== null) selection.collapse(node, 0);
+      document.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, bubbles: true, pointerId: 1 }));
+    });
+    await waitForCount('selectionclear', 1);
+    await settle();
+    // The late selectionchange marks the (collapsed) selection dirty; the next
+    // release has nothing reported and must stay silent.
+    await frame.evaluate(() => {
+      document.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, bubbles: true, pointerId: 1 }));
+    });
+    await settle();
+    assert.deepEqual(typesOf(await events()), ['selectionclear']);
+  });
+
+  test('a replacement selection is not a clear: selection twice, selectionclear never', async () => {
+    const frame = await openAliceChapter();
+    await selectAndReport(frame, 1);
+    // A different range (the first wrapped run) replaces the reported one.
+    const picked = await selectWhere(frame, '(range) => range.getClientRects().length >= 2');
+    assert.ok(picked !== null, 'no wrapped text run to select');
+    await releaseSelection(frame);
+    const log = await waitForCount('selection', 2);
+    await settle();
+    const final = await events();
+    assert.equal(countOf(final, 'selection'), 2, 'the replacement must be reported');
+    assert.equal(countOf(final, 'selectionclear'), 0, 'a replacement must not clear');
+    assert.equal(countOf(log, 'selectionclear'), 0);
+  });
+
+  test('a section change clears once, before sectionchange', async () => {
+    const frame = await openAliceChapter();
+    await selectAndReport(frame);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await page.evaluate(() => window.harness.readerNextSection());
+    assert.deepEqual(typesOf(await events()), ['selectionclear', 'sectionchange', 'positionchange']);
+    // The new document starts unreported: a click in it is silent.
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await collapseSelection(contentFrame());
+    await settle();
+    assert.deepEqual(typesOf(await events()), []);
+  });
+
+  test('a page turn keeps the selection: no clear, and a later click still clears once', async () => {
+    await openReader(ALICE);
+    await page.evaluate(() => window.harness.readerGoTo(0.2));
+    // Stay off the section's last page so next() turns a page rather than rolling.
+    const at = await page.evaluate(() => window.harness.readerPosition());
+    if (at.page >= at.totalPages - 1) await page.evaluate(() => window.harness.readerPrev());
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    const frame = contentFrame();
+    await selectAndReport(frame);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+
+    const before = await page.evaluate(() => window.harness.readerPosition());
+    const after = await page.evaluate(() => window.harness.readerNext());
+    assert.equal(after.section, before.section, 'the turn must stay within the section');
+    assert.notEqual(after.page, before.page, 'the page must have turned');
+    assert.deepEqual(typesOf(await events()), ['positionchange'], 'a page turn is not a clear');
+
+    // The selection object survived the translate, so the reader still holds it
+    // reported: the eventual click clears exactly once.
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await collapseSelection(frame);
+    await waitForCount('selectionclear', 1);
+    await settle();
+    assert.deepEqual(typesOf(await events()), ['selectionclear']);
+  });
+
+  test('a mode switch rebuilds the document: one clear before positionchange, then silence', async () => {
+    const frame = await openAliceChapter();
+    await selectAndReport(frame);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await page.evaluate(() => window.harness.readerSetMode('scrolled'));
+    assert.deepEqual(typesOf(await events()), ['selectionclear', 'positionchange']);
+
+    // Nothing is reported in the fresh document, so neither a click there nor the
+    // switch back announces anything.
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await collapseSelection(contentFrame());
+    await settle();
+    await page.evaluate(() => window.harness.readerSetMode('paginated'));
+    assert.deepEqual(typesOf(await events()), ['positionchange']);
+  });
+
+  test('an appearance change clears only when it rebuilds the document', async () => {
+    const frame = await openAliceChapter();
+    await selectAndReport(frame);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    // A reflowing knob re-renders the section into a fresh document.
+    await page.evaluate(() => window.harness.readerSetAppearance({ fontSize: 22 }));
+    assert.deepEqual(typesOf(await events()), ['selectionclear', 'positionchange']);
+
+    // The same value again is a no-op in the paginator (nothing re-assembled), so a
+    // freshly reported selection must survive it untouched.
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await selectAndReport(contentFrame());
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await page.evaluate(() => window.harness.readerSetAppearance({ fontSize: 22 }));
+    assert.deepEqual(typesOf(await events()), ['positionchange'], 'a no-op change must not clear');
+    // A colour-only change also rides the srcdoc, so it rebuilds too — and clears.
+    await page.evaluate(() => window.harness.clearReaderEvents());
+    await page.evaluate(() => window.harness.readerSetAppearance({ theme: 'sepia' }));
+    assert.deepEqual(typesOf(await events()), ['selectionclear', 'positionchange']);
+  });
+});

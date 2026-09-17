@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 export interface Measurement {
   readonly width: number;
@@ -205,6 +205,15 @@ export type FrameMessage =
     }
   | {
       readonly v: typeof PROTOCOL_VERSION;
+      /**
+       * A selection this document reported earlier is gone — the release that
+       * settled a collapsed or empty selection while one stood reported. Sent once
+       * per reported selection; a replacement selection re-sends `selection` instead.
+       */
+      readonly type: 'selectioncleared';
+    }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
       readonly type: 'imagetap';
       /**
        * The image's already-substituted `data:` URL — the full-resolution bytes
@@ -395,6 +404,8 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
       if (rect === null || rects === null) return null;
       return { v: PROTOCOL_VERSION, type: 'selection', start, end, text, rect, rects };
     }
+    case 'selectioncleared':
+      return { v: PROTOCOL_VERSION, type: 'selectioncleared' };
     case 'imagetap': {
       const src = message['src'];
       const alt = message['alt'];

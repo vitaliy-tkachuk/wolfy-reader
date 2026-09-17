@@ -30,7 +30,7 @@ the packaging work publishes it.
   for them. An `undefined` field means "leave as is", never "reset" — the facade's
   partial-update contract has no way to unset, and the bindings do not invent one.
 
-- **Callbacks are read at dispatch time.** The six facade events are subscribed
+- **Callbacks are read at dispatch time.** The seven facade events are subscribed
   once when the reader is created; each handler reads the latest `onX` prop from a
   ref. Swapping a handler prop therefore never re-subscribes and never remounts,
   and subscribing at creation (not in a later effect) means `ready` cannot fire
@@ -46,6 +46,20 @@ the packaging work publishes it.
   The rule is recorded in `docs/coding-conventions.md`.
 
 ## Implementation notes
+
+- One callback per facade event, on both `useReader` options and `Reader` props,
+  each receiving the event's payload (none for `selectionclear`, whose payload is
+  empty):
+
+  | facade event | callback |
+  |---|---|
+  | `ready` | `onReady(position)` |
+  | `positionchange` | `onPositionChange(position)` |
+  | `sectionchange` | `onSectionChange(change)` |
+  | `linkclick` | `onLinkClick(click)` |
+  | `selection` | `onSelection(selection)` |
+  | `selectionclear` | `onSelectionClear()` |
+  | `error` | `onError(error)` |
 
 - `useReader` holds three pieces of state (`element`, `reader`, `position`) and two
   refs: `latest` (the options as of the last render — read at mount and by every

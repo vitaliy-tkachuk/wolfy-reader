@@ -64,7 +64,7 @@ for await (const hit of reader.search('whale')) {
 }
 ```
 
-**Selection menu + highlight.** `selection` carries the text, a `Position`, and the selection's bounding box in CSS px relative to the reader element's padding box, so a menu anchors in one line. The library draws decorations and never stores them; a `Position` serializes to one opaque string you persist yourself.
+**Selection menu + highlight.** `selection` carries the text, a `Position`, and the selection's bounding box in CSS px relative to the reader element's padding box, so a menu anchors in one line; `selectionclear` says when that selection is gone (a click in the page, a new section), so the menu can go with it. The library draws decorations and never stores them; a `Position` serializes to one opaque string you persist yourself.
 
 ```ts
 import { parsePosition, type Position } from 'wolfy-reader';
@@ -83,6 +83,7 @@ reader.on('selection', ({ text, position, rect }) => {
   menu.style.top = `${rect.y - menu.offsetHeight - 8}px`; // or below: rect.y + rect.height + 8
 });
 reader.on('positionchange', () => { menu.hidden = true; });
+reader.on('selectionclear', () => { menu.hidden = true; });
 
 document.querySelector('#highlight')!.addEventListener('click', async () => {
   if (selected === null) return;

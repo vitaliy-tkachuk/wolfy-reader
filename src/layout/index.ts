@@ -448,11 +448,11 @@ export class Paginator {
    * records the theme for the next render.
    *
    * A no-op when the stylesheet is unchanged, so re-issuing the same appearance is
-   * free.
+   * free. Resolves to whether the frame document was re-assembled.
    */
-  async setThemeCss(themeCss: string | undefined): Promise<void> {
-    if (this.#host.themeCss === themeCss) return;
-    await this.#reapply(themeCss, this.#options?.columnCount, this.#options?.columnGap);
+  async setThemeCss(themeCss: string | undefined): Promise<boolean> {
+    if (this.#host.themeCss === themeCss) return false;
+    return this.#reapply(themeCss, this.#options?.columnCount, this.#options?.columnGap);
   }
 
   /**
@@ -466,35 +466,37 @@ export class Paginator {
    * back to the page that `Position` now resolves to. A same-text resolution miss
    * degrades to page 0. Before the first `paginate` it only records the stylesheet
    * for the next render. A no-op (same stylesheet, same column count) short-
-   * circuits, so re-issuing the same appearance is free.
+   * circuits, so re-issuing the same appearance is free. Resolves to whether the
+   * frame document was re-assembled.
    */
   async applyAppearance(
     themeCss: string | undefined,
     geometry: { columnCount?: number; columnGap?: number } = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     const nextColumns = geometry.columnCount ?? this.#options?.columnCount;
     const nextGap = geometry.columnGap ?? this.#options?.columnGap;
     const sameCss = this.#host.themeCss === themeCss;
     const sameColumns = this.#options === null || this.#options.columnCount === nextColumns;
     const sameGap = this.#options === null || this.#options.columnGap === nextGap;
-    if (sameCss && sameColumns && sameGap) return;
-    await this.#reapply(themeCss, nextColumns, nextGap);
+    if (sameCss && sameColumns && sameGap) return false;
+    return this.#reapply(themeCss, nextColumns, nextGap);
   }
 
   /**
    * Sets the stylesheet and column geometry, re-paginates the current section, and
    * restores the reading position by content anchor. Shared by {@link setThemeCss}
    * (geometry invariant, exact page restored) and {@link applyAppearance} (geometry
-   * may change, nearest anchor page restored). Records the stylesheet and returns
-   * before the first `paginate` when no section is laid out yet.
+   * may change, nearest anchor page restored). Records the stylesheet and resolves
+   * `false` before the first `paginate` when no section is laid out yet; `true`
+   * once the section has been re-rendered into a fresh frame document.
    */
   async #reapply(
     themeCss: string | undefined,
     columnCount: number | undefined,
     columnGap: number | undefined,
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.#host.setThemeCss(themeCss);
-    if (this.#section === null || this.#options === null) return;
+    if (this.#section === null || this.#options === null) return false;
     const nextColumns = columnCount ?? this.#options.columnCount;
     const nextGap = columnGap ?? this.#options.columnGap;
     const options: PaginateOptions =
@@ -509,6 +511,7 @@ export class Paginator {
     // the restore leg below resolves without another sectionText round trip.
     await this.seekToPosition(anchor);
     await this.#redrawDecorations();
+    return true;
   }
 
   /** Frame-side counts, for eviction/memory checks. Eviction itself lives in-frame. */

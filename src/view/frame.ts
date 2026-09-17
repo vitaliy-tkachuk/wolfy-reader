@@ -72,7 +72,7 @@ export function createNonce(): string {
 export function coordinationScript(hostOrigin: string, keyboardNav: boolean = true): string {
   return `(function(){
 'use strict';
-var VERSION = 11;
+var VERSION = 12;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 // Whether the host acts on forwarded nav keys. Baked in at document assembly
@@ -986,22 +986,24 @@ function offsetOfPoint(node, offset){
     range.detach && range.detach();
   }
 }
+// Forwards the live selection when it is real; returns whether it was sent.
 function forwardSelection(){
   var selection = document.getSelection();
-  if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) return;
+  if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) return false;
   var text = selection.toString();
-  if (text.length === 0) return;
+  if (text.length === 0) return false;
   var range = selection.getRangeAt(0);
   // Guard the zero-width-anchor / empty-inline gotcha: a selection whose rects are
   // empty carries no painted geometry, so forwarding it would be a malformed range.
   var lineBoxes = range.getClientRects();
-  if (lineBoxes.length === 0) return;
+  if (lineBoxes.length === 0) return false;
   var start = offsetOfPoint(range.startContainer, range.startOffset);
   var end = offsetOfPoint(range.endContainer, range.endOffset);
-  if (start < 0 || end < 0) return;
+  if (start < 0 || end < 0) return false;
   if (start > end){ var swap = start; start = end; end = swap; }
   var geometry = visibleGeometry(lineBoxes);
   send({ v: VERSION, type: 'selection', start: start, end: end, text: text, rect: geometry.rect, rects: geometry.rects });
+  return true;
 }
 function round2(n){ return Math.round(n * 100) / 100; }
 // The line boxes a host can anchor a popover on: each client rect clipped to the
@@ -1042,10 +1044,31 @@ function visibleGeometry(lineBoxes){
 // A completed selection is a selectionchange settled by a pointer/key release, so
 // forward on release rather than on every intermediate selectionchange (which
 // fires per character during a drag). A bare click collapses the selection and is
-// dropped by the isCollapsed guard above.
+// dropped by the guards above — but when a selection stood reported, that same
+// release is the host's only signal the selection is gone, so it is forwarded as
+// selectioncleared, once. A replacement selection re-forwards and is not a clear.
+// The flag lives with the document: a rebuilt srcdoc starts unreported, and the
+// host owns the clear for that case.
 var selectionDirty = false;
+var selectionReported = false;
 document.addEventListener('selectionchange', function(){ selectionDirty = true; });
-function flushSelection(){ if (selectionDirty){ selectionDirty = false; forwardSelection(); } }
+function selectionIsLive(){
+  var selection = document.getSelection();
+  return selection !== null && selection.rangeCount > 0 && !selection.isCollapsed && selection.toString().length !== 0;
+}
+function flushSelection(){
+  var dirty = selectionDirty;
+  selectionDirty = false;
+  if (dirty && forwardSelection()){ selectionReported = true; return; }
+  if (!selectionReported) return;
+  // selectionchange is delivered as a queued task, so a fast click's release can
+  // arrive before the collapse it caused has been marked dirty. A reported
+  // selection that is no longer live is gone either way; one that is still live
+  // and untouched (a nav key's keyup) has nothing to say.
+  if (!dirty && selectionIsLive()) return;
+  selectionReported = false;
+  send({ v: VERSION, type: 'selectioncleared' });
+}
 document.addEventListener('pointerup', flushSelection);
 document.addEventListener('keyup', flushSelection);
 document.addEventListener('mouseup', flushSelection);

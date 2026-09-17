@@ -25,4 +25,21 @@ describe('react bindings — SSR safety', () => {
     const html = renderToString(createElement(Reader, { book, className: 'wr', style: { height: '100%' } }));
     assert.match(html, /^<div class="wr" style="height:100%"><\/div>$/);
   });
+
+  test('every callback prop is accepted and none of them reaches the mount div', async () => {
+    const book = await open(new TextEncoder().encode('Once upon a time.').buffer, { formats: [text] });
+    const html = renderToString(
+      createElement(Reader, {
+        book,
+        onReady: () => {},
+        onPositionChange: () => {},
+        onSectionChange: () => {},
+        onLinkClick: () => {},
+        onSelection: () => {},
+        onSelectionClear: () => {},
+        onError: () => {},
+      }),
+    );
+    assert.equal(html, '<div></div>');
+  });
 });
