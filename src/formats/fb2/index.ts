@@ -71,7 +71,16 @@ function collectBinaries(root: XmlElement): Map<string, Binary> {
     const id = attribute(bin, 'id');
     if (id === undefined) continue;
     const mediaType = attribute(bin, 'content-type') ?? 'application/octet-stream';
-    out.set(id, { mediaType, bytes: decodeBase64(bin.text) });
+    // One unreadable binary must not cost the whole book: it is dropped, so the
+    // id simply resolves to nothing — the model's documented degrade for a
+    // broken resource.
+    let bytes: Uint8Array;
+    try {
+      bytes = decodeBase64(bin.text);
+    } catch {
+      continue;
+    }
+    out.set(id, { mediaType, bytes });
   }
   return out;
 }
@@ -91,6 +100,8 @@ interface PlannedSection {
   readonly source: XmlElement;
   /** Depth of the source <section> for heading levels; notes bodies start at 2. */
   readonly headingLevel: number;
+  /** Body-level nodes rendered ahead of the section's own content. */
+  readonly prefix?: readonly (XmlElement | string)[];
 }
 
 function buildBook(root: XmlElement): Book {
@@ -103,7 +114,16 @@ function buildBook(root: XmlElement): Book {
   // section; each notes body is one section (so footnote targets resolve there).
   const planned: PlannedSection[] = [];
   const mainSections = mainBody === undefined ? [] : childrenNamed(mainBody, 'section');
-  mainSections.forEach((section, i) => planned.push({ id: `s${i}`, source: section, headingLevel: 2 }));
+  // A main body may open with a title, epigraphs and an image before its first
+  // <section>. That content is prepended to the first section rather than given
+  // one of its own, because section ids are index-synthesized and a new leading
+  // section would renumber every later one, shifting persisted positions.
+  const preamble = mainBody?.content.filter((node) => typeof node === 'string' || node.localName !== 'section') ?? [];
+  const hasPreamble = preamble.some((node) => typeof node !== 'string');
+  mainSections.forEach((section, i) => {
+    const prefix = i === 0 && hasPreamble ? { prefix: preamble } : {};
+    planned.push({ id: `s${i}`, source: section, headingLevel: 2, ...prefix });
+  });
   // A main body may hold bare paragraphs with no <section> wrapper; keep them as a
   // single section so nothing is dropped.
   if (mainSections.length === 0 && mainBody !== undefined) {
@@ -116,14 +136,17 @@ function buildBook(root: XmlElement): Book {
   // across sections (a bare `#id` only seeks the current section).
   const idToSection = new Map<string, string>();
   for (const plan of planned) {
-    for (const el of elementsWithId(plan.source)) {
-      const id = attribute(el, 'id');
-      if (id !== undefined && !idToSection.has(id)) idToSection.set(id, plan.id);
+    const prefixElements = (plan.prefix ?? []).filter((node): node is XmlElement => typeof node !== 'string');
+    for (const root of [plan.source, ...prefixElements]) {
+      for (const el of elementsWithId(root)) {
+        const id = attribute(el, 'id');
+        if (id !== undefined && !idToSection.has(id)) idToSection.set(id, plan.id);
+      }
     }
   }
 
   const sections: Section[] = planned.map((plan) => {
-    const html = renderDocument(plan.source, plan.headingLevel, idToSection);
+    const html = renderDocument(plan, idToSection);
     return {
       id: plan.id,
       mediaType: 'application/xhtml+xml',
@@ -221,21 +244,30 @@ function buildToc(mainSections: readonly XmlElement[], planned: readonly Planned
     const plan = planned[i];
     if (plan === undefined) return;
     const label = sectionTitle(section) ?? `Section ${i + 1}`;
-    const children: TocItem[] = [];
-    for (const nested of childrenNamed(section, 'section')) {
-      const id = attribute(nested, 'id');
-      const nestedLabel = sectionTitle(nested);
-      if (nestedLabel === undefined) continue;
-      children.push({
-        label: nestedLabel,
-        sectionId: plan.id,
-        ...(id === undefined ? {} : { fragment: id }),
-        children: [],
-      });
-    }
-    toc.push({ label, sectionId: plan.id, children });
+    toc.push({ label, sectionId: plan.id, children: nestedToc(section, plan.id) });
   });
   return toc;
+}
+
+/**
+ * Nested <section>s at any depth become nested TOC entries, all targeting the
+ * owning top-level Book section with the nested element id as the fragment. An
+ * untitled level has no entry of its own but still yields its titled
+ * descendants, so a labelled depth is never lost behind an unlabelled parent.
+ */
+function nestedToc(section: XmlElement, sectionId: string): TocItem[] {
+  const out: TocItem[] = [];
+  for (const nested of childrenNamed(section, 'section')) {
+    const children = nestedToc(nested, sectionId);
+    const label = sectionTitle(nested);
+    if (label === undefined) {
+      out.push(...children);
+      continue;
+    }
+    const id = attribute(nested, 'id');
+    out.push({ label, sectionId, ...(id === undefined ? {} : { fragment: id }), children });
+  }
+  return out;
 }
 
 function sectionTitle(section: XmlElement): string | undefined {
@@ -254,14 +286,25 @@ const INLINE_TAG: Record<string, string> = {
   code: 'code',
 };
 
-function renderDocument(root: XmlElement, headingLevel: number, idToSection: ReadonlyMap<string, string>): string {
-  const body = renderChildren(root, headingLevel, idToSection);
+function renderDocument(plan: PlannedSection, idToSection: ReadonlyMap<string, string>): string {
+  // The body preamble sits a level above the chapters it introduces, so its
+  // <title> becomes the document's <h1>.
+  const prefix = plan.prefix === undefined ? '' : renderNodes(plan.prefix, 1, idToSection);
+  const body = prefix + renderChildren(plan.source, plan.headingLevel, idToSection);
   return `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="UTF-8"/></head><body>${body}</body></html>`;
 }
 
 function renderChildren(el: XmlElement, headingLevel: number, idToSection: ReadonlyMap<string, string>): string {
+  return renderNodes(el.content, headingLevel, idToSection);
+}
+
+function renderNodes(
+  nodes: readonly (XmlElement | string)[],
+  headingLevel: number,
+  idToSection: ReadonlyMap<string, string>,
+): string {
   let out = '';
-  for (const node of el.content) {
+  for (const node of nodes) {
     out += typeof node === 'string' ? escapeXmlText(node) : renderElement(node, headingLevel, idToSection);
   }
   return out;
@@ -297,6 +340,13 @@ function renderElement(el: XmlElement, headingLevel: number, idToSection: Readon
       const alt = attribute(el, 'alt') ?? '';
       return `<img src="${escapeXmlAttribute(src)}" alt="${escapeXmlAttribute(alt)}"${idAttr}/>`;
     }
+    case 'table':
+    case 'tr':
+    case 'th':
+    case 'td': {
+      const tag = el.localName;
+      return `<${tag}${idAttr}${tableAttributes(el, tag)}>${renderChildren(el, headingLevel, idToSection)}</${tag}>`;
+    }
     case 'epigraph':
       return `<div class="fb2-epigraph"${idAttr}>${renderChildren(el, headingLevel, idToSection)}</div>`;
     case 'cite':
@@ -321,6 +371,27 @@ function renderElement(el: XmlElement, headingLevel: number, idToSection: Readon
       return renderChildren(el, headingLevel, idToSection);
     }
   }
+}
+
+/**
+ * Presentation attributes an FB2 table cell may carry. Only the ones the view's
+ * allowlist keeps are emitted — anything else would be stripped on the way into
+ * the frame, so writing it is noise.
+ */
+const TABLE_ATTRIBUTES: Record<string, readonly string[]> = {
+  table: ['align'],
+  tr: ['align', 'valign'],
+  th: ['align', 'colspan', 'rowspan', 'valign'],
+  td: ['align', 'colspan', 'rowspan', 'valign'],
+};
+
+function tableAttributes(el: XmlElement, tag: string): string {
+  let out = '';
+  for (const name of TABLE_ATTRIBUTES[tag] ?? []) {
+    const value = attribute(el, name);
+    if (value !== undefined) out += ` ${name}="${escapeXmlAttribute(value)}"`;
+  }
+  return out;
 }
 
 /** A title/verse block whose <p> lines join with <br/> rather than nesting <p>. */

@@ -81,6 +81,55 @@ test('Section.resolve maps a binary reference to its resource', async () => {
   assert.equal(ch2.resolve!('missing'), undefined, 'an unknown reference resolves to nothing');
 });
 
+test('a binary with invalid base64 is skipped instead of failing the book', async () => {
+  const book = await openFb2('structure.fb2');
+  assert.equal(book.metadata.title, 'Structure And Damage', 'the book still decodes');
+  const first = book.section('s0')!;
+  const plate = first.resolve!('plate');
+  assert.ok(plate, 'the valid binary still resolves');
+  assert.ok((await plate!.load()).length > 0, 'and loads real bytes');
+  assert.equal(first.resolve!('broken'), undefined, 'the undecodable binary resolves to nothing');
+  assert.equal(book.resources.has('broken'), false, 'and never enters the resource map');
+});
+
+test('body-level content before the first section renders ahead of it', async () => {
+  const book = await openFb2('structure.fb2');
+  assert.deepEqual(book.sections.map((s) => s.id), ['s0', 's1'], 'section ids are unchanged');
+  const first = await html(book, 's0');
+  assert.ok(first.includes('<h1>Structure And Damage</h1>'), 'the body title renders above the chapter title');
+  assert.ok(first.includes('An epigraph before any section.'), 'the body epigraph renders');
+  assert.ok(first.includes('<img src="plate"'), 'the body image renders');
+  assert.ok(
+    first.indexOf('Structure And Damage') < first.indexOf('Level One'),
+    'the preamble precedes the first chapter title',
+  );
+});
+
+test('an FB2 table renders as an XHTML table', async () => {
+  const book = await openFb2('structure.fb2');
+  const first = await html(book, 's0');
+  assert.ok(first.includes('<table>'), 'the table element survives');
+  assert.ok(first.includes('<th align="left">Head A</th>'), 'a header cell keeps align');
+  assert.ok(first.includes('<th>Head B</th>'), 'a bare header cell renders');
+  assert.ok(first.includes('<tr align="center">'), 'a row keeps align');
+  assert.ok(first.includes('<td colspan="2" valign="top">a</td>'), 'a cell keeps colspan and valign');
+  assert.ok(first.includes('<td rowspan="2">b</td>'), 'a cell keeps rowspan');
+});
+
+test('the TOC nests as deep as the sections do', async () => {
+  const book = await openFb2('structure.fb2');
+  const chapter = book.toc[0]!;
+  assert.equal(chapter.label, 'Level One');
+  const second = chapter.children[0]!;
+  assert.equal(second.label, 'Level Two');
+  assert.equal(second.sectionId, 's0', 'a nested entry targets the owning Book section');
+  assert.equal(second.fragment, 'one-a');
+  const third = second.children[0]!;
+  assert.equal(third.label, 'Level Three', 'the third level is a child of the second');
+  assert.equal(third.sectionId, 's0');
+  assert.equal(third.fragment, 'one-a-i');
+});
+
 test('a minimal FB2 with a bare unnamed section still reads', async () => {
   const book = await openFb2('minimal.fb2');
   assert.equal(book.metadata.title, 'Minimal');

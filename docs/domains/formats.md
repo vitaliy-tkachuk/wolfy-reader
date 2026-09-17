@@ -61,6 +61,26 @@ Code:
   main `<body>` → one Book section (`s0`, `s1`, …); each named `<body name="notes">`
   → one section (`nb0`, …); inline base64 `<binary>` → resources resolved by
   `Section.resolve`; cover from `title-info/coverpage`. Zero core/layout/view diff.
+- **Body-level content before the first `<section>` is prepended to `s0`, not given a
+  section of its own.** A main `<body>` may open with a `<title>`, `<epigraph>`s and an
+  `<image>` — the book's own title page. Dropping it would break the transparency rule,
+  and a leading `front` section would renumber every `s<n>` behind it: FB2 section ids
+  are index-synthesized, so renumbering shifts positions a host has already persisted.
+  The preamble renders one heading level above the chapters it introduces (`<title>` →
+  `<h1>`) and its element ids map to `s0` for link rewriting. A body whose only
+  pre-section children are whitespace gets no preamble, so such a book's markup is
+  byte-identical either way.
+- **One undecodable `<binary>` is dropped, never fatal.** Invalid base64 in a single
+  image must not cost the whole book, so the binary is skipped: that id resolves to
+  `undefined` and stays out of `Book.resources`, every other binary still loads. The
+  model has no report channel — a `resolve` miss *is* the documented degrade for a
+  broken resource, the same lazy refusal EPUB makes for an unreadable entry.
+- **The TOC recurses to whatever depth the sections nest.** Every nested `<section>`
+  carrying a `<title>` becomes a child entry targeting the owning top-level Book
+  section, with the nested element id as `fragment` — nesting is a rendering detail, so
+  all depths live in that one section's markup. An untitled level contributes no entry
+  of its own but still yields its titled descendants, so a labelled depth is never lost
+  behind an unlabelled parent.
 - **In-book links are rewritten to `sectionId#elementId` so the reader can follow
   them across sections.** The reader resolves a `goTo(href)` by matching the href
   *path* to a `section.id`, and a bare `#id` only seeks the *current* section. So at
@@ -83,6 +103,12 @@ Code:
   never dropped even for tags the renderer does not explicitly map. Known inline tags
   (`emphasis`→`em`, `strong`, `sub`/`sup`, …) and block tags (`section`, `title`→`h2..h6`
   by depth, `poem`/`stanza`/`v`, `cite`→`blockquote`, `epigraph`) map to XHTML.
+  **`table`/`tr`/`th`/`td` map to their XHTML namesakes**, because rendering them
+  transparently would concatenate a row's cells into one run of text. Only the
+  presentation attributes the view's allowlist keeps are emitted — `align` on `table`,
+  `align`/`valign` on `tr`, `align`/`colspan`/`rowspan`/`valign` on `th`/`td` — since
+  anything else is stripped on the way into the frame. FB2 spells no `thead`/`tbody`; a
+  stray one unwraps and its rows still land in the table.
 - **FB2 parses tolerantly; every other `parseXml` caller stays strict** (2026-08-26,
   2026-08-26). Real-world FB2 is frequently hand-edited and sloppy — a valueless attribute,
   an unquoted value, one mismatched close tag — and an all-or-nothing parse would
@@ -146,8 +172,10 @@ Code:
   rule.
 - **FB2 the same, plus one load-bearing browser test.** `test/fb2.test.ts` covers
   decode headlessly — metadata, section/TOC structure, the footnote href rewrite,
-  image/`Section.resolve` mapping, and the windows-1251 encoding path (payload
-  asserted). The single behavior that cannot be headless — a real footnote *click*
+  image/`Section.resolve` mapping, the windows-1251 encoding path, and a
+  resilience/structure fixture (`structure.fb2`: an undecodable binary beside a good
+  one, a body-level preamble, a table, three levels of nesting) — payload asserted.
+  The single behavior that cannot be headless — a real footnote *click*
   jumping to the notes section and `back()` returning — is `test/browser/fb2.browser.mjs`,
   because the link-click interception, postMessage round-trip, and back-stack live in
   the real reader and the opaque-origin frame. The browser harness (`harness.html`)

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <author>
+        <first-name>Ada</first-name>
+        <last-name>Writer</last-name>
+      </author>
+      <book-title>Structure And Damage</book-title>
+      <lang>en</lang>
+    </title-info>
+  </description>
+  <body>
+    <title><p>Structure And Damage</p></title>
+    <epigraph>
+      <p>An epigraph before any section.</p>
+      <text-author>Ada Writer</text-author>
+    </epigraph>
+    <image l:href="#plate"/>
+    <section id="one">
+      <title><p>Level One</p></title>
+      <p>Opening prose.</p>
+      <table>
+        <tr><th align="left">Head A</th><th>Head B</th></tr>
+        <tr align="center"><td colspan="2" valign="top">a</td></tr>
+        <tr><td rowspan="2">b</td><td>c</td></tr>
+      </table>
+      <section id="one-a">
+        <title><p>Level Two</p></title>
+        <p>Second level prose.</p>
+        <section id="one-a-i">
+          <title><p>Level Three</p></title>
+          <p>Third level prose.</p>
+        </section>
+      </section>
+    </section>
+    <section id="two">
+      <title><p>Second Chapter</p></title>
+      <p>More prose.</p>
+    </section>
+  </body>
+  <binary id="plate" content-type="image/png">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAoGY2s0AAAAASUVORK5CYII=</binary>
+  <binary id="broken" content-type="image/png">!!!! this is not base64 ****</binary>
+</FictionBook>
