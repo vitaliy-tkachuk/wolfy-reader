@@ -21,6 +21,7 @@ import type { Book, Position, ReadingDirection, Section, SentenceRange, TocItem 
 import { parsePosition, segmentSentences } from '../core/index.ts';
 import { Paginator, type BookProgress, type LayoutMode } from '../layout/index.ts';
 import { searchBook, type SearchHit, type SearchOptions } from '../search/index.ts';
+import type { SelectionRect } from '../view/protocol.ts';
 import {
   isReflowingUpdate,
   mergeAppearance,
@@ -41,6 +42,7 @@ import {
 export type { InputConfig, TapZones } from './input.ts';
 export type { Appearance, TextAlign, ThemeName } from '../view/appearance.ts';
 export type { SearchHit, SearchOptions } from '../search/index.ts';
+export type { SelectionRect } from '../view/protocol.ts';
 
 /**
  * Appearance and layout options for {@link render}. All optional. `mode` selects
@@ -123,7 +125,7 @@ export interface ReaderEventMap {
   readonly sectionchange: SectionChange;
   /** Fires when an in-frame link is clicked, before it is followed. Payload: the raw href. */
   readonly linkclick: LinkClick;
-  /** Fires when the user selects text in the frame. Payload: the text + a resolvable Position. */
+  /** Fires when the user selects text in the frame. Payload: the text, a resolvable Position, and its geometry. */
   readonly selection: SelectionEvent;
   /** Fires when a navigation or render fails. Payload: the error. */
   readonly error: Error;
@@ -150,6 +152,17 @@ export interface SelectionEvent {
    * (a bookmark or highlight anchor) and navigate to it later.
    */
   readonly position: Position;
+  /**
+   * The selection's bounding box, in CSS px relative to the reader element's
+   * padding box (the frame's top-left is `0,0`), clipped to the visible page. To
+   * place a popover in page coordinates, add `element.getBoundingClientRect()`
+   * plus `clientLeft`/`clientTop`; inside a `position: relative` wrapper around a
+   * border-less reader element the values apply directly. Zero-size at the origin
+   * when no line of the selection is on the visible page.
+   */
+  readonly rect: SelectionRect;
+  /** One box per visible line of the selection, in document order; `rect` is their union. */
+  readonly rects: readonly SelectionRect[];
 }
 
 export type ReaderEvent = keyof ReaderEventMap;
@@ -887,11 +900,17 @@ class ReaderImpl implements Reader {
    * always carries real text. Position capture reads the section text but moves
    * nothing, so it is not enqueued behind navigation.
    */
-  async #onSelection(selection: { start: number; end: number; text: string }): Promise<void> {
+  async #onSelection(selection: {
+    start: number;
+    end: number;
+    text: string;
+    rect: SelectionRect;
+    rects: readonly SelectionRect[];
+  }): Promise<void> {
     if (this.#destroyed || this.#paginator.section === null) return;
     const position = await this.#paginator.positionOfOffsetRange(selection.start, selection.end);
     if (this.#destroyed) return;
-    this.#emit('selection', { text: selection.text, position });
+    this.#emit('selection', { text: selection.text, position, rect: selection.rect, rects: selection.rects });
   }
 
   // --- back-stack -----------------------------------------------------------

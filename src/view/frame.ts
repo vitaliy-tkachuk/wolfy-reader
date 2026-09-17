@@ -72,7 +72,7 @@ export function createNonce(): string {
 export function coordinationScript(hostOrigin: string, keyboardNav: boolean = true): string {
   return `(function(){
 'use strict';
-var VERSION = 10;
+var VERSION = 11;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 // Whether the host acts on forwarded nav keys. Baked in at document assembly
@@ -994,12 +994,50 @@ function forwardSelection(){
   var range = selection.getRangeAt(0);
   // Guard the zero-width-anchor / empty-inline gotcha: a selection whose rects are
   // empty carries no painted geometry, so forwarding it would be a malformed range.
-  if (range.getClientRects().length === 0) return;
+  var lineBoxes = range.getClientRects();
+  if (lineBoxes.length === 0) return;
   var start = offsetOfPoint(range.startContainer, range.startOffset);
   var end = offsetOfPoint(range.endContainer, range.endOffset);
   if (start < 0 || end < 0) return;
   if (start > end){ var swap = start; start = end; end = swap; }
-  send({ v: VERSION, type: 'selection', start: start, end: end, text: text });
+  var geometry = visibleGeometry(lineBoxes);
+  send({ v: VERSION, type: 'selection', start: start, end: end, text: text, rect: geometry.rect, rects: geometry.rects });
+}
+function round2(n){ return Math.round(n * 100) / 100; }
+// The line boxes a host can anchor a popover on: each client rect clipped to the
+// visible page, plus their union. Frame viewport px are the container's padding-box
+// px (the frame fills it with no border), so no translation happens here. The
+// visible page is the root box in paginated mode — a keyboard-extended selection
+// runs into off-page columns whose rects lie outside it, and a box anchored there
+// would float in nowhere — and the frame viewport in scrolled mode, where the root
+// is the whole document; the intersection of the two covers both.
+function visibleGeometry(lineBoxes){
+  var root = document.getElementById(ROOT_ID) || document.body;
+  var rb = root.getBoundingClientRect();
+  var viewport = document.documentElement;
+  var clipLeft = Math.max(0, rb.left);
+  var clipTop = Math.max(0, rb.top);
+  var clipRight = Math.min(viewport.clientWidth, rb.right);
+  var clipBottom = Math.min(viewport.clientHeight, rb.bottom);
+  var rects = [];
+  var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (var i = 0; i < lineBoxes.length; i++){
+    var box = lineBoxes[i];
+    var l = round2(Math.max(box.left, clipLeft));
+    var t = round2(Math.max(box.top, clipTop));
+    var r = round2(Math.min(box.right, clipRight));
+    var b = round2(Math.min(box.bottom, clipBottom));
+    if (r - l <= 0 || b - t <= 0) continue;
+    rects.push({ x: l, y: t, width: round2(r - l), height: round2(b - t) });
+    if (l < left) left = l;
+    if (t < top) top = t;
+    if (r > right) right = r;
+    if (b > bottom) bottom = b;
+  }
+  var rect = rects.length === 0
+    ? { x: 0, y: 0, width: 0, height: 0 }
+    : { x: left, y: top, width: round2(right - left), height: round2(bottom - top) };
+  return { rect: rect, rects: rects };
 }
 // A completed selection is a selectionchange settled by a pointer/key release, so
 // forward on release rather than on every intermediate selectionchange (which

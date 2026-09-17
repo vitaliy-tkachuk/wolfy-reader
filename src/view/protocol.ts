@@ -10,9 +10,21 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 export interface Measurement {
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * A box in CSS px, in the frame's viewport coordinate space — which is the reader
+ * container's padding-box space, because the frame fills the container with no
+ * border or inset. Origin top-left; never negative once clipped to the visible page.
+ */
+export interface SelectionRect {
+  readonly x: number;
+  readonly y: number;
   readonly width: number;
   readonly height: number;
 }
@@ -183,6 +195,13 @@ export type FrameMessage =
       readonly end: number;
       /** The selected text, exactly as the frame reads it. */
       readonly text: string;
+      /**
+       * The bounding box of the visible line boxes — the union of `rects`, or a
+       * zero-size box at the origin when no line box is on the visible page.
+       */
+      readonly rect: SelectionRect;
+      /** One box per visible line box, in document order, clipped to the visible page. */
+      readonly rects: readonly SelectionRect[];
     }
   | {
       readonly v: typeof PROTOCOL_VERSION;
@@ -200,6 +219,43 @@ export type FrameMessage =
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function asSelectionRect(value: unknown): SelectionRect | null {
+  const rect = asRecord(value);
+  if (rect === null) return null;
+  const x = rect['x'];
+  const y = rect['y'];
+  const width = rect['width'];
+  const height = rect['height'];
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    typeof width !== 'number' ||
+    typeof height !== 'number' ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    x < 0 ||
+    y < 0 ||
+    width < 0 ||
+    height < 0
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function asSelectionRects(value: unknown): readonly SelectionRect[] | null {
+  if (!Array.isArray(value)) return null;
+  const rects: SelectionRect[] = [];
+  for (const entry of value) {
+    const rect = asSelectionRect(entry);
+    if (rect === null) return null;
+    rects.push(rect);
+  }
+  return rects;
 }
 
 function asPaginationState(value: unknown): PaginationState | null {
@@ -334,7 +390,10 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
       if (typeof start !== 'number' || typeof end !== 'number' || typeof text !== 'string') {
         return null;
       }
-      return { v: PROTOCOL_VERSION, type: 'selection', start, end, text };
+      const rect = asSelectionRect(message['rect']);
+      const rects = asSelectionRects(message['rects']);
+      if (rect === null || rects === null) return null;
+      return { v: PROTOCOL_VERSION, type: 'selection', start, end, text, rect, rects };
     }
     case 'imagetap': {
       const src = message['src'];

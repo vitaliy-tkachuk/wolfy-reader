@@ -15,6 +15,12 @@ import { startServer } from '../../scripts/serve-demo.mjs';
  * `Position` and emits `selection`. Real selection only exists over a live
  * document across the sandbox boundary, so this is browser-only.
  *
+ * The geometry cases (protocol v11) prove the coordinate space a host anchors a
+ * popover in: `rect`/`rects` are frame-viewport px, which equal the container's
+ * padding-box px because the frame fills it with no border — asserted, not
+ * assumed — and are clipped to the visible page. `Range.getClientRects`, the
+ * sandbox mapping and scroll offsets do not exist headlessly.
+ *
  * We create the selection by driving `window.getSelection()` inside the frame and
  * firing the pointer/mouse release the coordination script forwards on — exactly
  * the events a real drag would produce, without OS pointer plumbing.
@@ -47,9 +53,15 @@ const hostilePresent = await present(resolve(fixtureDir, 'hostile.epub'));
 if (!hostilePresent) {
   console.log('selection.browser: hostile fixture absent — cases skipped.');
 }
+const corpusDir = resolve(repoRoot, 'test', 'corpus');
+const corpusPresent = await present(resolve(corpusDir, 'gutenberg-alice-in-wonderland.epub'));
+if (!corpusPresent) {
+  console.log('selection.browser: corpus book absent — geometry cases skipped (run `npm run fetch-corpus`).');
+}
 
 const skipAll = playwright === null ? { skip: 'playwright is not installed' } : {};
 const skipFixture = !hostilePresent ? { skip: 'the hostile fixture is absent' } : {};
+const skipCorpus = !corpusPresent ? { skip: 'the corpus book is absent' } : {};
 
 let server = null;
 let browser = null;
@@ -62,6 +74,7 @@ before(async () => {
     mounts: [
       { prefix: '/src', dir: resolve(repoRoot, 'src') },
       { prefix: '/fixtures', dir: fixtureDir },
+      { prefix: '/corpus', dir: corpusDir },
       { prefix: '/', dir: browserDir },
     ],
   });
@@ -77,6 +90,7 @@ after(async () => {
 });
 
 const HOSTILE = '/fixtures/hostile.epub';
+const ALICE = '/corpus/gutenberg-alice-in-wonderland.epub';
 
 /** The reader's single content frame; asserts nothing else is mounted. */
 function contentFrame() {
@@ -277,5 +291,325 @@ describe('selection events', { ...skipAll, ...skipFixture }, () => {
       log.every((e) => e.type !== 'selection'),
       'an empty-rect selection must not emit a selection event',
     );
+  });
+});
+
+// --- geometry ---------------------------------------------------------------
+
+/** Fires the release the coordination script forwards a settled selection on. */
+async function releaseSelection(frame) {
+  await frame.evaluate(
+    () =>
+      new Promise((done) => {
+        setTimeout(() => {
+          document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          done();
+        }, 20);
+      }),
+  );
+}
+
+/** The stage's padding box in page coordinates — what a host positions a popover against. */
+async function stagePaddingBox() {
+  return page.evaluate(() => {
+    const stage = document.querySelector('#stage');
+    const box = stage.getBoundingClientRect();
+    return {
+      left: box.left + stage.clientLeft,
+      top: box.top + stage.clientTop,
+      width: stage.clientWidth,
+      height: stage.clientHeight,
+    };
+  });
+}
+
+/**
+ * Selects, inside the frame, the first text run that satisfies `pick` — the source
+ * of a `(range, root) => boolean` evaluated in the frame over each text node's
+ * trimmed range, with the root box alongside. Returns the selected text plus the
+ * range's raw client-rect count, or null if nothing matched.
+ */
+async function selectWhere(frame, pickSource) {
+  return frame.evaluate((source) => {
+    const pick = new Function('range', 'root', `return (${source})(range, root);`);
+    const rootEl = document.getElementById('wolfy-reader-content') || document.body;
+    const root = rootEl.getBoundingClientRect();
+    const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+    let node = null;
+    while ((node = walker.nextNode())) {
+      const data = node.data || '';
+      if (data.trim().length < 20) continue;
+      const range = document.createRange();
+      range.setStart(node, data.search(/\S/));
+      range.setEnd(node, data.trimEnd().length);
+      if (range.getClientRects().length === 0) continue;
+      if (!pick(range, root)) continue;
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return { text: selection.toString(), rawRects: range.getClientRects().length };
+    }
+    return null;
+  }, pickSource);
+}
+
+const inside = (box, outer, tolerance = 0.02) =>
+  box.x >= outer.x - tolerance &&
+  box.y >= outer.y - tolerance &&
+  box.x + box.width <= outer.x + outer.width + tolerance &&
+  box.y + box.height <= outer.y + outer.height + tolerance;
+
+const union = (rects) => {
+  const left = Math.min(...rects.map((r) => r.x));
+  const top = Math.min(...rects.map((r) => r.y));
+  const right = Math.max(...rects.map((r) => r.x + r.width));
+  const bottom = Math.max(...rects.map((r) => r.y + r.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+};
+
+const near = (a, b, tolerance = 0.02) => Math.abs(a - b) <= tolerance;
+const sameBox = (a, b) =>
+  near(a.x, b.x) && near(a.y, b.y) && near(a.width, b.width) && near(a.height, b.height);
+
+/** Opens Alice at a mid-book chapter page, with the event log cleared. */
+async function openAliceChapter() {
+  await openReader(ALICE);
+  await page.evaluate(() => window.harness.readerGoTo(0.2));
+  await page.evaluate(() => window.harness.clearReaderEvents());
+  return contentFrame();
+}
+
+describe('selection geometry', { ...skipAll, ...skipCorpus }, () => {
+  test('the frame fills the container padding box, so frame px are container px', async () => {
+    await openReader(ALICE);
+    const stage = await stagePaddingBox();
+    const frame = await page.evaluate(() => {
+      const box = document.querySelector('#stage iframe').getBoundingClientRect();
+      return { left: box.left, top: box.top, width: box.width, height: box.height };
+    });
+    // The coordinate-space invariant every case below rests on: ContentHost mounts
+    // the iframe as display:block; border:0; width:100%; height:100%, so the frame's
+    // viewport origin is the container's padding-box origin. If the mount style ever
+    // gains a border or inset, the frame must subtract it — this is the tripwire.
+    for (const key of ['left', 'top', 'width', 'height']) {
+      assert.ok(
+        near(frame[key], stage[key], 0.5),
+        `iframe ${key} ${frame[key]} != container padding box ${stage[key]}`,
+      );
+    }
+  });
+
+  test('a single-line selection reports one box the host can hit-test back to the text', async () => {
+    const frame = await openAliceChapter();
+    const picked = await selectWhere(
+      frame,
+      `(range, root) => {
+        const rects = range.getClientRects();
+        if (rects.length !== 1) return false;
+        const r = rects[0];
+        return r.left >= root.left && r.right <= root.right && r.top >= root.top && r.bottom <= root.bottom;
+      }`,
+    );
+    assert.ok(picked !== null, 'no single-line text run on the page');
+    await releaseSelection(frame);
+    const event = await waitForSelection();
+    assert.ok(event !== undefined, 'no selection event fired');
+    const { rect, rects, text } = event.payload;
+    assert.equal(text, picked.text);
+    assert.equal(rects.length, 1, `expected one line box, got ${rects.length}`);
+    assert.ok(sameBox(rect, rects[0]), 'a single line box is its own bounding box');
+    assert.ok(rect.width > 0 && rect.height > 0, 'the box has area');
+
+    const stage = await stagePaddingBox();
+    assert.ok(
+      inside(rect, { x: 0, y: 0, width: stage.width, height: stage.height }),
+      'the box lies within the container',
+    );
+
+    // Map the box into the page by adding the container's padding-box origin: the
+    // element at its centre is the reader's iframe.
+    const cx = rect.x + rect.width / 2;
+    const cy = rect.y + rect.height / 2;
+    const hitInPage = await page.evaluate(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        return el === document.querySelector('#stage iframe') ? 'iframe' : (el?.tagName ?? 'null');
+      },
+      [stage.left + cx, stage.top + cy],
+    );
+    assert.equal(hitInPage, 'iframe', 'the box centre must land on the reader frame');
+    // ... and inside the frame the same point (frame-viewport px, unchanged) hits the
+    // element holding the selected text — the coordinate space is proven both ways.
+    const hitInFrame = await frame.evaluate(
+      ([x, y]) => document.elementFromPoint(x, y)?.textContent ?? '',
+      [cx, cy],
+    );
+    assert.ok(
+      hitInFrame.includes(picked.text),
+      `the frame element at the box centre does not hold the selection: ${hitInFrame.slice(0, 60)}`,
+    );
+  });
+
+  test('a multi-line selection reports one box per line and their exact union', async () => {
+    const frame = await openAliceChapter();
+    const picked = await selectWhere(
+      frame,
+      `(range, root) => {
+        const rects = range.getClientRects();
+        if (rects.length < 2) return false;
+        for (const r of rects) {
+          if (r.left < root.left || r.right > root.right || r.top < root.top || r.bottom > root.bottom) return false;
+        }
+        return true;
+      }`,
+    );
+    assert.ok(picked !== null, 'no wrapped paragraph fully on the page');
+    await releaseSelection(frame);
+    const event = await waitForSelection();
+    assert.ok(event !== undefined, 'no selection event fired');
+    const { rect, rects } = event.payload;
+    assert.ok(rects.length >= 2, `expected at least two line boxes, got ${rects.length}`);
+    assert.equal(rects.length, picked.rawRects, 'every line box is on the page, so none is clipped away');
+    for (const line of rects) {
+      assert.ok(inside(line, rect), `line box ${JSON.stringify(line)} escapes ${JSON.stringify(rect)}`);
+    }
+    assert.ok(
+      sameBox(rect, union(rects)),
+      `rect ${JSON.stringify(rect)} is not the union ${JSON.stringify(union(rects))}`,
+    );
+    for (let i = 1; i < rects.length; i += 1) {
+      assert.ok(rects[i].y >= rects[i - 1].y - 0.02, 'line boxes must arrive in document order');
+    }
+  });
+
+  test('scrolled mode reports where the text is on screen, not in the document', async () => {
+    await openReader(ALICE);
+    await page.evaluate(() => window.harness.readerGoTo(0.2));
+    await page.evaluate(() => window.harness.readerSetMode('scrolled'));
+    const frame = contentFrame();
+    const scrolledBy = await frame.evaluate(() => {
+      const scroller = document.scrollingElement || document.documentElement;
+      window.scrollTo(0, scroller.scrollTop + 500);
+      return scroller.scrollTop;
+    });
+    assert.ok(scrolledBy > 400, `the frame did not scroll (scrollTop ${scrolledBy})`);
+    await page.evaluate(() => window.harness.clearReaderEvents());
+
+    const picked = await selectWhere(
+      frame,
+      `(range) => {
+        const rects = range.getClientRects();
+        if (rects.length !== 1) return false;
+        const r = rects[0];
+        const viewport = document.documentElement;
+        return r.top >= 0 && r.bottom <= viewport.clientHeight && r.left >= 0 && r.right <= viewport.clientWidth;
+      }`,
+    );
+    assert.ok(picked !== null, 'no single-line text run in the scrolled viewport');
+    const onScreen = await frame.evaluate(() => {
+      const r = window.getSelection().getRangeAt(0).getClientRects()[0];
+      return { top: r.top, documentTop: r.top + window.scrollY };
+    });
+    await releaseSelection(frame);
+    const event = await waitForSelection();
+    assert.ok(event !== undefined, 'no selection event fired');
+    const { rect } = event.payload;
+    const stage = await stagePaddingBox();
+    assert.ok(
+      rect.y >= 0 && rect.y + rect.height <= stage.height,
+      `rect.y ${rect.y} is off the container (height ${stage.height})`,
+    );
+    assert.ok(near(rect.y, onScreen.top), `rect.y ${rect.y} is not the on-screen top ${onScreen.top}`);
+    assert.ok(
+      !near(rect.y, onScreen.documentTop, 1),
+      `rect.y ${rect.y} is a document coordinate (${onScreen.documentTop})`,
+    );
+    await page.evaluate(() => window.harness.readerSetMode('paginated'));
+  });
+
+  test('a selection running into off-page columns is clipped to the visible page', async () => {
+    const frame = await openAliceChapter();
+    // Keyboard-extend past the page: the range runs from the first text run on the
+    // page to the last text run of the same chunk, whose columns lay out to the right
+    // of the root box and are invisible.
+    const spanned = await frame.evaluate(() => {
+      const rootEl = document.getElementById('wolfy-reader-content') || document.body;
+      const root = rootEl.getBoundingClientRect();
+      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+      let first = null;
+      let node = null;
+      while ((node = walker.nextNode())) {
+        if ((node.data || '').trim().length < 20) continue;
+        const r = document.createRange();
+        r.selectNodeContents(node);
+        const box = r.getBoundingClientRect();
+        if (box.width > 0 && box.left >= root.left && box.right <= root.right) {
+          first = node;
+          break;
+        }
+      }
+      if (first === null) return null;
+      let chunk = first.parentNode;
+      while (chunk !== null && !(chunk.classList && chunk.classList.contains('wolfy-reader-chunk'))) {
+        chunk = chunk.parentNode;
+      }
+      if (chunk === null) return null;
+      const tail = document.createTreeWalker(chunk, NodeFilter.SHOW_TEXT, null);
+      let last = null;
+      while ((node = tail.nextNode())) if ((node.data || '').trim().length > 0) last = node;
+      const range = document.createRange();
+      range.setStart(first, first.data.search(/\S/));
+      range.setEnd(last, last.data.length);
+      const raw = Array.from(range.getClientRects());
+      const visible = raw.filter(
+        (r) =>
+          Math.min(r.right, root.right) - Math.max(r.left, root.left) > 0 &&
+          Math.min(r.bottom, root.bottom) - Math.max(r.top, root.top) > 0,
+      ).length;
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return {
+        raw: raw.length,
+        visible,
+        root: { x: root.left, y: root.top, width: root.width, height: root.height },
+      };
+    });
+    assert.ok(spanned !== null, 'could not build a selection across the chunk');
+    assert.ok(
+      spanned.visible < spanned.raw,
+      `the selection never left the page (${spanned.visible} of ${spanned.raw} rects visible)`,
+    );
+    await releaseSelection(frame);
+    const event = await waitForSelection();
+    assert.ok(event !== undefined, 'no selection event fired');
+    const { rect, rects, text, position } = event.payload;
+    assert.ok(text.length > 0 && typeof position?.serialized === 'string', 'text and Position still ride the event');
+    assert.equal(rects.length, spanned.visible, `expected the ${spanned.visible} on-page line boxes, got ${rects.length}`);
+    for (const line of rects) {
+      assert.ok(inside(line, spanned.root), `line box ${JSON.stringify(line)} lies outside the root box`);
+    }
+    assert.ok(sameBox(rect, union(rects)), 'rect is the union of the kept boxes');
+    assert.ok(inside(rect, spanned.root), 'the bounding box lies inside the root box');
+  });
+
+  test('a selection with no line on the visible page still fires, with empty geometry', async () => {
+    const frame = await openAliceChapter();
+    const picked = await selectWhere(
+      frame,
+      `(range, root) => {
+        const r = range.getBoundingClientRect();
+        return r.width > 0 && r.left >= root.right;
+      }`,
+    );
+    assert.ok(picked !== null, 'no text run on a later page of this chunk');
+    await releaseSelection(frame);
+    const event = await waitForSelection();
+    assert.ok(event !== undefined, 'a selection off the visible page must still fire');
+    const { rect, rects, text, position } = event.payload;
+    assert.equal(text, picked.text);
+    assert.ok(typeof position?.serialized === 'string', 'the Position still rides the event');
+    assert.deepEqual(rects, []);
+    assert.deepEqual(rect, { x: 0, y: 0, width: 0, height: 0 });
   });
 });

@@ -199,9 +199,49 @@ test('frame messages are accepted only in a known shape', () => {
     asFrameMessage({ v: PROTOCOL_VERSION, type: 'tap', x: 10, y: 20, width: 300, height: 400 }),
     { v: PROTOCOL_VERSION, type: 'tap', x: 10, y: 20, width: 300, height: 400 },
   );
+  const line = { x: 12.5, y: 40, width: 200, height: 18 };
+  const secondLine = { x: 0, y: 58, width: 80.25, height: 18 };
   assert.deepEqual(
-    asFrameMessage({ v: PROTOCOL_VERSION, type: 'selection', start: 5, end: 17, text: 'a quote' }),
-    { v: PROTOCOL_VERSION, type: 'selection', start: 5, end: 17, text: 'a quote' },
+    asFrameMessage({
+      v: PROTOCOL_VERSION,
+      type: 'selection',
+      start: 5,
+      end: 17,
+      text: 'a quote',
+      rect: { x: 0, y: 40, width: 212.5, height: 36 },
+      rects: [line, secondLine],
+    }),
+    {
+      v: PROTOCOL_VERSION,
+      type: 'selection',
+      start: 5,
+      end: 17,
+      text: 'a quote',
+      rect: { x: 0, y: 40, width: 212.5, height: 36 },
+      rects: [line, secondLine],
+    },
+  );
+  // A selection with no line box on the visible page still validates: zero-size
+  // bounding box, empty line-box list.
+  assert.deepEqual(
+    asFrameMessage({
+      v: PROTOCOL_VERSION,
+      type: 'selection',
+      start: 5,
+      end: 17,
+      text: 'a quote',
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      rects: [],
+    }),
+    {
+      v: PROTOCOL_VERSION,
+      type: 'selection',
+      start: 5,
+      end: 17,
+      text: 'a quote',
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      rects: [],
+    },
   );
   assert.deepEqual(
     asFrameMessage({ v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' }),
@@ -219,6 +259,7 @@ test('frame messages are accepted only in a known shape', () => {
     id: 5,
     top: 812.5,
   });
+  const box = { x: 1, y: 2, width: 3, height: 4 };
   for (const rejected of [
     null,
     'ready',
@@ -235,9 +276,23 @@ test('frame messages are accepted only in a known shape', () => {
     { v: PROTOCOL_VERSION, type: 'tap', x: 1, y: 2, width: 3 },
     { v: PROTOCOL_VERSION, type: 'tap', x: '1', y: 2, width: 3, height: 4 },
     { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2 },
-    { v: PROTOCOL_VERSION, type: 'selection', start: '1', end: 2, text: 'x' },
-    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 5 },
-    { v: 5, type: 'selection', start: 1, end: 2, text: 'x' },
+    { v: PROTOCOL_VERSION, type: 'selection', start: '1', end: 2, text: 'x', rect: box, rects: [box] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 5, rect: box, rects: [box] },
+    { v: 5, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: [box] },
+    // The geometry is mandatory — the frame is the only source and always sends both.
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x' },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rects: [box] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: box },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: [null] },
+    // Every coordinate is a finite, non-negative number after clipping to the page.
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: { ...box, x: NaN }, rects: [box] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: { ...box, y: Infinity }, rects: [box] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: { ...box, width: -1 }, rects: [box] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: { ...box, x: -0.5 }, rects: [box] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: { ...box, height: '18' }, rects: [box] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: [{ ...box, height: -2 }] },
+    { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: [box, { x: 1, y: 2, width: 3 }] },
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:x' },
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 5, alt: 'x' },
     { v: PROTOCOL_VERSION, type: 'imagetap', alt: 'x' },

@@ -8,6 +8,7 @@ import {
   type Measurement,
   type PaginateOptions,
   type PaginationState,
+  type SelectionRect,
 } from './protocol.ts';
 import { applyResources, ResourceRegistry, type ResourceSummary } from './resources.ts';
 import { sanitizeSection, type SanitizationSummary } from './sanitize.ts';
@@ -49,11 +50,19 @@ export interface ContentHostOptions {
    */
   readonly onImageTap?: (image: { src: string; alt: string }) => void;
   /**
-   * A completed text selection in the frame; carries the selected text and its
-   * UTF-16 offset range over the section text (`sectionText`). Empty and collapsed
-   * selections are dropped in the frame and never reach here.
+   * A completed text selection in the frame; carries the selected text, its
+   * UTF-16 offset range over the section text (`sectionText`), and its geometry:
+   * `rect` (bounding box) and `rects` (one per visible line box), in CSS px
+   * relative to the container's padding box and clipped to the visible page.
+   * Empty and collapsed selections are dropped in the frame and never reach here.
    */
-  readonly onSelection?: (selection: { start: number; end: number; text: string }) => void;
+  readonly onSelection?: (selection: {
+    start: number;
+    end: number;
+    text: string;
+    rect: SelectionRect;
+    rects: readonly SelectionRect[];
+  }) => void;
   /**
    * The appearance theme stylesheet injected at document assembly (see
    * {@link themeStyleSheet}). Applied to every render; update it live with
@@ -176,7 +185,13 @@ export class ContentHost {
         this.#options.onImageTap?.({ src: message.src, alt: message.alt });
         return;
       case 'selection':
-        this.#options.onSelection?.({ start: message.start, end: message.end, text: message.text });
+        this.#options.onSelection?.({
+          start: message.start,
+          end: message.end,
+          text: message.text,
+          rect: message.rect,
+          rects: message.rects,
+        });
         return;
       case 'pong':
       case 'measured':
