@@ -200,8 +200,7 @@ export class Paginator {
     if (this.#options!.mode === mode) return this.relayout();
     const anchor = await this.positionOfPage(this.#page);
     const state = await this.paginate(this.#section!, { ...this.#requestFromOptions(), mode });
-    const page = await this.pageOfPosition(anchor);
-    if (page >= 0) await this.goToPage(page);
+    await this.seekToPosition(anchor);
     return state;
   }
 
@@ -227,8 +226,7 @@ export class Paginator {
       pageWidth,
       pageHeight,
     });
-    const page = await this.pageOfPosition(anchor);
-    if (page >= 0) await this.goToPage(page);
+    await this.seekToPosition(anchor);
     return state;
   }
 
@@ -262,9 +260,35 @@ export class Paginator {
   }
 
   /**
+   * Seeks to `position` in the active mode and returns the page shown. Paginated:
+   * the anchor resolves to a page (`pageOfOffset`) and the frame turns to it.
+   * Scrolled: paging is collapsed to one logical page, so the frame instead
+   * scrolls the anchor's glyph to the top of the viewport (`scrollToOffset`) and
+   * the page reads 0. A resolution miss degrades to the section start (page 0 /
+   * scroll offset 0), never an error. This is the restore leg every position-
+   * preserving re-layout shares ({@link switchMode}, {@link resize}, the
+   * appearance reflow) and what a `goTo(Position)` lands through.
+   */
+  async seekToPosition(position: Position): Promise<number> {
+    this.#requireActive();
+    const text = await this.#sectionText();
+    const resolved = resolvePosition(position, text);
+    const offset = resolved === undefined ? 0 : graphemeIndexToCodeUnitOffset(text, resolved.offset);
+    if (this.#options!.mode === 'scrolled') {
+      await this.#host.scrollToOffset(offset);
+      this.#page = 0;
+      return 0;
+    }
+    const page = await this.#host.pageOfOffset(offset);
+    return this.goToPage(page >= 0 ? page : 0);
+  }
+
+  /**
    * The `Position` anchored at the start of `page`: page → character offset via
    * `offsetOfPage`, then `capturePosition(text, offset, sectionId)` over the
-   * section text. An empty page (offset -1) captures at offset 0.
+   * section text. An empty page (offset -1) captures at offset 0. In scrolled
+   * mode the frame ignores `page` and anchors at the first glyph at or below the
+   * live scroll offset, so the place the reader scrolled to by hand is captured.
    */
   async positionOfPage(page: number): Promise<Position> {
     this.#requireActive();
@@ -483,8 +507,7 @@ export class Paginator {
     this.#state = state;
     // Same section, same text: the section-text cache survives the reflow, so
     // the restore leg below resolves without another sectionText round trip.
-    const page = await this.pageOfPosition(anchor);
-    await this.goToPage(page >= 0 ? page : 0);
+    await this.seekToPosition(anchor);
     await this.#redrawDecorations();
   }
 

@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 export interface Measurement {
   readonly width: number;
@@ -80,6 +80,18 @@ export type HostMessage =
       readonly id: number;
       readonly elementId: string;
     }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      /**
+       * Scrolled-mode seek: scroll the glyph at a section-text offset to the top
+       * of the viewport. Speaks the same tiled-text offset space as `pageOfOffset`,
+       * so the restore leg is "resolve the anchor to an offset, hand it to the
+       * frame" in both modes. A no-op in paginated mode (the document never scrolls).
+       */
+      readonly type: 'scrollToOffset';
+      readonly id: number;
+      readonly offset: number;
+    }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'sectionText'; readonly id: number }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'diagnostics'; readonly id: number }
   | {
@@ -121,6 +133,13 @@ export type FrameMessage =
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'movedToPage'; readonly id: number; readonly page: number }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'offset'; readonly id: number; readonly offset: number }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'page'; readonly id: number; readonly page: number }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
+      readonly type: 'scrolledTo';
+      readonly id: number;
+      /** The frame's vertical scroll offset after the seek, in CSS px. */
+      readonly top: number;
+    }
   | { readonly v: typeof PROTOCOL_VERSION; readonly type: 'text'; readonly id: number; readonly text: string }
   | {
       readonly v: typeof PROTOCOL_VERSION;
@@ -239,6 +258,11 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
       const page = message['page'];
       if (typeof id !== 'number' || typeof page !== 'number') return null;
       return { v: PROTOCOL_VERSION, type: 'page', id, page };
+    }
+    case 'scrolledTo': {
+      const top = message['top'];
+      if (typeof id !== 'number' || typeof top !== 'number') return null;
+      return { v: PROTOCOL_VERSION, type: 'scrolledTo', id, top };
     }
     case 'text': {
       const text = message['text'];
@@ -374,6 +398,10 @@ export function asHostMessage(data: unknown): HostMessage | null {
     case 'pageOfOffset': {
       const offset = message['offset'];
       return typeof offset === 'number' ? { v: PROTOCOL_VERSION, type: 'pageOfOffset', id, offset } : null;
+    }
+    case 'scrollToOffset': {
+      const offset = message['offset'];
+      return typeof offset === 'number' ? { v: PROTOCOL_VERSION, type: 'scrollToOffset', id, offset } : null;
     }
     case 'offsetOfElementId': {
       const elementId = message['elementId'];

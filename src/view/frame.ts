@@ -68,7 +68,7 @@ export function createNonce(): string {
 export function coordinationScript(hostOrigin: string, keyboardNav: boolean = true): string {
   return `(function(){
 'use strict';
-var VERSION = 9;
+var VERSION = 10;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 // Whether the host acts on forwarded nav keys. Baked in at document assembly
@@ -99,7 +99,7 @@ function validateHost(data){
     return data;
   }
   if (t === 'goToPage' || t === 'offsetOfPage') return typeof data.page === 'number' ? data : null;
-  if (t === 'pageOfOffset') return typeof data.offset === 'number' ? data : null;
+  if (t === 'pageOfOffset' || t === 'scrollToOffset') return typeof data.offset === 'number' ? data : null;
   if (t === 'offsetOfElementId') return typeof data.elementId === 'string' ? data : null;
   if (t === 'decorate') {
     if (typeof data.decorationId !== 'string' || typeof data.className !== 'string') return null;
@@ -391,36 +391,20 @@ function goToPage(page){
   return page;
 }
 
-// Map a page (0-based) to the character offset of its first painted glyph.
-// Column flow lays text out monotonically: the column — and therefore the page
-// band — a character paints in never decreases as its text offset grows. So the
-// first character of a page is found by binary search over the chunk's text
-// (~log n getClientRects probes over <= ~8000 chars), never one probe per
-// character. Characters with no client rects (zero-width anchors, collapsed
-// whitespace — the empty-rect gotcha) are skipped by scanning forward to the
-// next measurable character inside each probe.
-function offsetOfPage(page){
-  if (page < 0 || page >= layout.pageCount) return -1;
-  var chunk = chunkAtPage(page);
-  if (chunk === null) return -1;
-  realize(chunk.el);
-  var localPage = page - chunk.firstPage;
-  var boxLeft = chunk.el.getBoundingClientRect().left;
-  var pageStride = stride();
-  // Collect the chunk's text nodes once, with cumulative start offsets, so a
-  // probe maps a chunk-local character index to (node, intra-node offset) by
-  // binary search rather than re-walking the tree.
+// A chunk's text nodes collected once with cumulative start offsets, so a probe
+// maps a chunk-local character index to (node, intra-node offset) by binary
+// search rather than re-walking the tree. rectAt(i) is the first client rect of
+// the character at chunk-local index i, or null when it has none (zero-width
+// anchors, collapsed whitespace — the empty-rect gotcha).
+function textProbe(chunk){
   var walker = document.createTreeWalker(chunk.el, NodeFilter.SHOW_TEXT, null);
   var nodes = [], starts = [], total = 0, node;
   while ((node = walker.nextNode())){
     nodes.push(node); starts.push(total); total += node.data.length;
   }
-  if (total === 0) return chunk.start;
   var range = document.createRange();
-  // The local page band painting the character at chunk-local index i, or -1
-  // when the character has no client rects. The +1 tolerates sub-pixel
-  // rounding, mirroring the old band check's bandLeft - 1.
-  function pageAt(i){
+  function rectAt(i){
+    if (i < 0 || i >= total) return null;
     var lo = 0, hi = nodes.length - 1;
     while (lo < hi){
       var mid = (lo + hi + 1) >> 1;
@@ -429,42 +413,122 @@ function offsetOfPage(page){
     range.setStart(nodes[lo], i - starts[lo]);
     range.setEnd(nodes[lo], i - starts[lo] + 1);
     var rects = range.getClientRects();
-    if (rects.length === 0) return -1;
-    return Math.floor((rects[0].left - boxLeft + 1) / pageStride);
+    return rects.length === 0 ? null : rects[0];
   }
-  // First measurable character at index >= i (exclusive bound limit), as
-  // { index, page }, or null when every character in [i, limit) is unmeasurable.
-  function probeFrom(i, limit){
-    for (var j = i; j < limit; j++){
-      var pg = pageAt(j);
-      if (pg >= 0) return { index: j, page: pg };
-    }
-    return null;
-  }
-  // Binary-search the smallest measurable index whose page is >= localPage;
-  // monotonicity of page-per-offset is what makes the halving sound.
-  var low = 0, high = total, best = -1, bestPage = -1;
+  return { total: total, rectAt: rectAt };
+}
+
+// The smallest measurable chunk-local index whose rect satisfies \`reached\`, as
+// { index, rect }, or null when no measurable character does. \`reached\` must be
+// monotonic in text order, which is what makes the halving sound (~log n rect
+// probes over a <= ~8000-char chunk, never one probe per character). Unmeasurable
+// characters are skipped by scanning forward to the next measurable one inside
+// each probe.
+function firstReaching(probe, reached){
+  var low = 0, high = probe.total, best = null;
   while (low < high){
     var midpoint = (low + high) >> 1;
-    var probe = probeFrom(midpoint, high);
-    if (probe === null){
+    var found = null;
+    for (var j = midpoint; j < high; j++){
+      var rect = probe.rectAt(j);
+      if (rect !== null){ found = { index: j, rect: rect }; break; }
+    }
+    if (found === null){
       high = midpoint;
-    } else if (probe.page >= localPage){
-      best = probe.index;
-      bestPage = probe.page;
-      high = probe.index;
+    } else if (reached(found.rect)){
+      best = found;
+      high = found.index;
     } else {
-      low = probe.index + 1;
+      low = found.index + 1;
     }
   }
+  return best;
+}
+
+// Scrolled mode has no page bands: the reading place is the first glyph at or
+// below the viewport top, at the live scroll offset. Vertical flow is monotonic
+// in document y for normal-flow block content, so the same binary search applies
+// with the viewport top in place of a column band (floats are the known
+// exception; a mis-probe degrades to a nearby glyph, never a throw). The chunk is
+// the first whose box still reaches below the viewport top; the -1 tolerates
+// sub-pixel rounding of the scroll offset. A chunk with no measurable glyph at or
+// below the top falls back to its start offset.
+function offsetAtScrollTop(){
+  if (layout.chunks.length === 0) return -1;
+  var chunk = layout.chunks[layout.chunks.length - 1];
+  for (var i = 0; i < layout.chunks.length; i++){
+    if (layout.chunks[i].el.getBoundingClientRect().bottom > 1){ chunk = layout.chunks[i]; break; }
+  }
+  realize(chunk.el);
+  var best = firstReaching(textProbe(chunk), function(rect){ return rect.top >= -1; });
+  return best === null ? chunk.start : chunk.start + best.index;
+}
+
+// Map a page (0-based) to the character offset of its first painted glyph.
+// Column flow lays text out monotonically: the column — and therefore the page
+// band — a character paints in never decreases as its text offset grows, so the
+// first character of a page is the first whose band is >= the page's. In scrolled
+// mode the page is ignored and the live scroll offset is read instead.
+function offsetOfPage(page){
+  if (layout.mode === 'scrolled') return offsetAtScrollTop();
+  if (page < 0 || page >= layout.pageCount) return -1;
+  var chunk = chunkAtPage(page);
+  if (chunk === null) return -1;
+  realize(chunk.el);
+  var localPage = page - chunk.firstPage;
+  var boxLeft = chunk.el.getBoundingClientRect().left;
+  var pageStride = stride();
+  var probe = textProbe(chunk);
+  if (probe.total === 0) return chunk.start;
+  // The local page band painting a rect. The +1 tolerates sub-pixel rounding.
+  function bandOf(rect){ return Math.floor((rect.left - boxLeft + 1) / pageStride); }
+  var best = firstReaching(probe, function(rect){ return bandOf(rect) >= localPage; });
   // A page whose band holds no measurable character keeps the old fallback: the
   // chunk's own start offset.
-  if (best >= 0 && bestPage === localPage) return chunk.start + best;
+  if (best !== null && bandOf(best.rect) === localPage) return chunk.start + best.index;
   return chunk.start;
 }
 
-// Inverse: which page paints the glyph at this section-text offset.
+// Scrolled-mode seek: put the glyph at \`offset\` at the top of the viewport and
+// return the resulting scroll offset. Offsets past the end scroll to the bottom,
+// before the start to 0; an unmeasurable glyph is skipped forward to the next
+// measurable one in its chunk, and a chunk with none lands on its own top. The
+// section's first glyph is the one exception: it lands at 0, so the section top
+// (a heading's margin above its first line) is shown rather than cut, exactly as
+// page 0 shows it. In paginated mode the document never scrolls, so this is a
+// no-op reporting the (always 0) offset.
+function scrollToOffset(offset){
+  var scroller = document.scrollingElement || document.documentElement;
+  if (layout.mode !== 'scrolled') return scroller.scrollTop;
+  var max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  var chunk = chunkAtOffset(offset);
+  var y;
+  if (chunk === null){
+    y = (layout.chunks.length === 0 || offset < layout.chunks[0].start) ? 0 : max;
+  } else {
+    realize(chunk.el);
+    var probe = textProbe(chunk);
+    var glyph = null;
+    for (var i = offset - chunk.start; i < probe.total && glyph === null; i++){
+      var rect = probe.rectAt(i);
+      if (rect !== null) glyph = { index: i, rect: rect };
+    }
+    if (glyph === null){
+      y = scroller.scrollTop + chunk.el.getBoundingClientRect().top;
+    } else {
+      var first = chunk === layout.chunks[0] ? firstReaching(probe, function(){ return true; }) : null;
+      y = first !== null && first.index === glyph.index ? 0 : scroller.scrollTop + glyph.rect.top;
+    }
+  }
+  window.scrollTo(0, Math.min(max, Math.max(0, y)));
+  return scroller.scrollTop;
+}
+
+// Inverse: which page paints the glyph at this section-text offset. Scrolled mode
+// is a single logical page, so every offset is on page 0; the seek itself goes
+// through scrollToOffset.
 function pageOfOffset(offset){
+  if (layout.mode === 'scrolled') return 0;
   var chunk = chunkAtOffset(offset);
   if (chunk === null){
     // Past the end: last page. Before the start: first page.
@@ -681,6 +745,7 @@ window.addEventListener('message', function(event){
   if (data.type === 'goToPage') { var moved = goToPage(data.page); repaintDecorations(); send({ v: VERSION, type: 'movedToPage', id: id, page: moved }); return; }
   if (data.type === 'offsetOfPage') { send({ v: VERSION, type: 'offset', id: id, offset: offsetOfPage(data.page) }); return; }
   if (data.type === 'pageOfOffset') { send({ v: VERSION, type: 'page', id: id, page: pageOfOffset(data.offset) }); return; }
+  if (data.type === 'scrollToOffset') { send({ v: VERSION, type: 'scrolledTo', id: id, top: scrollToOffset(data.offset) }); return; }
   if (data.type === 'offsetOfElementId') { send({ v: VERSION, type: 'offset', id: id, offset: offsetOfElementId(data.elementId) }); return; }
   if (data.type === 'sectionText') { send({ v: VERSION, type: 'text', id: id, text: sectionText() }); return; }
   if (data.type === 'diagnostics') {

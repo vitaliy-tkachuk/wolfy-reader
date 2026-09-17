@@ -298,30 +298,92 @@ describe('internal-link back-stack', { ...skipAll, ...skipCorpus }, () => {
 });
 
 describe('mode switch preserves position', { ...skipAll, ...skipCorpus }, () => {
-  test('paginated ↔ scrolled holds the reading place, and a same-page round-trip lands home', async () => {
+  /** The frame document's vertical scroll offset. */
+  const frameScrollTop = () =>
+    contentFrame().evaluate(() => (document.scrollingElement || document.documentElement).scrollTop);
+
+  /** Paragraph texts painted on the current paginated page (chunk visible, box overlaps the root). */
+  const visiblePageText = () =>
+    contentFrame().evaluate(() => {
+      const rootRect = document.getElementById('wolfy-reader-content').getBoundingClientRect();
+      const out = [];
+      for (const el of document.querySelectorAll('.wolfy-reader-chunk p')) {
+        if (getComputedStyle(el.closest('.wolfy-reader-chunk')).visibility === 'hidden') continue;
+        const r = el.getBoundingClientRect();
+        if (r.right > rootRect.left + 1 && r.left < rootRect.right - 1 && r.width > 0 && r.height > 0) {
+          out.push(el.textContent);
+        }
+      }
+      return out;
+    });
+
+  test('paginated ↔ scrolled scrolls the anchor into view and lands back on the same page', async () => {
     await openReader(PP);
     await page.evaluate(() => window.harness.readerGoTo('item8'));
-    await page.evaluate(() => window.harness.readerNext());
-    await page.evaluate(() => window.harness.readerNext());
+    await page.evaluate(async () => {
+      for (let i = 0; i < 4; i += 1) await window.harness.readerNext();
+    });
     const before = await page.evaluate(() => window.harness.readerPosition());
     assert.ok(before.page >= 1, 'need a non-trivial page for the switch to be meaningful');
 
-    // Forward switch preserves the section and the reading mode flips — the M1-2
-    // capture→re-layout→resolve→restore machinery composes through the facade.
+    // Forward switch: the section holds and the frame scrolls to the page-start
+    // anchor, so a mid-section page never lands at the section top.
     const scrolled = await page.evaluate(() => window.harness.readerSetMode('scrolled'));
     assert.equal(await page.evaluate(() => window.harness.readerMode()), 'scrolled');
     assert.equal(scrolled.section, before.section, 'the mode switch left the section');
+    const top = await frameScrollTop();
+    assert.ok(top > 0, `entering scrolled mode from page ${before.page} left the frame at scrollTop ${top}`);
 
+    // Back: the live scroll offset is captured, so the round trip lands on the
+    // page it left — same section, same page, same page count.
     const back = await page.evaluate(() => window.harness.readerSetMode('paginated'));
     assert.equal(await page.evaluate(() => window.harness.readerMode()), 'paginated');
     assert.equal(back.section, before.section, 'the round-trip left the section');
+    assert.equal(back.totalPages, before.totalPages, 'the round-trip changed the page count');
+    assert.equal(back.page, before.page, `the round-trip drifted from page ${before.page} to ${back.page}`);
+  });
 
-    // Exact-page preservation across a switch holds when the anchor page survives
-    // the collapse: from page 0, the round-trip must land back on page 0 in the
-    // same section — the position is not thrown away by the switch itself. (A
-    // mid-section page can drift because scrolled mode collapses paging to a
-    // single page; the engine's mid-scroll capture is M3-2's invariant, not the
-    // facade's to own here — see docs/domains/view.md.)
+  test('a hand scroll in scrolled mode is captured: leaving lands on the page holding the top glyph', async () => {
+    await openReader(PP);
+    await page.evaluate(() => window.harness.readerGoTo('item8'));
+    await page.evaluate(() => window.harness.readerSetMode('scrolled'));
+    assert.equal(await frameScrollTop(), 0, 'a page-0 entry should start at the section top');
+
+    // Scroll by hand — the reader did not set this offset — to 60% of the section,
+    // then name the paragraph straddling the viewport top. Where it has less than
+    // two lines showing, nudge up so the glyph at the top edge is unambiguously
+    // its own; the offset is still an arbitrary hand scroll.
+    const anchor = await contentFrame().evaluate(() => {
+      const scroller = document.scrollingElement || document.documentElement;
+      window.scrollTo(0, Math.floor((scroller.scrollHeight - scroller.clientHeight) * 0.6));
+      const topParagraph = () => {
+        for (const el of document.querySelectorAll('.wolfy-reader-chunk p')) {
+          const r = el.getBoundingClientRect();
+          if (r.height > 0 && r.bottom > 1) return { el, bottom: r.bottom };
+        }
+        return null;
+      };
+      let found = topParagraph();
+      if (found !== null && found.bottom < 48) {
+        window.scrollTo(0, scroller.scrollTop - (48 - found.bottom));
+        found = topParagraph();
+      }
+      return found === null ? null : found.el.textContent;
+    });
+    assert.ok(anchor !== null, 'no paragraph at the hand-scrolled viewport top');
+    assert.ok((await frameScrollTop()) > 0, 'the hand scroll did not move the frame');
+
+    const back = await page.evaluate(() => window.harness.readerSetMode('paginated'));
+    assert.ok(back.page > 0, `a hand scroll to 60% of the section landed on page ${back.page}`);
+    const visible = await visiblePageText();
+    assert.ok(
+      visible.includes(anchor),
+      `the page landed on does not hold the hand-scrolled anchor: ${JSON.stringify(anchor).slice(0, 70)}`,
+    );
+  });
+
+  test('a page-0 round-trip lands home', async () => {
+    await openReader(PP);
     await page.evaluate(() => window.harness.readerGoTo('start'));
     const home = await page.evaluate(() => window.harness.readerPosition());
     await page.evaluate(() => window.harness.readerSetMode('scrolled'));

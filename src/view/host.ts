@@ -184,6 +184,7 @@ export class ContentHost {
       case 'movedToPage':
       case 'offset':
       case 'page':
+      case 'scrolledTo':
       case 'text':
       case 'decorated':
       case 'diagnosticsReport': {
@@ -393,6 +394,20 @@ export class ContentHost {
     return reply.page;
   }
 
+  /**
+   * Scrolled-mode seek: scrolls the frame so the glyph at a section-text character
+   * offset sits at the top of the viewport, and returns the resulting scroll offset.
+   * Offsets past the end land at the bottom, before the start at 0. A no-op in
+   * paginated mode, where the document never scrolls.
+   */
+  async scrollToOffset(offset: number): Promise<number> {
+    const reply = await this.#request('scrollToOffset', { offset });
+    if (reply.type !== 'scrolledTo') {
+      throw new ContentHostError('the frame answered scrollToOffset with the wrong message');
+    }
+    return reply.top;
+  }
+
   /** The section's concatenated chunk text, as the frame measures it. */
   async sectionText(): Promise<string> {
     const reply = await this.#request('sectionText');
@@ -501,7 +516,7 @@ export class ContentHost {
   ): Promise<FrameMessage>;
   #request(type: 'paginate', extras: { options: PaginateOptions }): Promise<FrameMessage>;
   #request(type: 'goToPage' | 'offsetOfPage', extras: { page: number }): Promise<FrameMessage>;
-  #request(type: 'pageOfOffset', extras: { offset: number }): Promise<FrameMessage>;
+  #request(type: 'pageOfOffset' | 'scrollToOffset', extras: { offset: number }): Promise<FrameMessage>;
   #request(type: 'offsetOfElementId', extras: { elementId: string }): Promise<FrameMessage>;
   #request(
     type: 'decorate',

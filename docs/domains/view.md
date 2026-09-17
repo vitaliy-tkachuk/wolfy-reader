@@ -75,7 +75,9 @@ Two rules are worth stating separately because they are not obvious from the tab
 
 ## Protocol
 
-Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `9` today (it began at `1`; the reader facade, human-input, selection, image-tap work, the typography `columnCount` field on `PaginateOptions`, and the draw-only decorations channel grew it — see the reader-facade and appearance sections); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, `selection`, `imagetap`, and `decorate`/`undecorate`) are documented with the features that added them.
+Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `10` today (it began at `1`; the reader facade, human-input, selection, image-tap work, the typography `columnCount` field on `PaginateOptions`, the draw-only decorations channel, and the scrolled-mode `scrollToOffset` seek grew it — see the reader-facade and appearance sections, and [`layout.md`](layout.md)); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, `selection`, `imagetap`, `decorate`/`undecorate`, and the layout seams in [`layout.md`](layout.md)) are documented with the features that added them.
+
+**A reply type lives in three places, not two.** A new request/reply pair is added to `asHostMessage`/`asFrameMessage` in `protocol.ts`, mirrored in the frame's `validateHost` copy, *and* listed in the host's `#receive` settle switch (`host.ts`) — the switch enumerates the reply types that resolve a pending request. Miss the third and the frame acts on the request and answers, yet the host drops the validated reply and the request times out as "the frame did not answer": the scroll or page turn visibly happened, the facade swallowed the error, and its own state never advanced.
 
 Origin cannot authenticate here: the frame's origin is `'null'`, which identifies nothing. The host trusts a message only when `event.source === iframe.contentWindow` **and** it validates (`asFrameMessage`). The frame trusts a message only when `event.source === window.parent` and it validates. Everything else is ignored, never dispatched. Because the frame's origin is opaque, host→frame messages must use `'*'` as `targetOrigin`; the payloads carry nothing confidential for that reason. Frame→host messages target the host's real origin when it has one.
 
@@ -87,6 +89,7 @@ Host → frame:
 | `measure` | `id` | `measured` |
 | `decorate` | `id`, `decorationId`, `start`, `end`, `className` | `decorated` |
 | `undecorate` | `id`, `decorationId` | `decorated` |
+| `scrollToOffset` | `id`, `offset` | `scrolledTo` — scrolled mode only; the glyph at the section-text offset is scrolled to the top of the viewport (a no-op in paginated mode) |
 
 Frame → host:
 
@@ -96,6 +99,7 @@ Frame → host:
 | `pong` | `id` | answering `ping` |
 | `measured` | `id`, `width`, `height` | answering `measure`; the content root's scroll size |
 | `decorated` | `id`, `boxes` | answering `decorate`/`undecorate`; overlay boxes painted (0 on a soft-miss) |
+| `scrolledTo` | `id`, `top` | answering `scrollToOffset`; the frame's resulting vertical scroll offset |
 | `violation` | `directive`, `blockedUri` | a `securitypolicyviolation` event in the frame |
 | `error` | `message` | an uncaught error in the frame |
 
@@ -161,15 +165,15 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **Internal-link back-stack — push only after the href resolves.** The paginator/host cancels the in-frame default and reports the click through `ContentHostOptions.onLinkClick`; the facade emits `linkclick`, captures the current `Position`, follows the href, and pushes the captured position **only if the href actually resolved and navigated** — all enqueued so it settles in order. An external (`https:`) or otherwise unresolvable href is a soft miss that moves nothing and pushes **nothing**: pushing it would make the next `back()` a bogus "return" to where the user already is instead of the genuinely prior position (`#gotoHref` returns whether it navigated for exactly this reason). `back()` pops and restores via `goTo(Position)`; empty-stack `back()` is a no-op.
 
-**Mode switch preserves position.** `setMode` delegates to `Paginator.switchMode`, which captures a `Position` for the current page, re-paginates in the new mode, and seeks back to the page that `Position` now resolves to (M1-2 capture→re-layout→resolve→restore) — no reload. A same-session same-text miss degrades to page 0. Switching before the first paint just records the mode. **Caveat (engine, not facade):** scrolled mode collapses paging to a single page, so a `Position` captured at a *mid-section* page while scrolled resolves back to that section's first page — a paginated→scrolled→paginated round trip from a mid-section page can therefore drift toward page 0. Exact mid-scroll capture is the M3-2 appearance-invariant's job; the facade only guarantees the switch composes, holds the section, and preserves the page when the anchor page survives the collapse (e.g. a page-0 round trip lands home).
+**Mode switch preserves position — exactly, in both directions.** `setMode` delegates to `Paginator.switchMode`, which captures a `Position` for the current reading place, re-paginates in the new mode, and restores it through `Paginator.seekToPosition` (M1-2 capture→re-layout→resolve→restore) — no reload. Scrolled mode is a single logical page whose reading place is the *live scroll offset*: entering it scrolls the page-start glyph to the top of the viewport (`scrollToOffset`), and leaving it captures the glyph at the top of the viewport at that moment — including an offset the reader scrolled to by hand — so a paginated→scrolled→paginated round trip from a mid-section page lands back on that page with the same page count, and a hand scroll lands on the page holding the glyph that was at the top. A same-session same-text miss degrades to page 0 / the section top. Switching before the first paint just records the mode. Mechanism in [`layout.md`](layout.md); the facade's `goTo(Position)` (and so `back()` and a search-hit jump) lands through the same `seekToPosition`, so it scrolls to the anchor while in scrolled mode rather than staying at the top.
 
 **Container resize re-paginates (else the frame scrolls).** Page geometry is captured once at render from the container's `clientWidth`/`clientHeight`; the iframe is `100%×100%`, so a container that later shrinks leaves the paginated content at its old size and the frame document scrolls (grown → a gap). The facade owns a `ResizeObserver` on the container: each notification is coalesced onto the next animation frame, then a position-preserving re-flow is enqueued behind any in-flight navigation (`Paginator.resize()` — capture `Position`, re-paginate at the new size, seek back). It no-ops when the size did not actually change (the observer's initial `observe()` callback, sub-pixel jitter) or the container is `0×0` (hidden), and is disconnected — with any pending frame cancelled — in `destroy()`. Guard: `ResizeObserver`/`requestAnimationFrame` are assumed present (the facade is view-side, browser-only).
 
-**A paginated frame never scrolls; the root box is the only page window.** Each chunk is a multi-column context whose columns for pages 2..N lay out to the *right* and a page turn translates them into view, so the frame's `html`/`body` would take a wide `scrollWidth` and show a stray horizontal scrollbar. `relayout` clips both — `document.documentElement`/`body` `overflow:hidden` in paginated mode (the root box, sized to the page and already `overflow:hidden`, is the sole viewport). Scrolled mode restores the vertical scroll (that is how it reads) but keeps `overflow-x:hidden`, so an over-wide table or `<pre>` cannot add a sideways bar to a vertical surface.
+**A paginated frame never scrolls; the root box is the only page window.** Each chunk is a multi-column context whose columns for pages 2..N lay out to the *right* and a page turn translates them into view, so the frame's `html`/`body` would take a wide `scrollWidth` and show a stray horizontal scrollbar. `relayout` clips both — `document.documentElement`/`body` `overflow:hidden` in paginated mode (the root box, sized to the page and already `overflow:hidden`, is the sole viewport). Scrolled mode restores the vertical scroll (that is how it reads) but keeps `overflow-x:hidden`, so an over-wide table or `<pre>` cannot add a sideways bar to a vertical surface — and that vertical scroll offset *is* the reading place: the frame's `offsetOfPage` reads it and `scrollToOffset` sets it (see [`layout.md`](layout.md)).
 
 **`destroy()` leaves nothing behind** (idempotent): it tears down the `Paginator` (which destroys the host, the iframe, and — because resources are `data:` URLs the frame carries, not host-minted blob URLs — there is nothing to revoke; the frame's `message` listener goes with the iframe), clears all event listener sets, and drops the back-stack. Pending frame requests reject as the host tears the channel down.
 
-**Protocol is at v9.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below), then a `columnCount` field on `PaginateOptions` for the typography half's 1-or-2 columns (v8 — column geometry is the paginator's, so it rides the wire while the other typography knobs ride the srcdoc stylesheet; see [`appearance.md`](appearance.md)), then the draw-only decorations channel (`decorate`/`undecorate`/`decorated`, v9 — see Decorations below); `PROTOCOL_VERSION` is `9`, and the frame's hand-written validator (`coordinationScript`'s `validateHost`, a copy of `asHostMessage`) is kept in step with `asHostMessage`/`asFrameMessage` by hand.
+**Protocol is at v10.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below), then a `columnCount` field on `PaginateOptions` for the typography half's 1-or-2 columns (v8 — column geometry is the paginator's, so it rides the wire while the other typography knobs ride the srcdoc stylesheet; see [`appearance.md`](appearance.md)), then the draw-only decorations channel (`decorate`/`undecorate`/`decorated`, v9 — see Decorations below), then the scrolled-mode seek (`scrollToOffset`/`scrolledTo`, v10 — see [`layout.md`](layout.md)); `PROTOCOL_VERSION` is `10`, and the frame's hand-written validator (`coordinationScript`'s `validateHost`, a copy of `asHostMessage`) is kept in step with `asHostMessage`/`asFrameMessage` — and the host's `#receive` settle list — by hand.
 
 ### Human input — keyboard, swipe, tap zones
 
@@ -346,13 +350,12 @@ below — the highlight draws nothing and throws nothing.
   zero-area rect is skipped. A default `.wolfy-reader-decoration` style in the frame's
   reset makes a bare `decorate` visible without host CSS; the caller's `className`
   rides alongside so an appearance stylesheet can restyle it.
-- **Known scrolled-mode caveat (engine, not this API).** Scrolled mode collapses paging
-  to a single page, so a `Position` captured at a *mid-section* page while scrolled
-  resolves back to that section's first page — the same drift the mode-switch section
-  documents. A decoration re-anchored across a paginated→scrolled→paginated round trip
-  from a mid-section page can therefore land on the wrong page; exact mid-scroll capture
-  is the M3-2 appearance-invariant's job, not this one's. The decoration's *text* anchor
-  is unaffected — only the page it redraws on can drift, and only through that round trip.
+- **Scrolled mode re-anchors the same way.** A decoration's offset range is over the
+  tiled section text, which is mode-invariant, and the mode switch itself holds the
+  reading place exactly (see the mode-switch section), so a highlight follows its text
+  through a paginated→scrolled→paginated round trip and redraws on the page the reader
+  returns to. Scrolling the frame moves no overlay: boxes are positioned inside their
+  chunk container, so `scrollToOffset` needs no repaint.
 
 ### TTS enablers (`reader.sentences()`)
 

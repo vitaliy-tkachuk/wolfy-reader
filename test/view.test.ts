@@ -213,6 +213,12 @@ test('frame messages are accepted only in a known shape', () => {
     id: 4,
     boxes: 3,
   });
+  assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'scrolledTo', id: 5, top: 812.5 }), {
+    v: PROTOCOL_VERSION,
+    type: 'scrolledTo',
+    id: 5,
+    top: 812.5,
+  });
   for (const rejected of [
     null,
     'ready',
@@ -262,6 +268,30 @@ test('host messages are accepted only in a known shape', () => {
   });
   assert.equal(asHostMessage({ v: PROTOCOL_VERSION, type: 'ping' }), null);
   assert.equal(asHostMessage({ v: PROTOCOL_VERSION, type: 'evaluate', id: 1 }), null);
+});
+
+test('host scrollToOffset is accepted only in a known shape', () => {
+  assert.deepEqual(asHostMessage({ v: PROTOCOL_VERSION, type: 'scrollToOffset', id: 9, offset: 4096 }), {
+    v: PROTOCOL_VERSION,
+    type: 'scrollToOffset',
+    id: 9,
+    offset: 4096,
+  });
+  for (const rejected of [
+    { v: PROTOCOL_VERSION, type: 'scrollToOffset', id: 9 },
+    { v: PROTOCOL_VERSION, type: 'scrollToOffset', id: 9, offset: '4096' },
+    { v: PROTOCOL_VERSION, type: 'scrollToOffset', offset: 4096 },
+    { v: 9, type: 'scrollToOffset', id: 9, offset: 4096 },
+  ]) {
+    assert.equal(asHostMessage(rejected), null, JSON.stringify(rejected));
+  }
+  for (const rejected of [
+    { v: PROTOCOL_VERSION, type: 'scrolledTo', id: 9 },
+    { v: PROTOCOL_VERSION, type: 'scrolledTo', id: 9, top: '12' },
+    { v: PROTOCOL_VERSION, type: 'scrolledTo', top: 12 },
+  ]) {
+    assert.equal(asFrameMessage(rejected), null, JSON.stringify(rejected));
+  }
 });
 
 test('host decorate/undecorate messages are accepted only in a known shape', () => {

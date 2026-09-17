@@ -34,11 +34,11 @@ import { startServer } from '../../scripts/serve-demo.mjs';
  *   is visible on the page *after* the change.
  *
  * Page numbers shift when text reflows (a bigger font makes more pages); the anchor
- * paragraph does not. In scrolled mode paging collapses, so a mid-section anchor
- * resolves to the section's first page — a documented drift, not a violation — so the
- * mode-switch cases assert the weaker guarantee scrolled mode actually offers: the
- * section is preserved and the anchor paragraph is still present in the rendered
- * content, i.e. the reading place is not lost even though the exact page is.
+ * paragraph does not. The same tolerance holds across the mode switch in both
+ * directions: entering scrolled mode scrolls the anchor paragraph to the top of the
+ * viewport, and leaving it lands on the page whose start is the glyph at the live
+ * scroll offset — so the mode-switch cases assert the full page-top tolerance, and a
+ * reflowing knob applied while scrolled holds the anchor at the top too.
  */
 
 const browserDir = dirname(fileURLToPath(import.meta.url));
@@ -343,6 +343,25 @@ async function visiblePageText(p) {
   });
 }
 
+/**
+ * The paragraph texts intersecting the scrolled viewport, in document order — the
+ * scrolled-mode twin of `visiblePageText` (which reads column overlap). A paragraph
+ * is in view when its box reaches below the viewport top and starts above its
+ * bottom; the 1px slack tolerates sub-pixel scroll rounding.
+ */
+async function visibleScrolledText(p) {
+  return contentFrame(p).evaluate(() => {
+    const out = [];
+    for (const el of document.querySelectorAll('.wolfy-reader-chunk p')) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && r.bottom > 1 && r.top < window.innerHeight - 1) {
+        out.push(el.textContent);
+      }
+    }
+    return out;
+  });
+}
+
 /** Every paragraph text rendered in the section, regardless of the current page. */
 async function allSectionText(p) {
   return contentFrame(p).evaluate(() =>
@@ -376,6 +395,30 @@ function assertAnchorPreserved(anchor, afterVisible, label) {
   );
 }
 
+/**
+ * The scrolled-mode form of the invariant: the anchor paragraph is the TOP-MOST
+ * substantial paragraph in the scrolled viewport — the same "paragraph at the top"
+ * tolerance `pageAnchor` states for a page, read over `visibleScrolledText`.
+ */
+function assertAnchorAtTop(anchor, scrolledVisible, label) {
+  assert.ok(scrolledVisible.length > 0, `${label}: expected visible text in the scrolled viewport`);
+  assert.equal(
+    firstSubstantial(scrolledVisible),
+    anchor,
+    `${label}: the anchored paragraph is not at the top of the scrolled viewport — tolerance violated`,
+  );
+}
+
+/** The first substantial (>= 120 chars) paragraph of a visible-text list, or null. */
+function firstSubstantial(texts) {
+  for (const text of texts) {
+    if (typeof text !== 'string') continue;
+    if (text.trim().length < 120) continue;
+    return text;
+  }
+  return null;
+}
+
 // The appearance knobs under test. Each names the setAppearance patch that drives
 // it; every reflowing knob (fontSize, fontFamily, lineHeight, margin, columns) is
 // covered — none is skipped.
@@ -400,13 +443,7 @@ const KNOBS = [
  * paragraphs in document order, so the first that clears the floor is the top-most.
  */
 async function pageAnchor(p) {
-  const visible = await visiblePageText(p);
-  for (const text of visible) {
-    if (typeof text !== 'string') continue;
-    if (text.trim().length < 120) continue;
-    return text;
-  }
-  return null;
+  return firstSubstantial(await visiblePageText(p));
 }
 
 /**
@@ -465,23 +502,37 @@ describe('the appearance invariant — position preserved across every knob', { 
           const anchor = await seekMidSection(p, start.pages);
           if (anchor === null) return;
           const before = await p.evaluate(() => window.harness.readerPosition());
+          const label = `${book.label}/${start.label}`;
 
-          // paginated → scrolled. Paging collapses in scrolled mode, so a mid-section
-          // anchor resolves to the section's first page — a documented drift. The
-          // guarantee scrolled mode offers is section-level: the section is held and
-          // the anchor paragraph is still present in the rendered content, so the
-          // reading place is not lost even though the exact page is.
+          // paginated → scrolled: the frame scrolls the page-start glyph to the top
+          // of the viewport, so the anchor paragraph is the top-most in view.
           const scrolled = await p.evaluate(() => window.harness.readerSetMode('scrolled'));
           assert.equal(scrolled.section, before.section, 'the mode switch left the section');
-          const rendered = await allSectionText(p);
-          assert.ok(
-            rendered.includes(anchor),
-            `scrolled render dropped the anchor paragraph: ${JSON.stringify(anchor).slice(0, 70)}`,
-          );
+          assertAnchorAtTop(anchor, await visibleScrolledText(p), `${label}/→scrolled`);
 
-          // scrolled → paginated. The section is preserved across the round trip.
+          // scrolled → paginated: the live scroll offset is captured, so the round
+          // trip lands on the very page it left.
           const back = await p.evaluate(() => window.harness.readerSetMode('paginated'));
           assert.equal(back.section, before.section, 'the round-trip switch left the section');
+          assert.equal(back.page, before.page, `${label}: the round trip drifted from page ${before.page} to ${back.page}`);
+          assertAnchorPreserved(anchor, await visiblePageText(p), `${label}/→paginated`);
+        } finally {
+          await p.context().close();
+        }
+      });
+
+      test(`${book.label} @ ${start.label}: a reflowing knob applied while scrolled keeps the anchor at the top`, { ...skipBook }, async () => {
+        const p = await freshPage('light');
+        try {
+          await openCorpusReaderOnLongSection(p, book.url);
+          const anchor = await seekMidSection(p, start.pages);
+          if (anchor === null) return;
+          await p.evaluate(() => window.harness.readerSetMode('scrolled'));
+          // The reflow captures the glyph at the live scroll offset, re-lays out at
+          // the new size, and scrolls that glyph back to the top — the same restore
+          // leg the mode switch uses.
+          await p.evaluate(() => window.harness.readerSetAppearance({ fontSize: 26 }));
+          assertAnchorAtTop(anchor, await visibleScrolledText(p), `${book.label}/${start.label}/fontSize while scrolled`);
         } finally {
           await p.context().close();
         }

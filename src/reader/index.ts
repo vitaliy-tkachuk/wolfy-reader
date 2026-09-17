@@ -770,8 +770,7 @@ class ReaderImpl implements Reader {
     if (index === -1) return; // soft miss: unknown section
     await this.#gotoSection(index, 'first');
     if (this.#destroyed) return;
-    const page = await this.#paginator.pageOfPosition(position);
-    if (page >= 0) await this.#paginator.goToPage(page);
+    await this.#paginator.seekToPosition(position);
     this.#emit('positionchange', this.#snapshot());
   }
 

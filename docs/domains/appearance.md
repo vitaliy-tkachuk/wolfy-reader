@@ -151,10 +151,11 @@ no-reflow guarantee — it must re-measure. `Paginator.applyAppearance(themeCss,
 paginated↔scrolled switch (`#reapply`, shared with `setThemeCss`): capture a
 `Position` for the current page → set the stylesheet + geometry and re-`paginate`
 → resolve the `Position` against the new layout → seek back to the page it now
-lands on. Because the `Position` is content-addressed (an exact quote + context,
-not an offset), the reading *place* survives the reflow even though the page count
-and page number shift — the visible anchor paragraph is on the page before and
-after. A same-text resolution miss (rare) degrades to page 0.
+lands on (or, while scrolled, scroll its glyph back to the top). Because the
+`Position` is content-addressed (an exact quote + context, not an offset), the
+reading *place* survives the reflow even though the page count and page number
+shift — the visible anchor paragraph is on the page before and after. A same-text
+resolution miss (rare) degrades to page 0.
 
 - **`margin` and `columns` are paginator geometry, not `--wr-*` variables.** They
   do not emit a stylesheet variable (`resolveTypographyProperties` skips them);
@@ -171,10 +172,12 @@ after. A same-text resolution miss (rare) degrades to page 0.
   into that many CSS columns, so a 2-column page paints twice the text before a
   turn. Everything else (font/size/line-height/alignment/hyphenation) is a `--wr-*`
   variable in the srcdoc stylesheet.
-- **The reflow inherits the scrolled-mode caveat from `setMode`.** A `Position`
-  captured at a mid-section page while scrolled resolves back to the section's first
-  page (scrolled mode collapses paging), so a reflowing knob applied in scrolled
-  mode inherits that drift. Exact mid-scroll capture is separate, out-of-scope work.
+- **The reflow holds the place in scrolled mode too.** While scrolled, the capture
+  reads the glyph at the live scroll offset (the frame's `offsetOfPage` ignores the
+  page and probes the viewport top) and the restore scrolls that glyph back to the
+  top (`scrollToOffset`) — the same `Paginator.seekToPosition` leg the mode switch
+  and `resize()` use, so a font-size tick while scrolled leaves the anchor paragraph
+  where it was. See [`layout.md`](layout.md).
 - **`ReaderOptions` typography is applied at the first render, not merely retained.**
   The seeded appearance drives the opening `paginate` (`columns`/`margin` via the
   request extras) and rides the opening srcdoc stylesheet (font/size/line-height/…),
@@ -243,11 +246,14 @@ after. A same-text resolution miss (rare) degrades to page 0.
   there (`assert.throws(/tolerance violated/)`). Encoded as `assert.throws` so nothing
   is left permanently red, it proves the mechanism — not a vacuous assertion — is what
   holds the place.
-- **Scrolled mode holds to section granularity only.** Paging collapses in scrolled
-  mode, so a mid-section anchor resolves to the section's first page; the mode-switch
-  cases assert the weaker, honest guarantee (the section is preserved and the anchor
-  paragraph is still present in the rendered content), a documented drift, not a
-  violation.
+- **The mode switch is held to the same tolerance in both directions.** Entering
+  scrolled mode scrolls the page-start glyph to the top of the viewport, so the
+  anchor paragraph is the top-most substantial paragraph in view
+  (`assertAnchorAtTop` over `visibleScrolledText`, the scrolled twin of
+  `pageAnchor`); leaving it captures the live scroll offset, so the round trip lands
+  on the very page it left (`back.page === before.page`) with the anchor visible. A
+  reflowing knob applied *while* scrolled keeps the anchor at the top — its own
+  case in the suite.
 - The cross-cutting decision is recorded in
   [`docs/architecture.md`](../architecture.md) (2026-08-25); the anchor machinery it
   stands on is the [`position`](position.md) domain.

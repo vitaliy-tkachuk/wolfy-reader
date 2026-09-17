@@ -35,14 +35,16 @@ resources pipeline already holds the DOM. See "Where chunking runs" below.
 The `Paginator` wraps a `ContentHost` over a container element and bridges page
 geometry to the headless `Position` model in `src/core`. Core is *called*, never
 changed: a page maps to a `Position` through `offsetOfPage` → `capturePosition`,
-and a `Position` maps back through `resolvePosition` → `pageOfOffset`. The offset
-spaces differ — `resolvePosition` returns a grapheme index while the frame speaks
-UTF-16 code units — so the paginator converts between them with `Intl.Segmenter`
-(exact for surrogate pairs, combining sequences, emoji clusters).
+and a `Position` maps back through `resolvePosition` → `pageOfOffset` → `goToPage`
+(paginated) or `resolvePosition` → `scrollToOffset` (scrolled) — the second leg is
+`seekToPosition`, the one restore every position-preserving re-layout shares. The
+offset spaces differ — `resolvePosition` returns a grapheme index while the frame
+speaks UTF-16 code units — so the paginator converts between them with
+`Intl.Segmenter` (exact for surrogate pairs, combining sequences, emoji clusters).
 
 Public surface consumed by the facade (M2-4): `paginate(section, request?)`,
 `relayout`, `switchMode(mode)`, `resize`, `refine`, `goToPage`/`nextPage`/`previousPage`,
-`positionOfPage`/`pageOfPosition`, `chapterProgress`/`bookProgress`,
+`positionOfPage`/`pageOfPosition`/`seekToPosition`, `chapterProgress`/`bookProgress`,
 `setThemeCss(css)` / `applyAppearance(css, geometry)`, `diagnostics`,
 `sectionText`, `destroy`, plus the `host`/`section`/`options`/`state`/`page`
 getters. Defaults: paginated mode, `chunkChars` 8000, `windowChunks` 2,
@@ -55,9 +57,10 @@ colour-only theme: geometry is invariant, so it captures a `Position`,
 re-assembles, and restores the *exact* page. `applyAppearance(css, { columnCount,
 columnGap })` handles a reflowing typography knob (font/size/line-height/margin/
 columns): geometry changes, so it reuses the exact capture → re-layout → resolve →
-restore path that `switchMode` uses (shared as `#reapply`), restoring the
-*nearest* anchor page. **`resize()` is the same capture → re-paginate → seek-back,
-but re-reads the container's `clientWidth`/`clientHeight`** — page geometry is
+restore path that `switchMode` uses (shared as `#reapply`, restoring through
+`seekToPosition`), landing on the *nearest* anchor page. **`resize()` is the same
+capture → re-paginate → seek-back, but re-reads the container's
+`clientWidth`/`clientHeight`** — page geometry is
 captured once at `paginate`, so a container that later resizes leaves the frame's
 content at the old size (it scrolls when shrunk, gaps when grown). `resize()` no-ops
 (returns `null`) when the size is unchanged or the container is `0×0` (hidden), so a
@@ -108,15 +111,47 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   (`firm === true`). Callers surface `firm` so the churn is visible rather than
   presented as precise. See "Estimated-page-count churn" below.
 - **2026-08-25 — Protocol versioning: hand-maintained, now at `PROTOCOL_VERSION =
-  8`.** The layout message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/
-  `pageOfOffset`/`sectionText`/`diagnostics` and their replies) is typed and
-  validated on both sides; the wire is shared with the reader facade, which grew the
-  version well past the layout-only `2` (link/input/selection/image-tap; see
-  [`view.md`](view.md)). The typography half added one *field*, `columnCount` on
-  `PaginateOptions`, taking it to `8`. The frame's copy of the host-message
+  10`.** The layout message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/
+  `pageOfOffset`/`scrollToOffset`/`sectionText`/`diagnostics` and their replies) is
+  typed and validated on both sides; the wire is shared with the reader facade,
+  which grew the version well past the layout-only `2` (link/input/selection/
+  image-tap/decorations; see [`view.md`](view.md)). The typography half added one
+  *field*, `columnCount` on `PaginateOptions` (`8`); the scrolled-mode seek added
+  `scrollToOffset`/`scrolledTo` (`10`). The frame's copy of the host-message
   validator lives in a template string in `frame.ts` (it cannot import), so
-  `protocol.ts` and that `validateHost` copy are kept in step by hand; any change
-  bumps the version and edits both.
+  `protocol.ts`, that `validateHost` copy, and the host's `#receive` settle list
+  are kept in step by hand; any change bumps the version and edits all three.
+- **2026-09-17 — Scrolled mode is exact: its reading place is the live scroll
+  offset, and one wire message speaks it.** Scrolled `relayout` still collapses
+  paging (`pageCount = 0`, every chunk `pages: 0`), but the three page seams no
+  longer degenerate there. `offsetOfPage` ignores the page and returns the first
+  measurable glyph at or below the viewport top — the chunk is the first whose box
+  still reaches below the top, and the same `firstReaching` binary search the
+  paginated branch uses runs with `rect.top >= -1` as the predicate in place of a
+  column band (vertical flow is monotonic in document `y` for normal-flow block
+  content; floats are the known exception and mis-probe to a nearby glyph, never a
+  throw). `pageOfOffset` answers `0` (one logical page — no more spurious soft
+  misses). The seek itself is a new host→frame `scrollToOffset { offset }` /
+  `scrolledTo { top }` pair rather than a scrolled meaning for `goToPage`: `goToPage`
+  speaks pages, and one message meaning two things by mode is the wrong shape;
+  `scrollToOffset` speaks the tiled-text offset every other seam (`pageOfOffset`,
+  `selection`, `decorate`, `sectionText`) already shares, so the restore is "resolve
+  the anchor to an offset, hand it to the frame" in both modes. It scrolls the
+  glyph's rect to the viewport top (an unmeasurable glyph skips forward to the next
+  measurable one; a chunk with none lands on its own top; past the end → bottom;
+  before the start → 0), with one exception: the section's *first* glyph lands at
+  `0` so the section top — a heading's margin — is shown, as page 0 shows it. In
+  paginated mode it is a no-op that reports the (always `0`) offset. Host-side the
+  leg is `Paginator.seekToPosition(position)`: resolve → UTF-16 offset → scrolled ?
+  `scrollToOffset` (and `page = 0`) : `pageOfOffset` → `goToPage`; a miss lands on
+  page 0 / the section top. `switchMode`, `resize`, `#reapply` and the facade's
+  `goTo(Position)` all restore through it, so a hand scroll is captured whenever
+  any of them next needs the place. Out of scope, deliberately: page numbers and
+  `chapterProgress` in scrolled mode (`fraction` reads `0`; a band-based page model
+  would quantize the restore to a viewport and change `next()`/`prev()` semantics
+  on the frozen facade), `next()`/`prev()` while scrolled (still roll to the
+  adjacent section), a live `scroll` event, and fragment seeks while scrolled
+  (`pageOfElementId` → `goToPage` still lands at the section top).
 - **2026-08-26 — Page→offset mapping is a binary search, not a per-character
   walk.** `offsetOfPage` in the coordination script used to probe every character
   with `getClientRects` until one landed in the page's column band. Column flow is
