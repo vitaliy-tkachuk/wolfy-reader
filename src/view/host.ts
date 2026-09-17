@@ -9,6 +9,7 @@ import {
   type PaginateOptions,
   type PaginationState,
   type SelectionRect,
+  type TappedDecoration,
 } from './protocol.ts';
 import { applyResources, ResourceRegistry, type ResourceSummary } from './resources.ts';
 import { sanitizeSection, type SanitizationSummary } from './sanitize.ts';
@@ -41,8 +42,18 @@ export interface ContentHostOptions {
   readonly onKey?: (key: string) => void;
   /** A completed horizontal swipe in the frame; carries the net delta in CSS px. */
   readonly onSwipe?: (dx: number, dy: number) => void;
-  /** A tap in the frame that was not on a link; carries tap coords + frame viewport size. */
+  /**
+   * A tap in the frame on neither a link, an image nor a decoration; carries tap
+   * coords + frame viewport size.
+   */
   readonly onTap?: (tap: { x: number; y: number; width: number; height: number }) => void;
+  /**
+   * A tap on one or more decoration overlays (not a link, not an image). Sent in
+   * place of `onTap`, so it is a report for the caller's own UI and never a
+   * page-turn. `decorations` is non-empty, most recently decorated first, each
+   * with its visible geometry in the same space as `onSelection`'s rects.
+   */
+  readonly onDecorationTap?: (tap: { x: number; y: number; decorations: readonly TappedDecoration[] }) => void;
   /**
    * A tap on a book image in the frame (not a link, not a page-turn). Carries the
    * image's already-substituted `data:` URL and its `alt`, so a host can open a
@@ -189,6 +200,9 @@ export class ContentHost {
         return;
       case 'tap':
         this.#options.onTap?.({ x: message.x, y: message.y, width: message.width, height: message.height });
+        return;
+      case 'decorationtap':
+        this.#options.onDecorationTap?.({ x: message.x, y: message.y, decorations: message.decorations });
         return;
       case 'imagetap':
         this.#options.onImageTap?.({ src: message.src, alt: message.alt });

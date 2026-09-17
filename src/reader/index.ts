@@ -21,7 +21,7 @@ import type { Book, Position, ReadingDirection, Section, SentenceRange, TocItem 
 import { parsePosition, segmentSentences } from '../core/index.ts';
 import { Paginator, type BookProgress, type LayoutMode } from '../layout/index.ts';
 import { searchBook, type SearchHit, type SearchOptions } from '../search/index.ts';
-import type { SelectionRect } from '../view/protocol.ts';
+import type { SelectionRect, TappedDecoration } from '../view/protocol.ts';
 import {
   isReflowingUpdate,
   mergeAppearance,
@@ -42,7 +42,7 @@ import {
 export type { InputConfig, TapZones } from './input.ts';
 export type { Appearance, TextAlign, ThemeName } from '../view/appearance.ts';
 export type { SearchHit, SearchOptions } from '../search/index.ts';
-export type { SelectionRect } from '../view/protocol.ts';
+export type { SelectionRect, TappedDecoration } from '../view/protocol.ts';
 
 /**
  * Appearance and layout options for {@link render}. All optional. `mode` selects
@@ -136,12 +136,48 @@ export interface ReaderEventMap {
    * empty object, reserved for growth.
    */
   readonly selectionclear: SelectionClear;
+  /**
+   * Fires for a tap in the frame on plain content — not a link, an image or a
+   * decoration — **before** the tap-zone navigation it may trigger dispatches, so
+   * a host can dismiss its own UI before the page moves. Informational: it turns
+   * no page itself, and fires whether or not tap zones are enabled. Payload: the
+   * tap point in CSS px relative to the reader element's padding box.
+   */
+  readonly tap: TapEvent;
+  /**
+   * Fires for a tap on one or more decorations drawn with {@link Reader.decorate}
+   * (not a link, not an image). Replaces `tap` for that release and never turns a
+   * page, even inside a tap zone — a host that wants both calls `next()` itself.
+   * Payload: the decorations under the tap, most recently decorated first, each
+   * with its visible geometry, plus the tap point.
+   */
+  readonly decorationtap: DecorationTapEvent;
   /** Fires when a navigation or render fails. Payload: the error. */
   readonly error: Error;
 }
 
 /** The `selectionclear` payload. Carries nothing today; hosts keep what `selection` gave them. */
 export type SelectionClear = Record<string, never>;
+
+/** The `tap` payload: the tap point in CSS px relative to the reader element's padding box. */
+export interface TapEvent {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The `decorationtap` payload. */
+export interface DecorationTapEvent {
+  /**
+   * Every decoration whose painted box contains the tap point, topmost (most
+   * recently decorated) first; never empty. Each `rect`/`rects` follows the
+   * {@link SelectionEvent} geometry contract: container padding-box px, clipped
+   * to the visible page.
+   */
+  readonly decorations: readonly TappedDecoration[];
+  /** The tap point, in the same coordinate space. */
+  readonly x: number;
+  readonly y: number;
+}
 
 export interface SectionChange {
   /** 0-based index of the now-active section. */
@@ -324,6 +360,8 @@ class ReaderImpl implements Reader {
     linkclick: new Set(),
     selection: new Set(),
     selectionclear: new Set(),
+    tap: new Set(),
+    decorationtap: new Set(),
     error: new Set(),
   };
   /** Internal-link back-stack: positions to return to via {@link back}. */
@@ -410,9 +448,10 @@ class ReaderImpl implements Reader {
         if (this.#swipe) this.#dispatchIntent(swipeIntent(dx, dy, this.#direction));
       },
       onTap: (tap) => {
-        if (this.#tapZones !== null) {
-          this.#dispatchIntent(tapIntent(tap, this.#tapZones, this.#direction));
-        }
+        this.#onTap(tap);
+      },
+      onDecorationTap: (tap) => {
+        this.#onDecorationTap(tap);
       },
       onImageTap: (image) => {
         this.#openZoom(image);
@@ -608,6 +647,27 @@ class ReaderImpl implements Reader {
       case 'none':
         return;
     }
+  }
+
+  /**
+   * A plain tap (no link, image or decoration under it). Reported first, then
+   * mapped to a tap zone: the report precedes the navigation so a host can dismiss
+   * its own UI before the page moves, and it is not gated on tap zones because it
+   * is a report, not navigation. The frame's `x`/`y` are already container px;
+   * the frame size stays internal to the zone mapping.
+   */
+  #onTap(tap: { x: number; y: number; width: number; height: number }): void {
+    if (this.#destroyed) return;
+    this.#emit('tap', { x: tap.x, y: tap.y });
+    if (this.#tapZones !== null) {
+      this.#dispatchIntent(tapIntent(tap, this.#tapZones, this.#direction));
+    }
+  }
+
+  /** A tap on decorations: reported, never navigated — the same as a link or image tap. */
+  #onDecorationTap(tap: { x: number; y: number; decorations: readonly TappedDecoration[] }): void {
+    if (this.#destroyed) return;
+    this.#emit('decorationtap', { decorations: tap.decorations, x: tap.x, y: tap.y });
   }
 
   // --- Image zoom overlay ---------------------------------------------------

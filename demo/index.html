@@ -495,11 +495,12 @@
       </div>
       <div id="selection" class="selection" hidden>
         <p>
-          Selected <q id="selection-text"></q>
-          — <span id="selection-resolves"></span>
+          <span id="selection-label">Selected</span> <q id="selection-text"></q><span id="selection-resolves-wrap">
+          — <span id="selection-resolves"></span></span>
         </p>
         <p class="selection-actions">
           <button type="button" id="highlight" class="btn btn-sm" disabled>Highlight</button>
+          <button type="button" id="remove-highlight" class="btn btn-sm" hidden>Remove highlight</button>
           <button type="button" id="clear-highlights" class="btn btn-sm" hidden>Clear highlights</button>
         </p>
       </div>
@@ -517,7 +518,8 @@
         <kbd>Home</kbd>/<kbd>End</kbd> jump to the book's start/end; swipe on touch;
         or tap the left / right third of the page (hover to see the zones).
         Tap a book image to zoom it full-screen (<kbd>Esc</kbd> or a backdrop click closes).
-        Select text to get a menu anchored on the selection.
+        Select text to get a menu anchored on the selection; tap a highlight to get its menu
+        (a tap on a highlight never turns the page). Tap anywhere else to dismiss.
         RTL books flip left/right. Click into the page first so it has focus.
       </p>
     </details>
@@ -591,9 +593,12 @@
   const themeVarsEl = document.querySelector('#theme-vars');
   const readerWrapEl = document.querySelector('#reader-wrap');
   const selectionEl = document.querySelector('#selection');
+  const selectionLabelEl = document.querySelector('#selection-label');
   const selectionTextEl = document.querySelector('#selection-text');
+  const selectionResolvesWrapEl = document.querySelector('#selection-resolves-wrap');
   const selectionResolvesEl = document.querySelector('#selection-resolves');
   const highlightEl = document.querySelector('#highlight');
+  const removeHighlightEl = document.querySelector('#remove-highlight');
   const clearHighlightsEl = document.querySelector('#clear-highlights');
   const readSentencesEl = document.querySelector('#read-sentences');
   const reportEl = document.querySelector('#report');
@@ -618,14 +623,19 @@
   let reporter = null;
   let reporterHostEl = null;
   let backStackDepth = 0;
-  // The most recent selection's Position, so "Highlight selection" can decorate over
+  // The most recent selection (text + Position), so "Highlight" can decorate over
   // it. The library DRAWS the highlight and never stores it — the demo (the host)
-  // owns these ids and the Positions behind them. The id is derived from the span
-  // (the Position's serialized string), so re-highlighting the same selection reuses
-  // the same id and the library redraws in place instead of stacking a duplicate —
-  // host-side dedup, since the library is content-unaware by design.
-  let lastSelectionPosition = null;
-  const drawnHighlights = new Set();
+  // owns these ids and the Positions and text behind them, which is what the
+  // tap-a-highlight menu shows and what "Remove highlight" deletes. The id is
+  // derived from the span (the Position's serialized string), so re-highlighting
+  // the same selection reuses the same id and the library redraws in place instead
+  // of stacking a duplicate — host-side dedup, since the library is content-unaware
+  // by design. The `hl:` prefix is how the host tells its own highlights apart from
+  // the search-hit and TTS decorations it also draws; the library never reads ids.
+  let lastSelection = null;
+  const drawnHighlights = new Map();
+  // The highlight the menu is currently open for (decoration mode), or null.
+  let menuHighlightId = null;
   // Bumped on every new query so an in-flight streaming scan for a stale query stops
   // appending — the async iterator is abandoned (its generator cleans up on the next
   // GC / the loop simply stops consuming).
@@ -674,9 +684,11 @@
       reporterHostEl = null;
     }
     backStackDepth = 0;
-    lastSelectionPosition = null;
+    lastSelection = null;
     drawnHighlights.clear();
+    menuHighlightId = null;
     highlightEl.disabled = true;
+    removeHighlightEl.hidden = true;
     clearHighlightsEl.hidden = true;
     stopTts();
     readSentencesEl.disabled = true;
@@ -1019,25 +1031,43 @@
       // and its bounding box in the reader element's padding-box px. Show the text,
       // prove the Position resolves back (the progress figure comes straight off
       // it — no string parsing), and anchor the menu on the box.
-      const shown = text.length > 80 ? `${text.slice(0, 80)}…` : text;
-      selectionTextEl.textContent = shown;
       const pct = Math.round(position.progress * 100);
       selectionResolvesEl.textContent = `resolvable Position at ≈${pct}% of the chapter`;
       selectionResolvesEl.className = 'ok';
-      // Remember the selection's Position so the button can draw a highlight over it.
-      lastSelectionPosition = position;
+      // Remember the selection so the button can draw a highlight over it and the
+      // highlight menu can show its text later.
+      lastSelection = { text, position };
       highlightEl.disabled = false;
-      placeSelectionMenu(rect);
+      showMenu('selection', text, rect);
     });
+    // A tap on a highlight opens its menu: the payload lists every decoration under
+    // the tap, topmost first, with the geometry to anchor on. The demo also draws
+    // search-hit and TTS decorations, which have no menu — the host filters by the
+    // id scheme it chose (`hl:`), because the library is id-agnostic by design. A
+    // tap on only those behaves like a plain tap: the menu goes away.
+    reader.on('decorationtap', ({ decorations }) => {
+      const hit = decorations.find((d) => d.id.startsWith('hl:'));
+      const highlight = hit === undefined ? undefined : drawnHighlights.get(hit.id);
+      if (hit === undefined || highlight === undefined) {
+        hideMenu();
+        return;
+      }
+      menuHighlightId = hit.id;
+      showMenu('decoration', highlight.text, hit.rect);
+    });
+    // A tap on plain content dismisses whatever menu is open. It fires before any
+    // page-zone turn, so the menu is gone before the page moves.
+    reader.on('tap', () => hideMenu());
     // Any navigation (a page turn, a jump, a reflow) moves the text the menu was
     // anchored on, so the menu goes with the old page.
-    reader.on('positionchange', () => {
-      selectionEl.hidden = true;
-    });
+    reader.on('positionchange', () => hideMenu());
     // The selection itself is gone — a bare click in the page collapsed it, or its
-    // document was replaced — so there is nothing left to anchor the menu on.
+    // document was replaced — so there is nothing left to anchor the selection menu
+    // on. A highlight menu is anchored on the highlight, not the selection: tapping
+    // a highlight can also collapse a standing selection, and that clear must not
+    // take the menu the tap just opened.
     reader.on('selectionclear', () => {
-      selectionEl.hidden = true;
+      if (selectionEl.dataset.mode === 'selection') hideMenu();
     });
     reader.on('positionchange', onPositionChange);
     reader.on('ready', (position) => {
@@ -1073,17 +1103,40 @@
     void reader.setMode(scrolledToggleEl.checked ? 'scrolled' : 'paginated');
   });
 
+  function hideMenu() {
+    selectionEl.hidden = true;
+    menuHighlightId = null;
+  }
+
   /**
-   * Anchors the selection menu on the selection's bounding box: centred over it,
-   * clamped to the wrap, above the selection or below when there is no room above.
-   * The box is in the reader element's padding-box px and the menu is positioned in
-   * the wrap, so the reader element's offset and border are added — the only
-   * translation a host ever needs. A box with no area means no line of the
-   * selection is on the visible page, so there is nothing to anchor on.
+   * Shows the popover in one of two modes over the same element: `selection` (the
+   * selected text, the resolvable-Position note, Highlight) or `decoration` (a
+   * highlight's stored text, Remove highlight). Clear highlights shows in both once
+   * any highlight exists. `text` is trimmed for display only.
    */
-  function placeSelectionMenu(rect) {
+  function showMenu(mode, text, rect) {
+    selectionEl.dataset.mode = mode;
+    selectionLabelEl.textContent = mode === 'selection' ? 'Selected' : 'Highlighted';
+    selectionTextEl.textContent = text.length > 80 ? `${text.slice(0, 80)}…` : text;
+    selectionResolvesWrapEl.hidden = mode !== 'selection';
+    highlightEl.hidden = mode !== 'selection';
+    removeHighlightEl.hidden = mode !== 'decoration';
+    clearHighlightsEl.hidden = drawnHighlights.size === 0;
+    placeMenu(rect);
+  }
+
+  /**
+   * Anchors the menu on a bounding box — the selection's from `selection`, or a
+   * highlight's from `decorationtap`; both are the same geometry contract: centred
+   * over it, clamped to the wrap, above the box or below when there is no room
+   * above. The box is in the reader element's padding-box px and the menu is
+   * positioned in the wrap, so the reader element's offset and border are added —
+   * the only translation a host ever needs. A box with no area means nothing of it
+   * is on the visible page, so there is nothing to anchor on.
+   */
+  function placeMenu(rect) {
     if (rect.width === 0 && rect.height === 0) {
-      selectionEl.hidden = true;
+      hideMenu();
       return;
     }
     const originX = readerEl.offsetLeft + readerEl.clientLeft;
@@ -1112,21 +1165,33 @@
   // Position pairing itself. The highlight survives a re-layout — change the font size
   // below and it re-anchors and stays over the same text.
   highlightEl.addEventListener('click', () => {
-    if (reader === null || lastSelectionPosition === null) return;
+    if (reader === null || lastSelection === null) return;
     // Key the id by the span itself: the same selection yields the same serialized
     // Position, so a repeat click reuses the id and the library redraws in place
     // rather than stacking a second overlay over identical text.
-    const id = `hl:${lastSelectionPosition.serialized}`;
-    void reader.decorate(id, lastSelectionPosition, { className: 'demo-highlight' });
-    drawnHighlights.add(id);
+    const { text, position } = lastSelection;
+    const id = `hl:${position.serialized}`;
+    void reader.decorate(id, position, { className: 'demo-highlight' });
+    drawnHighlights.set(id, { position, text });
     clearHighlightsEl.hidden = false;
+  });
+
+  // Remove the one highlight the menu is open for: undecorate that id alone and
+  // drop it from the host's table — the library never knew more than the id.
+  removeHighlightEl.addEventListener('click', () => {
+    if (reader === null || menuHighlightId === null) return;
+    void reader.undecorate(menuHighlightId);
+    drawnHighlights.delete(menuHighlightId);
+    hideMenu();
+    clearHighlightsEl.hidden = drawnHighlights.size === 0;
   });
 
   clearHighlightsEl.addEventListener('click', () => {
     if (reader === null) return;
     // The host owns the ids it drew, so it undecorates each in turn.
-    for (const id of drawnHighlights) void reader.undecorate(id);
+    for (const id of drawnHighlights.keys()) void reader.undecorate(id);
     drawnHighlights.clear();
+    hideMenu();
     clearHighlightsEl.hidden = true;
   });
 

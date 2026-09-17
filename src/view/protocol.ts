@@ -10,7 +10,7 @@
  * in `frame.ts` (it cannot import), so the two must be kept in step by hand. Any
  * change here — including this version bump — changes both.
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 export interface Measurement {
   readonly width: number;
@@ -27,6 +27,19 @@ export interface SelectionRect {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+}
+
+/**
+ * One decoration under a tap: the id and class the host decorated with, plus the
+ * decoration's visible geometry in the same space and clipping as a selection's.
+ */
+export interface TappedDecoration {
+  readonly id: string;
+  readonly className: string;
+  /** The union of `rects`, or a zero-size box at the origin when none is visible. */
+  readonly rect: SelectionRect;
+  /** One box per visible overlay box, in document order, clipped to the visible page. */
+  readonly rects: readonly SelectionRect[];
 }
 
 /** The paginator's flow mode. */
@@ -214,6 +227,19 @@ export type FrameMessage =
     }
   | {
       readonly v: typeof PROTOCOL_VERSION;
+      /**
+       * A tap that landed on one or more decoration overlays (not on a link, not
+       * on an image). Sent instead of `tap`, so the host turns no page for it.
+       * `decorations` is never empty and lists the topmost — most recently
+       * decorated — first; `x`/`y` are the tap point in frame-viewport px.
+       */
+      readonly type: 'decorationtap';
+      readonly x: number;
+      readonly y: number;
+      readonly decorations: readonly TappedDecoration[];
+    }
+  | {
+      readonly v: typeof PROTOCOL_VERSION;
       readonly type: 'imagetap';
       /**
        * The image's already-substituted `data:` URL — the full-resolution bytes
@@ -265,6 +291,30 @@ function asSelectionRects(value: unknown): readonly SelectionRect[] | null {
     rects.push(rect);
   }
   return rects;
+}
+
+function asTappedDecoration(value: unknown): TappedDecoration | null {
+  const entry = asRecord(value);
+  if (entry === null) return null;
+  const id = entry['id'];
+  const className = entry['className'];
+  if (typeof id !== 'string' || typeof className !== 'string') return null;
+  const rect = asSelectionRect(entry['rect']);
+  const rects = asSelectionRects(entry['rects']);
+  if (rect === null || rects === null) return null;
+  return { id, className, rect, rects };
+}
+
+/** A non-empty list: a tap on no decoration is a `tap`, never an empty `decorationtap`. */
+function asTappedDecorations(value: unknown): readonly TappedDecoration[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const decorations: TappedDecoration[] = [];
+  for (const entry of value) {
+    const decoration = asTappedDecoration(entry);
+    if (decoration === null) return null;
+    decorations.push(decoration);
+  }
+  return decorations;
 }
 
 function asPaginationState(value: unknown): PaginationState | null {
@@ -406,6 +456,13 @@ export function asFrameMessage(data: unknown): FrameMessage | null {
     }
     case 'selectioncleared':
       return { v: PROTOCOL_VERSION, type: 'selectioncleared' };
+    case 'decorationtap': {
+      const x = message['x'];
+      const y = message['y'];
+      if (typeof x !== 'number' || typeof y !== 'number') return null;
+      const decorations = asTappedDecorations(message['decorations']);
+      return decorations === null ? null : { v: PROTOCOL_VERSION, type: 'decorationtap', x, y, decorations };
+    }
     case 'imagetap': {
       const src = message['src'];
       const alt = message['alt'];

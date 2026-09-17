@@ -75,7 +75,7 @@ Two rules are worth stating separately because they are not obvious from the tab
 
 ## Protocol
 
-Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `12` today (it began at `1`; the reader facade, human-input, selection, image-tap work, the typography `columnCount` field on `PaginateOptions`, the draw-only decorations channel, the scrolled-mode `scrollToOffset` seek, selection geometry, and selection clearing grew it — see the reader-facade and appearance sections, and [`layout.md`](layout.md)); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, `selection`/`selectioncleared`, `imagetap`, `decorate`/`undecorate`, and the layout seams in [`layout.md`](layout.md)) are documented with the features that added them.
+Typed, versioned, and validated on receipt at both ends. `PROTOCOL_VERSION` is `13` today (it began at `1`; the reader facade, human-input, selection, image-tap work, the typography `columnCount` field on `PaginateOptions`, the draw-only decorations channel, the scrolled-mode `scrollToOffset` seek, selection geometry, selection clearing, and decoration-tap reporting grew it — see the reader-facade and appearance sections, and [`layout.md`](layout.md)); every message carries it as `v` and anything else is dropped. The tables below are the original host↔frame handshake; later messages (`linkclick`, the `key`/`swipe`/`tap` input trio, `selection`/`selectioncleared`, `imagetap`, `decorationtap`, `decorate`/`undecorate`, and the layout seams in [`layout.md`](layout.md)) are documented with the features that added them.
 
 **A reply type lives in three places, not two.** A new request/reply pair is added to `asHostMessage`/`asFrameMessage` in `protocol.ts`, mirrored in the frame's `validateHost` copy, *and* listed in the host's `#receive` settle switch (`host.ts`) — the switch enumerates the reply types that resolve a pending request. Miss the third and the frame acts on the request and answers, yet the host drops the validated reply and the request times out as "the frame did not answer": the scroll or page turn visibly happened, the facade swallowed the error, and its own state never advanced.
 
@@ -146,6 +146,8 @@ Two negative duties matter to the paginator: zero-width anchor spans (`<span cla
 | `linkclick` | `{ href }` | an in-frame link click, **before** it is followed |
 | `selection` | `{ text, position, rect, rects }` | a completed text selection in the frame; `position` is a `Position` whose quote spans the whole selection; `rect`/`rects` are its bounding box and visible line boxes in container padding-box px (see Selection) |
 | `selectionclear` | `{}` | once, when a reported selection is gone: a bare click in the frame collapsed it, or its document was replaced (section change, mode switch, appearance change, resize). Never on a page turn, never when nothing was reported, never between two successive selections (see Selection — Clearing) |
+| `tap` | `{ x, y }` | a tap on plain content — not a link, an image or a decoration — in container padding-box px, **before** the tap-zone navigation it may trigger dispatches. Informational: it turns no page itself and fires whether or not tap zones are enabled (see Human input) |
+| `decorationtap` | `{ decorations: [{ id, className, rect, rects }], x, y }` | a tap on one or more decorations (not a link, not an image); `decorations` is non-empty, most recently decorated first, each with its visible geometry under the `selection` contract. Replaces `tap` for that release and never turns a page, even in an edge zone (see Decorations — Tapping a decoration) |
 | `error` | `Error` | a navigation or render failure (also frame-reported errors) |
 
 Firing order is documented and tested:
@@ -156,6 +158,8 @@ Firing order is documented and tested:
 - **`setMode`:** `positionchange`.
 - **selection:** `selection`, standalone — it reports, it does not navigate, so it fires no `positionchange` and is not enqueued behind navigation.
 - **selection gone:** `selectionclear`, standalone when the user collapses it (a bare click — no `positionchange`, not enqueued); when the document is replaced under it, it leads the navigation events: `selectionclear` → `sectionchange` → `positionchange` on a section change, `selectionclear` → `positionchange` on `setMode`, a re-assembling `setAppearance`, or a container resize. Only when a `selection` was reported since the last clear.
+- **plain tap:** `tap` → (`positionchange` if the tap fell in an enabled edge zone and the page turned, or `sectionchange` → `positionchange` on a roll). The report is synchronous and precedes the enqueued navigation.
+- **decoration tap:** `decorationtap`, standalone — it reports and never navigates. When the release that landed the tap also collapsed a reported selection, `selectionclear` → `decorationtap` (the frame flushes the selection before it ends the gesture).
 
 A listener throwing is caught and swallowed (a copy of the set is iterated, so a handler unsubscribing mid-dispatch cannot skip a sibling); it never derails the emit or the navigation.
 
@@ -175,7 +179,7 @@ A listener throwing is caught and swallowed (a copy of the set is iterated, so a
 
 **`destroy()` leaves nothing behind** (idempotent): it tears down the `Paginator` (which destroys the host, the iframe, and — because resources are `data:` URLs the frame carries, not host-minted blob URLs — there is nothing to revoke; the frame's `message` listener goes with the iframe), clears all event listener sets, and drops the back-stack. Pending frame requests reject as the host tears the channel down.
 
-**Protocol is at v12.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below), then a `columnCount` field on `PaginateOptions` for the typography half's 1-or-2 columns (v8 — column geometry is the paginator's, so it rides the wire while the other typography knobs ride the srcdoc stylesheet; see [`appearance.md`](appearance.md)), then the draw-only decorations channel (`decorate`/`undecorate`/`decorated`, v9 — see Decorations below), then the scrolled-mode seek (`scrollToOffset`/`scrolledTo`, v10 — see [`layout.md`](layout.md)), then selection geometry (`rect`/`rects` on `selection`, v11) and selection clearing (`selectioncleared`, v12 — both under Selection below); `PROTOCOL_VERSION` is `12`, and the frame's hand-written validator (`coordinationScript`'s `validateHost`, a copy of `asHostMessage`) is kept in step with `asHostMessage`/`asFrameMessage` — and the host's `#receive` settle list — by hand.
+**Protocol is at v13.** The facade needed link-click reporting and fragment→page mapping on top of the paginator additions (v4), then human input (v5), then selection reporting (v6), then image-tap reporting (v7 — see the image-zoom section below), then a `columnCount` field on `PaginateOptions` for the typography half's 1-or-2 columns (v8 — column geometry is the paginator's, so it rides the wire while the other typography knobs ride the srcdoc stylesheet; see [`appearance.md`](appearance.md)), then the draw-only decorations channel (`decorate`/`undecorate`/`decorated`, v9 — see Decorations below), then the scrolled-mode seek (`scrollToOffset`/`scrolledTo`, v10 — see [`layout.md`](layout.md)), then selection geometry (`rect`/`rects` on `selection`, v11) and selection clearing (`selectioncleared`, v12 — both under Selection below), then decoration-tap reporting (`decorationtap`, v13 — see Decorations; the facade's `tap` event reuses the v5 `tap` message and changed nothing on the wire); `PROTOCOL_VERSION` is `13`, and the frame's hand-written validator (`coordinationScript`'s `validateHost`, a copy of `asHostMessage`) is kept in step with `asHostMessage`/`asFrameMessage` — and the host's `#receive` settle list — by hand.
 
 ### Human input — keyboard, swipe, tap zones
 
@@ -189,15 +193,17 @@ The reader is operable by hand: keyboard, touch swipe, and configurable tap zone
 |---|---|---|
 | `key` | `key` | a navigation-relevant `keydown` in the frame (`ArrowLeft/Right/Up/Down`, `PageUp/PageDown`, `Home`, `End` — the frame's `NAV_KEYS` allowlist — plus Space, forwarded as the normalized tokens `'Space'` / `'Shift+Space'` because `event.key` is `' '` for both and the wire carries no modifier field; nothing else is forwarded) |
 | `swipe` | `dx`, `dy` | a completed pointer/touch drag clearing the frame's `SWIPE_THRESHOLD` (30px) and horizontal-dominant (`|dx| > |dy|`) |
-| `tap` | `x`, `y`, `width`, `height` | a pointer/touch press-release within `TAP_SLOP` (10px) that is **not** on a link and **not** on an image — a link tap stays a `linkclick` and an image tap becomes an `imagetap` (see the image-zoom section), each shared through its own ancestor walk |
+| `tap` | `x`, `y`, `width`, `height` | a pointer/touch press-release within `TAP_SLOP` (10px) that is **not** on a link, **not** on an image and **not** on a decoration — a link tap stays a `linkclick`, an image tap becomes an `imagetap` (see the image-zoom section) and a decoration tap becomes a `decorationtap` (see Decorations), each through its own check |
 
 The host relays these through `ContentHostOptions.onKey(key)` / `onSwipe(dx, dy)` / `onTap({x, y, width, height})`, which the facade supplies.
+
+**Tap precedence: link > image > decoration > plain tap.** The frame resolves a completed tap in that order (the link and image checks are ancestor walks from the pointerdown target; the decoration check is a rect walk over the painted overlay boxes, because overlays are pointer-transparent and never the target), and exactly one message is sent. Only the plain tap is a page-turn gesture: link, image and decoration taps are reports the host acts on with its own UI, and none of them turns a page. The facade emits `tap { x, y }` for a plain tap **before** it maps the point to a zone and enqueues the navigation, so a host can dismiss a menu before the page moves; the report is not gated on `input.tapZones` (it is a report, not navigation), while the zone mapping is. The frame's `width`/`height` stay internal to the zone mapping — the host has the container's own size.
 
 **Key map (LTR).** `ArrowRight` / `PageDown` / `ArrowDown` / Space → next; `ArrowLeft` / `PageUp` / `ArrowUp` / Shift+Space → prev; `Home` → `goTo('start')`; `End` → `goTo('end')`. Space/Shift+Space are reading-order neutral like PageDown/PageUp (they do not flip under RTL) — the near-universal reader convention. **Space-to-activate on a focused image wins over Space paging**: the frame's keydown handler checks the image-activation case (`imageAncestor`) before the nav-key forward, so Space on a focused figure opens the zoom overlay and turns no page.
 
 **Swipe (LTR).** `dx < 0` (leftward, contents move left) → next; `dx > 0` (rightward) → prev.
 
-**Selection wins over swipe.** A drag to select text and a page-turn swipe are indistinguishable by net delta alone — both clear `SWIPE_THRESHOLD` and are horizontal-dominant. So `endGesture` suppresses the `swipe` when a live non-collapsed selection exists at pointerup (`getSelection().isCollapsed === false && toString().length !== 0`); the trailing `pointerup` still runs `flushSelection`, so the selection is forwarded and no page turns. Ordering is load-bearing: the gesture `pointerup` listener is registered before the selection-flush one, so the swipe check reads the selection while it is still live.
+**Selection wins over swipe.** A drag to select text and a page-turn swipe are indistinguishable by net delta alone — both clear `SWIPE_THRESHOLD` and are horizontal-dominant. So `endGesture` suppresses the `swipe` when a live non-collapsed selection exists at pointerup (`getSelection().isCollapsed === false && toString().length !== 0`); the same `pointerup` runs `flushSelection`, so the selection is forwarded and no page turns. **Listener order on `pointerup` is load-bearing: the selection flush is registered before the gesture end.** A release that both collapses a reported selection and lands a tap then sends `selectioncleared` before `tap`/`decorationtap`, so a host dismisses what it anchored on the selection before it opens what it anchors on the decoration. The flush only reads the selection and never collapses it, so the swipe check still sees it live.
 
 **Tap zones.** The tap's `x/width` is normalized to a fraction; `fraction < left` → left-edge page, `fraction >= right` → right-edge page, the band between is inert. Defaults are the left third (`left = 1/3`) and right third (`right = 2/3`). Directions are *visual* — left-edge page is prev, right-edge is next — under LTR.
 
@@ -240,7 +246,7 @@ A text selection in the reader surfaces as a first-class `selection` event carry
 - **Collapsed / empty** — an `isCollapsed` selection or empty `toString()` forwards nothing (a bare click emits no event).
 - **Empty `getClientRects()`** — the zero-width-anchor / empty-inline gotcha the paginator already lives with (114 such spans in `item8`). A selection whose range has no client rects carries no painted geometry, so forwarding it would be a malformed range; the frame length-checks the rect list and drops it.
 
-**Clearing.** A host that anchored UI on a `selection` has to learn when that selection is gone, and the bare click that collapses it happens behind the opaque origin — no pointer event reaches the host document, and `window.blur`/`focus` are unreliable proxies — so the frame reports it. The frame keeps one flag, `selectionReported`, set when `forwardSelection` sends; a later flush that forwards nothing (the guards above dropped it) while the flag is set sends `selectioncleared` once and resets. The flush also clears when no `selectionchange` has been delivered yet but the selection is no longer live: `selectionchange` is a queued task, so a fast click's release (a synthetic `mouse.click`, or a real one under main-thread load) can land before the collapse it caused has marked the selection dirty — the reported selection is gone either way. A release with an untouched, still-live selection (a nav key's keyup) says nothing. A new non-empty selection simply re-forwards `selection` — a replacement is not a clear — and a flush with nothing reported stays silent, so the existing `selection` guards are untouched. The facade mirrors the flag (`#selectionReported`: set when `selection` emits, cleared when `selectionclear` emits) and owns the cases the frame cannot see: **every path that renders a fresh frame document** — a section change, `setMode`, a `setAppearance` that actually re-assembles (the paginator's `setThemeCss`/`applyAppearance` resolve to whether they did, so a no-op change clears nothing), and a container resize — emits `selectionclear` if a selection stood reported, because the frame's flag dies with its document. A page turn is a translate of the same document, so the selection persists and nothing fires; the demo hides its popover on `positionchange` anyway, by its own choice. The event is standalone like `selection` (no `positionchange`, not enqueued behind navigation), and it is a separate event rather than an empty `selection` because `selection`'s payload promises non-empty text and a resolvable `Position` that hosts pass straight to `decorate`. Selection reports and clears are serialized on their own small chain in the facade: `selection` awaits position capture, and a clear that arrives during that wait must still follow the report it clears rather than be judged against a stale flag. Payload is `{}`, reserved for growth; hosts already hold the selection from `selection`. Proven in `test/browser/selection.browser.mjs` ("selection clearing"): one clear per click, silence on a second click, no clear between two selections or across a page turn, the ordering against `sectionchange`/`positionchange`, and the no-op appearance case.
+**Clearing.** A host that anchored UI on a `selection` has to learn when that selection is gone, and the bare click that collapses it happens behind the opaque origin — no pointer event reaches the host document, and `window.blur`/`focus` are unreliable proxies — so the frame reports it. The frame keeps one flag, `selectionReported`, set when `forwardSelection` sends; a later flush that forwards nothing (the guards above dropped it) while the flag is set sends `selectioncleared` once and resets. The flush also clears when no `selectionchange` has been delivered yet but the selection is no longer live: `selectionchange` is a queued task, so a fast click's release (a synthetic `mouse.click`, or a real one under main-thread load) can land before the collapse it caused has marked the selection dirty — the reported selection is gone either way. A release with an untouched, still-live selection (a nav key's keyup) says nothing. A new non-empty selection simply re-forwards `selection` — a replacement is not a clear — and a flush with nothing reported stays silent, so the existing `selection` guards are untouched. **A collapse no release can observe is reported from `selectionchange`.** A press inside the selected text does not collapse the selection on mousedown (the text may be about to be dragged); Chromium collapses it only after `click` has been dispatched, so every `pointerup`/`mouseup`/`click` listener still sees it live and the `selectionchange` the collapse queues is the only signal. That handler therefore sends `selectioncleared` itself when a selection stands reported, no gesture is in progress (`gesture === null` — a drag's transient collapse arrives mid-gesture and is left to the release flush), and the selection is no longer live. Without it, a tap on a still-selected highlight left the host's selection menu anchored on a selection that no longer existed until some later release. The facade mirrors the flag (`#selectionReported`: set when `selection` emits, cleared when `selectionclear` emits) and owns the cases the frame cannot see: **every path that renders a fresh frame document** — a section change, `setMode`, a `setAppearance` that actually re-assembles (the paginator's `setThemeCss`/`applyAppearance` resolve to whether they did, so a no-op change clears nothing), and a container resize — emits `selectionclear` if a selection stood reported, because the frame's flag dies with its document. A page turn is a translate of the same document, so the selection persists and nothing fires; the demo hides its popover on `positionchange` anyway, by its own choice. The event is standalone like `selection` (no `positionchange`, not enqueued behind navigation), and it is a separate event rather than an empty `selection` because `selection`'s payload promises non-empty text and a resolvable `Position` that hosts pass straight to `decorate`. Selection reports and clears are serialized on their own small chain in the facade: `selection` awaits position capture, and a clear that arrives during that wait must still follow the report it clears rather than be judged against a stale flag. Payload is `{}`, reserved for growth; hosts already hold the selection from `selection`. Proven in `test/browser/selection.browser.mjs` ("selection clearing"): one clear per click, silence on a second click, no clear between two selections or across a page turn, the ordering against `sectionchange`/`positionchange`, and the no-op appearance case.
 
 **Offset computation.** For each endpoint the frame finds the enclosing `.wolfy-reader-chunk` container, sums the `textContent` length of every prior chunk container, then adds the text length from that chunk's start to the endpoint via a `Range` — the same tiling the chunk `data-chunk-start` attributes encode. An endpoint outside a realized chunk container yields `-1` and the selection is dropped. Endpoints are normalized so `start <= end` regardless of selection direction.
 
@@ -252,7 +258,7 @@ Oversized book images are capped and tappable-to-zoom.
 
 **Containment lives in the frame reset, not the facade.** The `img,svg{max-width:100%;max-height:100vh;height:auto}` rule in `RESET_CSS` caps every replaced element at its column width *and* at the frame viewport height (which is the page height — the frame fills the container and the root box is sized to it); an image with a 2400px intrinsic width paints at the column width, not 2400px, and never breaks or overflows its column. The height cap matters as much as the width cap: a replaced element is monolithic and does not fragment across columns, so a portrait cover (Gutenberg wraps it as `<svg viewBox width="100%" height="100%">`) sized to the column width alone would be taller than the page and the root would clip its lower half. Proven in `test/browser/layout.browser.mjs` ("tall image containment"). Because each chunk is its own multi-column context, a wide image simply lands on its own column (its own page) rather than pushing prose off the page — the paginator's forced-page-break-per-chunk behaviour, not new work here.
 
-**A tap on an image forwards the image, not a page-turn.** The coordination script (`frame.ts`) has an `imageAncestor` walk mirroring `linkAncestor`: on a completed tap (within `TAP_SLOP`) that is on an `<img>`/SVG `<image>` and not on a link, it sends an `imagetap` carrying the image's already-substituted `src` and its `alt` instead of a plain `tap`. A tap on neither a link nor an image stays a page-turn `tap`, so the `tapIntent` zone mapping is untouched — no regression. This is the same forward-a-semantic-gesture reasoning as `linkclick`/`key`/`swipe`/`tap`.
+**A tap on an image forwards the image, not a page-turn.** The coordination script (`frame.ts`) has an `imageAncestor` walk mirroring `linkAncestor`: on a completed tap (within `TAP_SLOP`) that is on an `<img>`/SVG `<image>` and not on a link, it sends an `imagetap` carrying the image's already-substituted `src` and its `alt` instead of a plain `tap`. The image check runs before the decoration check, so an image inside a highlighted range still zooms. A tap on neither a link, an image nor a decoration stays a page-turn `tap`, so the `tapIntent` zone mapping is untouched — no regression. This is the same forward-a-semantic-gesture reasoning as `linkclick`/`key`/`swipe`/`tap`.
 
 **Wire message (frame→host, unsolicited, protocol v7):**
 
@@ -367,6 +373,63 @@ below — the highlight draws nothing and throws nothing.
   through a paginated→scrolled→paginated round trip and redraws on the page the reader
   returns to. Scrolling the frame moves no overlay: boxes are positioned inside their
   chunk container, so `scrollToOffset` needs no repaint.
+
+**Tapping a decoration.** A completed tap whose point falls inside a painted overlay
+box is reported as `decorationtap` instead of `tap` — the Kindle/Books gesture that
+opens a highlight's menu — and, like a link or image tap, it never turns a page, even
+in an edge zone (a host that wants both calls `next()` itself).
+
+- **Wire message (frame→host, unsolicited, protocol v13):** `decorationtap { x, y,
+  decorations: [{ id, className, rect, rects }] }`. `decorations` is never empty (a tap
+  on no decoration is a `tap`); the validator drops an empty list, a non-string
+  `id`/`className`, or any rect that fails the `selection` rect rules. The host relays
+  it through `ContentHostOptions.onDecorationTap`, and the facade emits
+  `decorationtap { decorations, x, y }` (`DecorationTapEvent`, entries typed
+  `TappedDecoration`; both exported).
+- **Hit-testing is a rect walk, not `elementFromPoint`.** Overlays are
+  `pointer-events: none` and must stay so — a tap has to reach the text beneath for
+  selection to keep working — so the frame walks `decorationBoxes` and tests each
+  box's `getBoundingClientRect()` against the release point. Every chunk container
+  sits at the same origin and the inactive ones are only `visibility: hidden`, so a
+  box in a hidden chunk can share viewport coordinates with the visible page; the
+  walk skips a box whose computed `visibility` is `hidden` (it inherits from the
+  chunk).
+- **Order is recency.** Each `decorate` stamps the decoration with a monotonic counter
+  (a re-issued id is stamped again), and hits are sorted most recent first. It is the
+  only order the library can know between overlapping overlays, and it is what a host
+  with one kind of decoration wants — the topmost. A host that draws several kinds
+  (the demo draws `search-hit` and `tts-active` over `hl:` highlights) filters by its
+  own id scheme; the library reads no ids.
+- **Geometry follows the `selection` contract.** Each entry's `rects` are its painted
+  boxes clipped to the visible page through the same `visibleGeometry` as a selection
+  (container padding-box px, rounded to 2 decimals) and `rect` is their union, so a
+  menu anchored on `selection.rect` anchors on `decorations[0].rect` with no new
+  arithmetic.
+- **Ordering against `selectionclear`.** The frame flushes the selection before it
+  ends the gesture on `pointerup` (see Human input), so a tap that collapses a
+  reported selection reports `selectioncleared` first. Chromium collapses a selection
+  on **mousedown** when the press lands outside it, but as **mouseup's default
+  action** — after every `pointerup` and `mouseup` listener — when it lands inside the
+  selected text, so a tap on a highlight that is itself still selected reports
+  `decorationtap` first and the clear follows from the `selectionchange` the collapse
+  queues (see Selection — Clearing; measured: the inside case orders `decorationtap`
+  → `selectionclear`, the outside case `selectionclear` → `decorationtap`). A host should key its dismissal on the menu it
+  has open, not on the event order: the demo hides on `selectionclear` only while the
+  selection menu is showing.
+- **Keyboard access is a follow-up.** Overlays are not focusable, so there is no
+  Enter-to-open path for a highlight yet; the image-zoom `markImage` pattern
+  (focusable, `role=button`, Enter/Space forwarding the same message) is the template
+  when it lands.
+- Proven in `test/browser/decorations.browser.mjs` ("decoration taps"): a real pointer
+  click on a decoration in the left tap zone reports it with in-container geometry and
+  turns no page; two overlapping decorations report most-recent-first and a re-issue
+  moves to the front; a plain tap reports `tap` before `positionchange` on an edge and
+  navigates nothing in the centre band; a vertical drag past `TAP_SLOP` reports
+  nothing; `selectionclear` precedes `decorationtap`; and both reports fire with
+  `tapZones: false`. A real click must wait for the freshly-committed frame document to
+  paint (two `requestAnimationFrame`s in the frame) — the sandboxed frame is its own
+  compositing surface, and a mouse event dispatched before it has produced a frame is
+  routed nowhere.
 
 ### TTS enablers (`reader.sentences()`)
 

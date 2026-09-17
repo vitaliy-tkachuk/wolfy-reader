@@ -252,6 +252,13 @@ test('frame messages are accepted only in a known shape', () => {
     asFrameMessage({ v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' }),
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:image/png;base64,AAAA', alt: 'a plate' },
   );
+  // A tap on decorations carries every hit, topmost first, each with selection-shaped geometry.
+  const hit = { id: 'hl:1', className: 'hl', rect: { x: 12.5, y: 40, width: 200, height: 18 }, rects: [line] };
+  const under = { id: 'search-hit', className: 'sh', rect: { x: 0, y: 0, width: 0, height: 0 }, rects: [] };
+  assert.deepEqual(
+    asFrameMessage({ v: PROTOCOL_VERSION, type: 'decorationtap', x: 30, y: 45, decorations: [hit, under] }),
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 30, y: 45, decorations: [hit, under] },
+  );
   assert.deepEqual(asFrameMessage({ v: PROTOCOL_VERSION, type: 'decorated', id: 4, boxes: 3 }), {
     v: PROTOCOL_VERSION,
     type: 'decorated',
@@ -300,6 +307,17 @@ test('frame messages are accepted only in a known shape', () => {
     { v: PROTOCOL_VERSION, type: 'selection', start: 1, end: 2, text: 'x', rect: box, rects: [box, { x: 1, y: 2, width: 3 }] },
     { type: 'selectioncleared' },
     { v: PROTOCOL_VERSION - 1, type: 'selectioncleared' },
+    // A tap on no decoration is a `tap`; an empty list, a bad entry or a bad rect is dropped.
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2, decorations: [] },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2 },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: '1', y: 2, decorations: [{ id: 'a', className: 'b', rect: box, rects: [box] }] },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2, decorations: [{ id: 5, className: 'b', rect: box, rects: [box] }] },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2, decorations: [{ id: 'a', rect: box, rects: [box] }] },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2, decorations: [{ id: 'a', className: 'b', rects: [box] }] },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2, decorations: [{ id: 'a', className: 'b', rect: { ...box, x: -1 }, rects: [box] }] },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2, decorations: [{ id: 'a', className: 'b', rect: box, rects: [null] }] },
+    { v: PROTOCOL_VERSION, type: 'decorationtap', x: 1, y: 2, decorations: [{ id: 'a', className: 'b', rect: box, rects: [box] }, 'x'] },
+    { v: 12, type: 'decorationtap', x: 1, y: 2, decorations: [{ id: 'a', className: 'b', rect: box, rects: [box] }] },
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 'data:x' },
     { v: PROTOCOL_VERSION, type: 'imagetap', src: 5, alt: 'x' },
     { v: PROTOCOL_VERSION, type: 'imagetap', alt: 'x' },

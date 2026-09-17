@@ -37,6 +37,8 @@ describe('react bindings — SSR safety', () => {
         onLinkClick: () => {},
         onSelection: () => {},
         onSelectionClear: () => {},
+        onTap: () => {},
+        onDecorationTap: () => {},
         onError: () => {},
       }),
     );

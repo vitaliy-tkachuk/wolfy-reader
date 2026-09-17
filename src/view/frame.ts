@@ -72,7 +72,7 @@ export function createNonce(): string {
 export function coordinationScript(hostOrigin: string, keyboardNav: boolean = true): string {
   return `(function(){
 'use strict';
-var VERSION = 12;
+var VERSION = 13;
 var host = window.parent;
 var target = ${JSON.stringify(hostOrigin)};
 // Whether the host acts on forwarded nav keys. Baked in at document assembly
@@ -627,9 +627,12 @@ function applyOptions(o){
 // pointer-transparent (must not eat a selection or a link click) and layout-neutral
 // (appended inside the chunk container, absolutely positioned, so they change no page
 // geometry and translate with the chunk on a page turn).
-var decorations = {};       // decorationId -> { start, end, className }
+var decorations = {};       // decorationId -> { start, end, className, order }
 var decorationBoxes = {};   // decorationId -> [box elements]
 var DECORATION_CLASS = ${JSON.stringify(DECORATION_CLASS)};
+// Monotonic draw counter: the only order the frame can know between overlapping
+// decorations is recency, so a tap reports the most recently decorated first.
+var decorationOrder = 0;
 
 // Find the (node, offset) DOM point for a global UTF-16 offset into the concatenated
 // chunk-container text — the inverse of offsetOfPoint used by selection. Walks the
@@ -724,6 +727,46 @@ function paintDecoration(decorationId, start, end, className){
   return boxes.length;
 }
 
+// The decorations whose painted boxes contain the frame-viewport point, most recently
+// decorated first. Overlays are pointer-transparent by design (a tap must reach the
+// text beneath so selection keeps working), so this is a rect walk over the painted
+// boxes, not elementFromPoint. Every chunk container sits at the same origin and the
+// inactive ones are merely visibility:hidden, so a box in a hidden chunk can share
+// viewport coordinates with the visible page — visibility inherits, so the computed
+// style of the box itself says whether it is actually on screen.
+function decorationsAt(x, y){
+  var hits = [];
+  for (var decorationId in decorationBoxes){
+    if (!Object.prototype.hasOwnProperty.call(decorationBoxes, decorationId)) continue;
+    var d = decorations[decorationId];
+    if (!d) continue;
+    var boxes = decorationBoxes[decorationId];
+    for (var i = 0; i < boxes.length; i++){
+      var box = boxes[i];
+      if (!box.parentNode) continue;
+      var r = box.getBoundingClientRect();
+      if (x < r.left || x >= r.right || y < r.top || y >= r.bottom) continue;
+      if (getComputedStyle(box).visibility === 'hidden') continue;
+      hits.push({ id: decorationId, order: d.order, className: d.className, boxes: boxes });
+      break;
+    }
+  }
+  hits.sort(function(a, b){ return b.order - a.order; });
+  return hits;
+}
+// The entries a decorationtap carries: each hit's visible geometry over its painted
+// boxes, in the same space and clipping as a selection's rects.
+function tappedDecorations(hits){
+  var entries = [];
+  for (var i = 0; i < hits.length; i++){
+    var rects = [];
+    for (var j = 0; j < hits[i].boxes.length; j++) rects.push(hits[i].boxes[j].getBoundingClientRect());
+    var geometry = visibleGeometry(rects);
+    entries.push({ id: hits[i].id, className: hits[i].className, rect: geometry.rect, rects: geometry.rects });
+  }
+  return entries;
+}
+
 // Re-paint every live decoration. Called after a relayout / window shift so overlays
 // track the text their offset ranges cover across a re-flow.
 function repaintDecorations(){
@@ -760,7 +803,8 @@ window.addEventListener('message', function(event){
     return;
   }
   if (data.type === 'decorate') {
-    decorations[data.decorationId] = { start: data.start, end: data.end, className: data.className };
+    decorationOrder += 1;
+    decorations[data.decorationId] = { start: data.start, end: data.end, className: data.className, order: decorationOrder };
     var boxes = paintDecoration(data.decorationId, data.start, data.end, data.className);
     send({ v: VERSION, type: 'decorated', id: id, boxes: boxes });
     return;
@@ -897,6 +941,8 @@ if (document.readyState === 'loading') {
 // Pointer/touch: a drag that clears the threshold and is horizontal-dominant is
 // a swipe; a small movement that is not on a link is a tap. The host maps both
 // (direction-aware). A link tap is left to the click handler as a linkclick.
+// Tap precedence is link > image > decoration > plain tap: an image inside a
+// highlighted range should still zoom, and only a plain tap is a page-turn gesture.
 var SWIPE_THRESHOLD = 30;
 var TAP_SLOP = 10;
 var gesture = null; // { x, y, target }
@@ -909,8 +955,8 @@ function endGesture(x, y){
   gesture = null;
   if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
     // A horizontal drag that left a live text selection is the reader selecting
-    // text, not turning a page. Suppress the swipe so selection wins; the trailing
-    // pointerup still flushes the selection to the host.
+    // text, not turning a page. Suppress the swipe so selection wins; the same
+    // pointerup already flushed the selection to the host.
     var sel = document.getSelection();
     if (sel !== null && !sel.isCollapsed && sel.toString().length !== 0) return;
     send({ v: VERSION, type: 'swipe', dx: dx, dy: dy });
@@ -926,6 +972,13 @@ function endGesture(x, y){
       send({ v: VERSION, type: 'imagetap', src: String(src), alt: String(image.getAttribute('alt') || '') });
       return;
     }
+    // A tap on a decoration is a report for the host's own UI (a highlight menu),
+    // not a page-turn: it replaces the plain tap the zone mapping would act on.
+    var hits = decorationsAt(x, y);
+    if (hits.length > 0) {
+      send({ v: VERSION, type: 'decorationtap', x: x, y: y, decorations: tappedDecorations(hits) });
+      return;
+    }
     send({ v: VERSION, type: 'tap', x: x, y: y, width: window.innerWidth, height: window.innerHeight });
   }
 }
@@ -934,6 +987,12 @@ if (typeof window.PointerEvent === 'function') {
     if (event.isPrimary === false) return;
     beginGesture(event.clientX, event.clientY, event.target);
   });
+  // Listener order is load-bearing: the selection flush runs before the gesture
+  // ends, so a release that both collapses a reported selection and lands a tap
+  // reports selectioncleared before tap/decorationtap — a host dismisses what it
+  // anchored on the selection before it opens what it anchors on the decoration.
+  // The flush only reads the selection, so the swipe check below still sees it live.
+  document.addEventListener('pointerup', flushSelection);
   document.addEventListener('pointerup', function(event){
     endGesture(event.clientX, event.clientY);
   });
@@ -1051,7 +1110,18 @@ function visibleGeometry(lineBoxes){
 // host owns the clear for that case.
 var selectionDirty = false;
 var selectionReported = false;
-document.addEventListener('selectionchange', function(){ selectionDirty = true; });
+document.addEventListener('selectionchange', function(){
+  selectionDirty = true;
+  // A press that lands inside the selected text collapses it only after the click
+  // has been dispatched — no pointerup, mouseup or click listener can see it — so
+  // this queued selectionchange is the only signal that the reported selection is
+  // gone. With no gesture in progress it is a settled collapse; a drag's transient
+  // collapse arrives while the gesture is live and is left to the release flush.
+  if (selectionReported && gesture === null && !selectionIsLive()) {
+    selectionReported = false;
+    send({ v: VERSION, type: 'selectioncleared' });
+  }
+});
 function selectionIsLive(){
   var selection = document.getSelection();
   return selection !== null && selection.rangeCount > 0 && !selection.isCollapsed && selection.toString().length !== 0;
@@ -1069,7 +1139,7 @@ function flushSelection(){
   selectionReported = false;
   send({ v: VERSION, type: 'selectioncleared' });
 }
-document.addEventListener('pointerup', flushSelection);
+// The pointerup flush is registered above, ahead of the gesture end.
 document.addEventListener('keyup', flushSelection);
 document.addEventListener('mouseup', flushSelection);
 

@@ -322,7 +322,7 @@
       const record = (type) => (payload) => {
         readerEvents.push({ type, payload: JSON.parse(JSON.stringify(payload ?? null)) });
       };
-      for (const type of ['ready', 'positionchange', 'sectionchange', 'linkclick', 'selection', 'selectionclear']) {
+      for (const type of ['ready', 'positionchange', 'sectionchange', 'linkclick', 'selection', 'selectionclear', 'tap', 'decorationtap']) {
         reader.on(type, record(type));
       }
       reader.on('error', (err) => readerEvents.push({ type: 'error', payload: String(err?.message ?? err) }));

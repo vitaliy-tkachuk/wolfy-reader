@@ -20,12 +20,14 @@ import type { Book } from '../core/index.ts';
 import { render } from '../reader/index.ts';
 import type {
   Appearance,
+  DecorationTapEvent,
   LinkClick,
   Reader as ReaderHandle,
   ReaderOptions,
   ReaderPosition,
   SectionChange,
   SelectionEvent,
+  TapEvent,
 } from '../reader/index.ts';
 
 export type { ReaderHandle };
@@ -44,6 +46,10 @@ export interface ReaderCallbacks {
   readonly onSelection?: (selection: SelectionEvent) => void;
   /** A selection reported by `onSelection` is gone (collapsed, or its document was replaced). */
   readonly onSelectionClear?: () => void;
+  /** A tap on plain content, before any tap-zone navigation it triggers. */
+  readonly onTap?: (tap: TapEvent) => void;
+  /** A tap on one or more decorations; never a page-turn. */
+  readonly onDecorationTap?: (tap: DecorationTapEvent) => void;
   /** A navigation or render failed. */
   readonly onError?: (error: Error) => void;
 }
@@ -143,6 +149,8 @@ export function useReader(book: Book, options: UseReaderOptions = {}): UseReader
       live.on('linkclick', (click) => latest.current.onLinkClick?.(click)),
       live.on('selection', (selection) => latest.current.onSelection?.(selection)),
       live.on('selectionclear', () => latest.current.onSelectionClear?.()),
+      live.on('tap', (tap) => latest.current.onTap?.(tap)),
+      live.on('decorationtap', (tap) => latest.current.onDecorationTap?.(tap)),
       live.on('error', (error) => latest.current.onError?.(error)),
     ];
     setReader(live);

@@ -64,31 +64,51 @@ for await (const hit of reader.search('whale')) {
 }
 ```
 
-**Selection menu + highlight.** `selection` carries the text, a `Position`, and the selection's bounding box in CSS px relative to the reader element's padding box, so a menu anchors in one line; `selectionclear` says when that selection is gone (a click in the page, a new section), so the menu can go with it. The library draws decorations and never stores them; a `Position` serializes to one opaque string you persist yourself.
+**Selection menu + highlight.** `selection` carries the text, a `Position`, and the selection's bounding box in CSS px relative to the reader element's padding box, so a menu anchors in one line; `selectionclear` says when that selection is gone (a click in the page, a new section), so the menu can go with it. Tapping a highlight fires `decorationtap` with the decorations under the tap (topmost first) and their boxes — the same menu opens on the highlight, and the tap turns no page; a tap on plain text fires `tap` before any page turn, so a menu can close first. The library draws decorations and never stores them; a `Position` serializes to one opaque string you persist yourself.
 
 ```ts
 import { parsePosition, type Position } from 'wolfy-reader';
 
 // <div class="wrap" style="position: relative">
 //   <div id="reader"></div>       <!-- no border or padding: rect maps 1:1 -->
-//   <div class="menu" hidden><button id="highlight">Highlight</button></div>
+//   <div class="menu" hidden>
+//     <button id="highlight">Highlight</button><button id="remove">Remove highlight</button>
+//   </div>
 // </div>
 const menu = document.querySelector<HTMLElement>('.menu')!;
 let selected: { text: string; serialized: string; position: Position } | null = null;
+let tapped: string | null = null; // the highlight the menu is open for
 
-reader.on('selection', ({ text, position, rect }) => {
-  selected = { text, serialized: position.serialized, position };
+function openMenu(rect: { x: number; y: number; width: number; height: number }) {
   menu.hidden = false;
   menu.style.left = `${rect.x + rect.width / 2 - menu.offsetWidth / 2}px`;
   menu.style.top = `${rect.y - menu.offsetHeight - 8}px`; // or below: rect.y + rect.height + 8
+}
+
+reader.on('selection', ({ text, position, rect }) => {
+  selected = { text, serialized: position.serialized, position };
+  tapped = null;
+  openMenu(rect);
 });
+reader.on('decorationtap', ({ decorations }) => {
+  tapped = decorations[0].id;          // your id — the one you passed to decorate()
+  selected = null;
+  openMenu(decorations[0].rect);
+});
+reader.on('tap', () => { menu.hidden = true; });
 reader.on('positionchange', () => { menu.hidden = true; });
-reader.on('selectionclear', () => { menu.hidden = true; });
+reader.on('selectionclear', () => { if (tapped === null) menu.hidden = true; });
 
 document.querySelector('#highlight')!.addEventListener('click', async () => {
   if (selected === null) return;
   await reader.decorate(selected.serialized, selected.position, { className: 'my-highlight' });
   localStorage.setItem(`note:${selected.serialized}`, selected.text);   // your storage, your shape
+});
+document.querySelector('#remove')!.addEventListener('click', async () => {
+  if (tapped === null) return;
+  await reader.undecorate(tapped);
+  localStorage.removeItem(`note:${tapped}`);
+  menu.hidden = true;
 });
 
 // Next open: the stored string resolves by content, so the highlight lands on the same words.
