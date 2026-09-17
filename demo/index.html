@@ -6,251 +6,282 @@
 <title>wolfy-reader demo</title>
 <style>
   :root {
-    --border: #d0d0d0;
-    --muted: #666;
-    --accent: #1a5fb4;
-    --error: #a51d2d;
+    color-scheme: light dark;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem; --space-6: 1.5rem;
+    --radius: 8px; --radius-sm: 5px;
+    --control-h: 1.9rem;
+    --bg: #f5f5f7; --surface: #ffffff; --surface-2: #eeeef1; --border: #d9d9de;
+    --fg: #1c1c1e; --muted: #6b6b72;
+    --accent: #2563eb; --accent-soft: #e6eeff;
+    --ok: #15803d; --ok-soft: #e6f4ea;
+    --warn: #9a5b00; --warn-soft: #fdf1e0;
+    --error: #b42323; --error-soft: #fbe5e7;
   }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141417; --surface: #1c1c20; --surface-2: #26262b; --border: #34343a;
+      --fg: #e7e7ea; --muted: #9a9aa2;
+      --accent: #7ea2ff; --accent-soft: #1d2b4f;
+      --ok: #4ade80; --ok-soft: #12321f;
+      --warn: #fbbf24; --warn-soft: #3a2a08;
+      --error: #f87171; --error-soft: #3f1515;
+    }
+  }
+
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { background: var(--bg); }
   body {
-    font-family: system-ui, sans-serif;
-    margin: 1.5rem auto;
-    max-width: 72rem;
-    padding: 0 1rem;
-    color: #1a1a1a;
-    background: #fafafa;
+    margin: 0 auto;
+    max-width: 78rem;
+    padding: var(--space-4) var(--space-4) var(--space-6);
+    font: 0.9rem/1.45 var(--font);
+    color: var(--fg);
+    background: var(--bg);
   }
-  h1 { font-size: 1.4rem; margin: 0 0 0.25rem; }
-  .tagline { color: var(--muted); margin: 0 0 1rem; font-size: 0.9rem; }
-  #error {
-    display: none;
-    margin: 1rem 0;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--error);
-    border-radius: 4px;
-    background: #fbe5e7;
-    color: var(--error);
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button, input, select { font: inherit; color: inherit; }
+  p { margin: 0; }
+  kbd {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--surface-2);
   }
-  #error strong { font-family: ui-monospace, monospace; }
-  #book { display: none; margin-top: 1rem; }
-  .meta-card {
+
+  /* Shared pieces: buttons, section labels, disclosure chevrons, cards. */
+  .btn, #book-input::file-selector-button {
+    height: var(--control-h);
+    padding: 0 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 120ms, border-color 120ms;
+  }
+  .btn { display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+  .btn:hover, #book-input::file-selector-button:hover { background: var(--surface-2); border-color: var(--muted); }
+  .btn:disabled { color: var(--muted); opacity: 0.55; cursor: default; background: var(--surface); border-color: var(--border); }
+  .btn-sm { height: 1.6rem; padding: 0 var(--space-2); font-size: 0.78rem; }
+  .label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  summary { cursor: pointer; list-style: none; user-select: none; }
+  summary::-webkit-details-marker { display: none; }
+  .disclosure > summary { display: flex; align-items: center; gap: var(--space-2); }
+  .disclosure > summary::before {
+    content: "";
+    flex: none;
+    width: 0.4em;
+    height: 0.4em;
+    margin-left: 0.15em;
+    border-right: 1.5px solid var(--muted);
+    border-bottom: 1.5px solid var(--muted);
+    transform: rotate(-45deg);
+  }
+  .disclosure[open] > summary::before { transform: rotate(45deg); margin-top: -0.2em; }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  select, input[type="search"], input[type="color"] {
+    height: var(--control-h);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg);
+    transition: border-color 120ms;
+  }
+  select:hover, input[type="search"]:hover { border-color: var(--muted); }
+  input[type="color"] { width: 2.4rem; padding: 2px; }
+  input[type="range"] { accent-color: var(--accent); width: 7rem; margin: 0; }
+  input[type="checkbox"] { accent-color: var(--accent); margin: 0; }
+
+  /* Header: identity plus the only entry point. */
+  .top {
     display: flex;
-    gap: 1.25rem;
-    padding: 1rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #fff;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border);
   }
+  .top h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+  .tagline { margin-top: 0.15rem; color: var(--muted); font-size: 0.85rem; }
+  #book-input { max-width: 100%; color: var(--muted); font-size: 0.8rem; }
+  #book-input::file-selector-button { margin-right: var(--space-2); }
+  #error {
+    margin-top: var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--error);
+    border-left-width: 4px;
+    border-radius: var(--radius-sm);
+    background: var(--error-soft);
+    color: var(--error);
+    overflow-wrap: anywhere;
+  }
+  #error strong { font-family: var(--mono); }
+
+  /* Two columns: sidebar (identity, lookup, navigation) and the reading pane. */
+  #book {
+    display: grid;
+    grid-template-columns: 19rem minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+    margin-top: var(--space-4);
+  }
+  nav.side { display: flex; flex-direction: column; gap: var(--space-3); }
+  .book-card { display: flex; gap: var(--space-3); padding: var(--space-3); }
   #cover {
-    display: none;
-    max-height: 12rem;
-    max-width: 8rem;
+    flex: none;
+    max-width: 5rem;
+    max-height: 7.5rem;
     border: 1px solid var(--border);
-    align-self: flex-start;
+    border-radius: var(--radius-sm);
   }
-  .meta-fields { min-width: 0; }
-  #book-title { font-size: 1.2rem; font-weight: 600; margin: 0 0 0.25rem; }
+  .meta-fields { min-width: 0; flex: 1; }
+  #book-title { font-size: 1rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
   .meta-fields dl {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 0.15rem 0.75rem;
-    margin: 0.5rem 0 0;
-    font-size: 0.9rem;
+    gap: 0.1rem var(--space-2);
+    margin: var(--space-2) 0 0;
+    font-size: 0.8rem;
   }
   .meta-fields dt { color: var(--muted); }
-  .meta-fields dd { margin: 0; }
-  #badges { margin-top: 0.5rem; }
+  .meta-fields dd { margin: 0; overflow-wrap: anywhere; }
+  #badges { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+  #badges:empty { display: none; }
   .badge {
-    display: inline-block;
-    margin-right: 0.4rem;
-    padding: 0.1rem 0.5rem;
+    padding: 0.05rem var(--space-2);
     border-radius: 999px;
-    font-size: 0.75rem;
-    background: #e4ecf7;
+    font-size: 0.72rem;
+    background: var(--accent-soft);
     color: var(--accent);
-    border: 1px solid var(--accent);
   }
-  .badge.warn { background: #fdf1e0; color: #9a5b00; border-color: #9a5b00; }
-  .columns { display: flex; gap: 1rem; margin-top: 1rem; align-items: flex-start; }
-  nav.side {
-    flex: 0 0 20rem;
-    max-height: 34rem;
-    overflow: auto;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #fff;
-    padding: 0.75rem;
-    font-size: 0.85rem;
-  }
-  nav.side h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0.75rem 0 0.35rem; }
-  nav.side h2:first-child { margin-top: 0; }
-  nav.side ul { list-style: none; margin: 0; padding-left: 0; }
-  nav.side ul ul { padding-left: 1rem; border-left: 1px dotted var(--border); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .side-block { padding: var(--space-3); }
+  .side-block > .label { display: block; margin-bottom: var(--space-2); }
+  nav.side details > summary { padding: var(--space-3); }
+  nav.side details > summary:hover { color: var(--fg); }
+  nav.side details > div { padding: 0 var(--space-2) var(--space-2); }
+  nav.side details > div, .search-results { max-height: 22rem; overflow: auto; }
+  nav.side ul { list-style: none; margin: 0; padding: 0; }
+  nav.side ul ul { margin-left: var(--space-2); padding-left: var(--space-2); border-left: 1px solid var(--border); }
   nav.side button {
     display: block;
     width: 100%;
     text-align: left;
+    padding: 0.2rem var(--space-2);
+    border: 0;
+    border-radius: var(--radius-sm);
     background: none;
-    border: none;
-    padding: 0.2rem 0.3rem;
-    font: inherit;
-    color: var(--accent);
+    color: var(--fg);
+    font-size: 0.82rem;
+    line-height: 1.4;
     cursor: pointer;
-    border-radius: 3px;
     overflow-wrap: anywhere;
+    transition: background-color 120ms;
   }
-  nav.side button:hover { background: #eef3fa; }
-  nav.side button.active { background: #e4ecf7; font-weight: 600; }
-  .section-note { color: var(--muted); font-size: 0.75rem; }
-  .empty-note { color: var(--muted); font-style: italic; }
-  #search-input {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0.35rem 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font: inherit;
-  }
-  .search-status { color: var(--muted); font-size: 0.75rem; margin: 0.35rem 0 0; }
-  .search-results { list-style: none; margin: 0.35rem 0 0; padding: 0; }
-  .search-results li { margin: 0; }
-  .search-results button {
-    width: 100%;
-    text-align: left;
-    border: none;
-    background: none;
-    padding: 0.3rem 0.4rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.78rem;
-    line-height: 1.35;
-    color: inherit;
-  }
-  .search-results button:hover { background: #eef3fa; }
-  .search-results .hit-term { font-weight: 600; }
+  nav.side button:hover { background: var(--surface-2); }
+  nav.side button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .section-note { color: var(--muted); font-family: var(--mono); font-size: 0.7rem; font-weight: 400; }
+  .empty-note, .none { color: var(--muted); font-style: italic; }
+  #search-input { width: 100%; }
+  .search-status { margin-top: var(--space-2); color: var(--muted); font-size: 0.75rem; }
+  .search-status:empty { display: none; }
+  .search-results { list-style: none; margin: var(--space-1) 0 0; padding: 0; }
+  .search-results button { font-size: 0.78rem; line-height: 1.35; }
   .search-results .hit-where { color: var(--muted); font-size: 0.7rem; }
-  main.pane { flex: 1; min-width: 0; }
-  #reader-label { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.35rem; font-family: ui-monospace, monospace; }
+
+  /* Reading pane: toolbar (with the appearance panel folded into its row), frame, actions, inspect. */
+  main.pane { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .toolbar .group { display: inline-flex; gap: var(--space-1); }
+  .page-status {
+    flex: 1 1 12rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: var(--control-h);
+    padding: 0 var(--space-2);
+    color: var(--muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .check:hover { color: var(--fg); }
+  /* Closed, the summary is one more button at the row's end; open, the details
+     takes the full row so its body lays out beneath the toolbar in flow. The
+     frame below has a fixed height, so the chrome growing costs no relayout. */
+  .appearance { margin-left: auto; }
+  .appearance[open] { flex: 1 1 100%; }
+  .appearance[open] > summary { width: max-content; margin-left: auto; }
+  .appearance > summary::after {
+    content: "";
+    width: 0.4em;
+    height: 0.4em;
+    margin: -0.2em 0 0 0.15em;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+  }
+  .appearance[open] > summary::after { transform: rotate(-135deg); margin-top: 0.2em; }
+  .appearance-body {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-3) var(--space-4);
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+  }
+  .appearance-body > .label { padding-top: 0.2rem; }
+  .fields { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); }
+  .field { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--muted); }
+  .field-check { flex-direction: row; align-items: center; height: var(--control-h); font-size: 0.8rem; }
+  .range { display: inline-flex; align-items: center; gap: var(--space-2); height: var(--control-h); }
+  .typo-value { min-width: 2.6rem; font-family: var(--mono); font-size: 0.72rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .custom-fields { display: flex; gap: var(--space-3); }
+  .custom-fields label { display: flex; flex-direction: column; gap: 0.2rem; }
+
+  .reader-wrap { position: relative; }
   #reader {
     height: 34rem;
     overflow: hidden;
     border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #fff;
+    border-radius: var(--radius);
+    background: var(--surface);
   }
   #reader:empty::after {
     content: "pick a chapter";
     display: block;
-    padding: 1rem;
+    padding: var(--space-4);
     color: var(--muted);
     font-style: italic;
   }
-  #report {
-    display: none;
-    margin-top: 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #fff;
-    padding: 0.75rem 1rem;
-    font-size: 0.8rem;
-  }
-  #report h2 {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--muted);
-    margin: 0 0 0.5rem;
-  }
-  #report dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.2rem 0.75rem;
-    margin: 0;
-  }
-  #report dt { color: var(--muted); }
-  #report dd { margin: 0; overflow-wrap: anywhere; }
-  .chip {
-    display: inline-block;
-    margin: 0 0.3rem 0.3rem 0;
-    padding: 0.05rem 0.4rem;
-    border-radius: 3px;
-    background: #f0f0f0;
-    font-family: ui-monospace, monospace;
-    font-size: 0.75rem;
-  }
-  .chip.gone { background: #fbe5e7; color: var(--error); }
-  .chip.kept { background: #e6f4ea; color: #14682c; }
-  .chip.blocked { background: #fdf1e0; color: #9a5b00; }
-  .none { color: var(--muted); font-style: italic; }
-  .pager {
-    display: none;
-    align-items: center;
-    gap: 0.6rem;
-    margin: 0 0 0.5rem;
-    font-size: 0.85rem;
-  }
-  .pager button {
-    font: inherit;
-    padding: 0.2rem 0.7rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: #fff;
-    color: var(--accent);
-    cursor: pointer;
-  }
-  .pager button:disabled { color: var(--muted); cursor: default; opacity: 0.6; }
-  .page-status { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 12rem; }
-  .mode-toggle { margin-left: auto; color: var(--muted); cursor: pointer; }
-  .appearance {
-    display: none;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-    margin: 0 0 0.5rem;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-  .appearance select, .appearance input[type="color"] { font: inherit; }
-  .appearance .custom-fields[hidden] { display: none; }
-  .appearance label { display: inline-flex; align-items: center; gap: 0.3rem; }
-  .appearance .typo-value { font-variant-numeric: tabular-nums; min-width: 2.5rem; }
-  .appearance hr {
-    border: 0;
-    border-left: 1px solid var(--border);
-    align-self: stretch;
-    margin: 0 0.2rem;
-  }
-  .theme-vars {
-    font-family: ui-monospace, monospace;
-    font-size: 0.7rem;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
-  .input-hint {
-    display: none;
-    margin: 0 0 0.5rem;
-    color: var(--muted);
-    font-size: 0.75rem;
-  }
-  .input-hint kbd {
-    font-family: ui-monospace, monospace;
-    background: #f0f0f0;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0 0.3rem;
-  }
-  /* A cheap overlay of the tap zones over the reader frame, purely as a hand-
-     testing aid: click the left third → prev, the right third → next. Its own
-     clicks pass through to the frame so it never intercepts the gesture. */
-  .reader-wrap { position: relative; }
-  .tap-zones {
-    display: none;
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 1;
-  }
+  /* A hand-testing aid drawn over the frame on hover: the left third turns back, the
+     right third forward. It never takes pointer events, so the frame gets the click. */
+  .tap-zones { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 1; }
   .tap-zones span {
     position: absolute;
     top: 0;
@@ -258,181 +289,222 @@
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    padding-bottom: 0.4rem;
-    font-size: 0.7rem;
+    padding-bottom: var(--space-2);
+    font-size: 0.68rem;
     color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
   }
   .tap-zones .zone-left { left: 0; width: 33.333%; border-right: 1px dashed var(--border); }
   .tap-zones .zone-right { right: 0; width: 33.333%; border-left: 1px dashed var(--border); }
   .reader-wrap:hover .tap-zones { display: block; }
-  .roundtrip {
-    display: none;
-    margin: 0.5rem 0 0;
-    font-family: ui-monospace, monospace;
-    font-size: 0.75rem;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
-  .roundtrip.ok { color: #14682c; }
-  .roundtrip.bad { color: var(--error); }
-  .selection {
-    margin: 0.5rem 0 0;
-    font-size: 0.8rem;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
+
+  .actions { display: flex; flex-direction: column; gap: var(--space-2); }
+  .reader-label { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); overflow-wrap: anywhere; }
+  .reader-label:empty { display: none; }
+  .actions-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .selection { flex: 1 1 20rem; font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
   .selection q { color: var(--fg); }
-  .selection .ok { color: #14682c; }
+  .selection .ok { color: var(--ok); }
   .selection .bad { color: var(--error); }
-  .highlight-btn {
-    font: inherit;
-    font-size: 0.75rem;
-    margin-left: 0.4rem;
-    padding: 0.1rem 0.5rem;
-    border: 1px solid var(--accent);
-    border-radius: 4px;
-    background: #fff;
-    color: var(--accent);
-    cursor: pointer;
+  .selection .btn { margin-left: var(--space-1); vertical-align: middle; }
+  #read-sentences { margin-left: auto; }
+
+  .inspect > summary { padding: var(--space-2) var(--space-3); font-size: 0.8rem; color: var(--muted); }
+  .inspect > summary:hover { color: var(--fg); }
+  .inspect[open] > summary { color: var(--fg); }
+  .inspect > :not(summary) { margin: 0; padding: 0 var(--space-3) var(--space-3); font-size: 0.8rem; }
+  .inspect kbd { margin: 0 0.05rem; }
+  #report dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.25rem var(--space-3);
   }
-  .highlight-btn:disabled { color: var(--muted); border-color: var(--border); cursor: default; opacity: 0.6; }
+  #report dt { color: var(--muted); }
+  #report dd { margin: 0; overflow-wrap: anywhere; }
+  .chip {
+    display: inline-block;
+    margin: 0 0.3rem 0.3rem 0;
+    padding: 0.05rem 0.4rem;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+  .chip.gone { background: var(--error-soft); color: var(--error); }
+  .chip.kept { background: var(--ok-soft); color: var(--ok); }
+  .chip.blocked { background: var(--warn-soft); color: var(--warn); }
+  .theme-vars { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); overflow-wrap: anywhere; line-height: 1.6; }
+
+  @media (max-width: 60rem) {
+    #book { grid-template-columns: minmax(0, 1fr); }
+    .page-status { white-space: normal; }
+    #reader { height: 70vh; }
+  }
 </style>
 </head>
 <body>
-<h1>wolfy-reader demo</h1>
-<p class="tagline">Decoder proof: pick a book, see exactly what the library produced. Chapters render as live markup inside the hardened sandboxed frame, with a report of everything the sanitizer took out.</p>
-<input type="file" id="book-input" accept=".epub,.fb2,.txt,application/epub+zip,text/plain">
-<div id="error"></div>
-<div id="book">
-  <div class="meta-card">
-    <img id="cover" alt="Book cover">
-    <div class="meta-fields">
-      <p id="book-title"></p>
-      <dl>
-        <dt>Author</dt><dd id="book-author"></dd>
-        <dt>Language</dt><dd id="book-language"></dd>
-        <dt>Sections</dt><dd id="book-sections"></dd>
-      </dl>
-      <div id="badges"></div>
-    </div>
+<header class="top">
+  <div>
+    <h1>wolfy-reader demo</h1>
+    <p class="tagline">Decoder proof: pick a book and see exactly what the library produced, rendered as live markup inside the hardened sandboxed frame.</p>
   </div>
-  <div class="columns">
-    <nav class="side">
-      <h2>Table of contents</h2>
+  <input type="file" id="book-input" accept=".epub,.fb2,.txt,application/epub+zip,text/plain">
+</header>
+<div id="error" role="alert" hidden></div>
+<div id="book" hidden>
+  <nav class="side">
+    <div class="card book-card">
+      <img id="cover" alt="Book cover" hidden>
+      <div class="meta-fields">
+        <p id="book-title"></p>
+        <dl>
+          <dt>Author</dt><dd id="book-author"></dd>
+          <dt>Language</dt><dd id="book-language"></dd>
+          <dt>Sections</dt><dd id="book-sections"></dd>
+        </dl>
+        <div id="badges"></div>
+      </div>
+    </div>
+    <div class="card side-block" id="search">
+      <label class="label" for="search-input">Search</label>
+      <input type="search" id="search-input" placeholder="Search the whole book…" autocomplete="off">
+      <p id="search-status" class="search-status"></p>
+      <ul id="search-results" class="search-results"></ul>
+    </div>
+    <details class="card disclosure" open>
+      <summary class="label">Contents</summary>
       <div id="toc"></div>
-      <h2>Reading order</h2>
+    </details>
+    <details class="card disclosure">
+      <summary class="label">Reading order</summary>
       <div id="reading-order"></div>
-      <h2>Search</h2>
-      <div id="search">
-        <input type="search" id="search-input" placeholder="Search the whole book…" autocomplete="off">
-        <p id="search-status" class="search-status"></p>
-        <ul id="search-results" class="search-results"></ul>
+    </details>
+  </nav>
+  <main class="pane">
+    <div id="pager" class="toolbar" hidden>
+      <div class="group">
+        <button type="button" id="prev-section" class="btn" disabled title="Previous section">‹ Section</button>
+        <button type="button" id="prev-page" class="btn" disabled title="Previous page">‹ Page</button>
       </div>
-    </nav>
-    <main class="pane">
-      <p id="reader-label"></p>
-      <div id="pager" class="pager">
-        <button type="button" id="prev-section" disabled title="Previous section">⏮</button>
-        <button type="button" id="prev-page" disabled>◀ Prev</button>
-        <span id="page-status" class="page-status">—</span>
-        <button type="button" id="next-page" disabled>Next ▶</button>
-        <button type="button" id="next-section" disabled title="Next section">⏭</button>
-        <button type="button" id="back" disabled title="Back to the pre-jump position">↩ Back</button>
-        <label class="mode-toggle"><input type="checkbox" id="scrolled-toggle"> Scrolled mode</label>
+      <span id="page-status" class="page-status">—</span>
+      <div class="group">
+        <button type="button" id="next-page" class="btn" disabled title="Next page">Page ›</button>
+        <button type="button" id="next-section" class="btn" disabled title="Next section">Section ›</button>
       </div>
-      <div id="appearance" class="appearance">
-        <label>Theme
-          <select id="theme-select">
-            <option value="">Follow OS</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="sepia">Sepia</option>
-            <option value="custom">Custom</option>
-          </select>
-        </label>
-        <label class="custom-fields" id="custom-fields" hidden>
-          bg <input type="color" id="custom-bg" value="#102030">
-          text <input type="color" id="custom-fg" value="#c8d2dc">
-        </label>
-        <hr>
-        <label>Font
-          <select id="font-family-select">
-            <option value="">Publisher</option>
-            <option value="Georgia, serif">Georgia</option>
-            <option value="'Times New Roman', serif">Times</option>
-            <option value="system-ui, sans-serif">System</option>
-            <option value="'Courier New', monospace">Mono</option>
-          </select>
-        </label>
-        <label>Size
-          <input type="range" id="font-size-range" min="12" max="32" step="1" value="18">
-          <span id="font-size-value" class="typo-value">18px</span>
-        </label>
-        <label>Line
-          <input type="range" id="line-height-range" min="1.1" max="2.2" step="0.1" value="1.5">
-          <span id="line-height-value" class="typo-value">1.5</span>
-        </label>
-        <label>Margin
-          <input type="range" id="margin-range" min="0" max="120" step="8" value="40">
-          <span id="margin-value" class="typo-value">40px</span>
-        </label>
-        <label>Align
-          <select id="text-align-select">
-            <option value="start">Ragged</option>
-            <option value="justify">Justify</option>
-          </select>
-        </label>
-        <label><input type="checkbox" id="hyphenate-toggle"> Hyphenate</label>
-        <label>Columns
-          <select id="columns-select">
-            <option value="1">1</option>
-            <option value="2">2</option>
-          </select>
-        </label>
-        <span id="theme-vars" class="theme-vars" title="the resolved --wr-* variable set"></span>
+      <button type="button" id="back" class="btn" disabled title="Back to the pre-jump position">Back</button>
+      <label class="check" title="Lay the section out as one scroll instead of pages; the reading place is held"><input type="checkbox" id="scrolled-toggle"> Scrolled</label>
+      <details id="appearance" class="appearance" hidden>
+        <summary class="btn">Appearance</summary>
+        <div class="card appearance-body">
+          <span class="label">Theme</span>
+          <div class="fields">
+            <label class="field">Theme
+              <select id="theme-select">
+                <option value="">Follow OS</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="sepia">Sepia</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <div class="field custom-fields" id="custom-fields" hidden>
+              <label>Background <input type="color" id="custom-bg" value="#102030"></label>
+              <label>Text <input type="color" id="custom-fg" value="#c8d2dc"></label>
+            </div>
+          </div>
+          <span class="label">Type</span>
+          <div class="fields">
+            <label class="field">Font
+              <select id="font-family-select">
+                <option value="">Publisher</option>
+                <option value="Georgia, serif">Georgia</option>
+                <option value="'Times New Roman', serif">Times</option>
+                <option value="system-ui, sans-serif">System</option>
+                <option value="'Courier New', monospace">Mono</option>
+              </select>
+            </label>
+            <label class="field">Size
+              <span class="range">
+                <input type="range" id="font-size-range" min="12" max="32" step="1" value="18">
+                <span id="font-size-value" class="typo-value">18px</span>
+              </span>
+            </label>
+            <label class="field">Line
+              <span class="range">
+                <input type="range" id="line-height-range" min="1.1" max="2.2" step="0.1" value="1.5">
+                <span id="line-height-value" class="typo-value">1.5</span>
+              </span>
+            </label>
+            <label class="field">Margin
+              <span class="range">
+                <input type="range" id="margin-range" min="0" max="120" step="8" value="40">
+                <span id="margin-value" class="typo-value">40px</span>
+              </span>
+            </label>
+            <label class="field">Align
+              <select id="text-align-select">
+                <option value="start">Ragged</option>
+                <option value="justify">Justify</option>
+              </select>
+            </label>
+            <label class="field">Columns
+              <select id="columns-select">
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </label>
+            <label class="field field-check"><input type="checkbox" id="hyphenate-toggle"> Hyphenate</label>
+          </div>
+        </div>
+      </details>
+    </div>
+    <div class="reader-wrap">
+      <div id="reader"></div>
+      <div id="tap-zones" class="tap-zones" hidden>
+        <span class="zone-left" id="zone-left">prev</span>
+        <span class="zone-right" id="zone-right">next</span>
       </div>
-      <p id="input-hint" class="input-hint">
+    </div>
+    <div class="actions">
+      <p id="reader-label" class="reader-label"></p>
+      <div class="actions-row">
+        <p id="selection" class="selection" hidden>
+          Selected <q id="selection-text"></q>
+          — <span id="selection-resolves"></span>
+          <button type="button" id="highlight" class="btn btn-sm" disabled>Highlight</button>
+          <button type="button" id="clear-highlights" class="btn btn-sm" hidden>Clear highlights</button>
+        </p>
+        <button type="button" id="read-sentences" class="btn btn-sm" disabled title="TTS enabler: steps through the current section sentence by sentence, highlighting each. The library exposes ranges and draws highlights; it speaks nothing.">Read sentences</button>
+      </div>
+    </div>
+    <details id="input-hint" class="card disclosure inspect" hidden>
+      <summary>Keyboard, swipe and tap zones</summary>
+      <p>
         Turn pages by hand: <kbd>←</kbd> <kbd>→</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd>,
         <kbd>Home</kbd>/<kbd>End</kbd> jump to the book's start/end; swipe on touch;
         or tap the left / right third of the page (hover to see the zones).
         Tap a book image to zoom it full-screen (<kbd>Esc</kbd> or a backdrop click closes).
         RTL books flip left/right. Click into the page first so it has focus.
       </p>
-      <div class="reader-wrap">
-        <div id="reader"></div>
-        <div id="tap-zones" class="tap-zones">
-          <span class="zone-left" id="zone-left">prev</span>
-          <span class="zone-right" id="zone-right">next</span>
-        </div>
-      </div>
-      <p id="roundtrip" class="roundtrip"></p>
-      <p id="selection" class="selection" hidden>
-        Selected <q id="selection-text"></q>
-        — <span id="selection-resolves"></span>
-        <button type="button" id="highlight" class="highlight-btn" disabled>Highlight selection</button>
-        <button type="button" id="clear-highlights" class="highlight-btn" hidden>Clear highlights</button>
-      </p>
-      <p class="selection">
-        TTS enabler — step through the current section sentence by sentence,
-        highlighting each (the library exposes ranges + draws; it speaks nothing):
-        <button type="button" id="read-sentences" class="highlight-btn" disabled>▶ Read sentences</button>
-      </p>
-      <section id="report">
-        <h2>What the host did to this section</h2>
-        <dl>
-          <dt>Parsed as</dt><dd id="report-parse"></dd>
-          <dt>Removed</dt><dd id="report-removed"></dd>
-          <dt>Unwrapped</dt><dd id="report-unwrapped"></dd>
-          <dt>Attributes</dt><dd id="report-attributes"></dd>
-          <dt>Resources</dt><dd id="report-resources"></dd>
-          <dt>Not served</dt><dd id="report-refused"></dd>
-          <dt>CSP blocked</dt><dd id="report-violations"></dd>
-        </dl>
-      </section>
-    </main>
-  </div>
+    </details>
+    <details id="report" class="card disclosure inspect" hidden>
+      <summary>What the host did to this section</summary>
+      <dl>
+        <dt>Parsed as</dt><dd id="report-parse"></dd>
+        <dt>Removed</dt><dd id="report-removed"></dd>
+        <dt>Unwrapped</dt><dd id="report-unwrapped"></dd>
+        <dt>Attributes</dt><dd id="report-attributes"></dd>
+        <dt>Resources</dt><dd id="report-resources"></dd>
+        <dt>Not served</dt><dd id="report-refused"></dd>
+        <dt>CSP blocked</dt><dd id="report-violations"></dd>
+      </dl>
+    </details>
+    <details id="theme-vars-panel" class="card disclosure inspect">
+      <summary>Resolved --wr-* variables</summary>
+      <p id="theme-vars" class="theme-vars" title="the resolved --wr-* variable set"></p>
+    </details>
+  </main>
 </div>
 <script type="module">
   import { open } from '/src/core/index.ts';
@@ -484,7 +556,6 @@
   const hyphenateEl = document.querySelector('#hyphenate-toggle');
   const columnsEl = document.querySelector('#columns-select');
   const themeVarsEl = document.querySelector('#theme-vars');
-  const roundtripEl = document.querySelector('#roundtrip');
   const selectionEl = document.querySelector('#selection');
   const selectionTextEl = document.querySelector('#selection-text');
   const selectionResolvesEl = document.querySelector('#selection-resolves');
@@ -540,18 +611,19 @@
     const name = document.createElement('strong');
     name.textContent = err instanceof Error ? err.name : 'Error';
     errorEl.append(name, document.createTextNode(` — ${err instanceof Error ? err.message : String(err)}`));
-    errorEl.style.display = 'block';
+    errorEl.hidden = false;
   }
 
   function resetUi() {
-    errorEl.style.display = 'none';
-    bookEl.style.display = 'none';
+    errorEl.replaceChildren();
+    errorEl.hidden = true;
+    bookEl.hidden = true;
     if (coverUrl !== null) {
       URL.revokeObjectURL(coverUrl);
       coverUrl = null;
     }
     coverEl.removeAttribute('src');
-    coverEl.style.display = 'none';
+    coverEl.hidden = true;
     badgesEl.replaceChildren();
     tocEl.replaceChildren();
     orderEl.replaceChildren();
@@ -582,15 +654,14 @@
     activeButton = null;
     readerEl.replaceChildren();
     readerLabelEl.textContent = '';
-    inputHintEl.style.display = 'none';
-    tapZonesEl.style.display = 'none';
-    pagerEl.style.display = 'none';
-    appearanceEl.style.display = 'none';
-    roundtripEl.style.display = 'none';
+    inputHintEl.hidden = true;
+    tapZonesEl.hidden = true;
+    pagerEl.hidden = true;
+    appearanceEl.hidden = true;
     selectionEl.hidden = true;
     selectionTextEl.textContent = '';
     selectionResolvesEl.textContent = '';
-    reportEl.style.display = 'none';
+    reportEl.hidden = true;
     violations.length = 0;
   }
 
@@ -701,7 +772,7 @@
     );
     chips(reportFields.refused, [...resources.unresolved, ...resources.refused], 'gone');
     showViolations();
-    reportEl.style.display = 'block';
+    reportEl.hidden = false;
   }
 
   function addBadge(text, warn) {
@@ -844,7 +915,7 @@
       book.sections.length > 0 ? buildReadingOrder(book.sections) : emptyNote('no sections'),
     );
     readerLabelEl.textContent = 'opening the book in the sandboxed reader…';
-    bookEl.style.display = 'block';
+    bookEl.hidden = false;
     startReader();
     if (book.metadata.cover !== undefined) {
       const current = generation;
@@ -853,7 +924,7 @@
         if (current !== generation) return;
         coverUrl = URL.createObjectURL(new Blob([bytes], { type: book.metadata.cover.mediaType }));
         coverEl.src = coverUrl;
-        coverEl.style.display = 'block';
+        coverEl.hidden = false;
       } catch (err) {
         if (current === generation) showError(err);
       }
@@ -878,8 +949,8 @@
       },
       onError: () => {},
     });
-    pagerEl.style.display = 'flex';
-    appearanceEl.style.display = 'flex';
+    pagerEl.hidden = false;
+    appearanceEl.hidden = false;
     // Built-in input (keyboard / swipe / tap zones) is on by default — the demo
     // passes no `input` option so the facade wires all three straight into the
     // frame's forwarded gestures. Nothing here disables them; the reader is
@@ -894,8 +965,8 @@
     // Surface the input affordances and orient the tap-zone labels to the book's
     // reading direction: in RTL the left edge is the *next* page, the right the
     // previous, so the overlay labels swap to match the facade's RTL flip.
-    inputHintEl.style.display = 'block';
-    tapZonesEl.style.display = 'block';
+    inputHintEl.hidden = false;
+    tapZonesEl.hidden = false;
     const rtl = book.direction === 'rtl';
     zoneLeftEl.textContent = rtl ? 'next' : 'prev';
     zoneRightEl.textContent = rtl ? 'prev' : 'next';
@@ -996,7 +1067,7 @@
       ttsTimer = null;
     }
     if (reader !== null) void reader.undecorate('tts-active');
-    readSentencesEl.textContent = '▶ Read sentences';
+    readSentencesEl.textContent = 'Read sentences';
   }
 
   async function ttsStep() {
@@ -1015,7 +1086,7 @@
     ttsSentences = await reader.sentences();
     ttsIndex = 0;
     if (ttsSentences.length === 0) return;
-    readSentencesEl.textContent = '⏸ Stop reading';
+    readSentencesEl.textContent = 'Stop';
     await ttsStep();
     ttsTimer = setInterval(() => { void ttsStep(); }, 1500);
   }
