@@ -187,7 +187,8 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   columns, so the blank is invisible to a layout-only probe. The viewport clip
   lives on the `#wolfy-reader-content` root. Regression:
   `test/browser/layout.browser.mjs` "paginated pages paint their content" probes
-  with `elementFromPoint` (which honours the clip) rather than rects.
+  with `elementFromPoint` (which honours the clip) rather than rects. The price is
+  that nothing clips an over-wide *element* either — see Gotchas.
 - **2026-09-17 — Column flow is pinned `ltr`; the book's direction lives one level
   in.** CSS multi-column lays its overflow columns out along the *inline* axis, so
   under a publisher `body{direction:rtl}` columns 2..N grow to the **left** of the
@@ -352,6 +353,28 @@ asserts `textContent` matches paginated mode modulo whitespace with no clipping.
 
 ## Gotchas
 
+- **The chunk box is `overflow: visible` on purpose, so containment is a
+  per-element concern.** A page is a column, and nothing clips a block wider than
+  that column: a `<table>`, an unwrapped `<pre>` or one unbreakable token paints
+  straight over the neighbouring page's band, on top of that page's own text.
+  Clipping the chunk is not the fix — it blanks every page after the first (Key
+  decisions). The frame reset caps the elements instead: `overflow-wrap: anywhere`
+  on `#wolfy-reader-content`, `pre{white-space:pre-wrap!important}` and
+  `table{max-width:100%!important}`. The two caps are `!important` because
+  containment is page geometry rather than a formatting preference, and books do
+  ship `pre{white-space:pre}` and `table{max-width:none}`, which would otherwise
+  win; `overflow-wrap` stays inheritable and overridable, and it is what shrinks a
+  cell's min-content so a capped table can actually reach its cap — `max-width`
+  alone leaves an auto-layout table sitting at its min-content width. Regression:
+  `test/browser/layout.browser.mjs` "wide content stays inside its page", which
+  leads a section with the wide block so it cannot legitimately fragment, then
+  checks both the fragment rects and `elementFromPoint` on every page.
+- **A column-fragmented element's bounding box spans every column it reaches, and
+  that is not overflow.** `getBoundingClientRect()` on a table split across two
+  columns reads as wide as the two bands together, so a containment assertion built
+  on it accuses a perfectly contained block. Measure `getClientRects()` — one rect
+  per fragment — and test each against its own band. (The height half of this is the
+  older "a fragmented element has no usable height" note below.)
 - **`refine()` cannot be used to measure what a re-layout costs.** It returns the
   current state immediately when that state is already firm, so timing it measures an
   early return — a timing assertion built on it passes without any work happening.

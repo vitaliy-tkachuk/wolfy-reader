@@ -71,6 +71,34 @@ function directionalSection(paragraphs, direction, id = `prose-${direction}`) {
   };
 }
 
+// A section that leads with one block wider than a reading column, followed by
+// enough prose to fill several pages. Leading with it puts the block at the top of
+// the first column, so it cannot legitimately fragment into a second one — anything
+// it paints past the first page is a bleed. The publisher stylesheet contradicts
+// the frame reset on every rule that contains it, which is the realistic case
+// (books do ship `pre{white-space:pre}`) and the reason containment is important.
+const WIDE_BLOCKS = {
+  'wide-table': `<table id="wide-table"><tbody>${['a', 'b']
+    .map((r) => `<tr>${Array.from({ length: 12 }, (_, i) => `<td>${r}${i + 1}</td>`).join('')}</tr>`)
+    .join('')}</tbody></table>`,
+  'wide-pre': `<pre id="wide-pre">${`${'x'.repeat(60)} ${'output that was never meant to wrap '.repeat(4)}`}\n${'y'.repeat(180)}</pre>`,
+  'long-url': `<p id="long-url">https://example.invalid/${'averylongunbreakablepathsegment'.repeat(6)}</p>`,
+};
+
+function wideBlockSection(blockId) {
+  const prose = `<p>${'Ordinary prose fills the columns that follow the wide block. '.repeat(12)}</p>`;
+  return {
+    id: blockId,
+    source:
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><style>' +
+      '#wide-table{width:1400px}table{max-width:none}pre{white-space:pre}' +
+      '</style></head><body>' +
+      WIDE_BLOCKS[blockId] +
+      prose.repeat(12) +
+      '</body></html>',
+  };
+}
+
 let server = null;
 let browser = null;
 let page = null;
@@ -259,6 +287,71 @@ describe('RTL content pagination', { ...skipAll }, () => {
       assert.equal(landed, target, `RTL page ${target} round-tripped to ${landed}`);
     }
   });
+});
+
+describe('wide content stays inside its page', { ...skipAll }, () => {
+  // Regression: the chunk box is `overflow: visible` by design — a page turn reveals
+  // a later column by translating the box, so it must not clip itself — which leaves
+  // containment a per-element concern. A table, a `<pre>` or an unbreakable token
+  // wider than the column painted straight over the neighbouring page's band, on top
+  // of that page's own text.
+  const GEOMETRY = { mode: 'paginated', pageWidth: 700, pageHeight: 560, columnGap: 40 };
+  const COLUMN_WIDTH = GEOMETRY.pageWidth - 2 * GEOMETRY.columnGap;
+
+  /** The ids painted on the current page, sampled over a grid inside the root box. */
+  const idsOnPage = () =>
+    contentFrame().evaluate(() => {
+      const root = document.getElementById('wolfy-reader-content');
+      const box = root.getBoundingClientRect();
+      const ids = new Set();
+      for (let x = box.left + 4; x < box.right - 4; x += 12) {
+        for (let y = box.top + 4; y < box.bottom - 4; y += 12) {
+          let el = document.elementFromPoint(x, y);
+          while (el !== null && el.nodeType === 1) {
+            if (el.id) ids.add(el.id);
+            el = el.parentElement;
+          }
+        }
+      }
+      return [...ids];
+    });
+
+  for (const blockId of Object.keys(WIDE_BLOCKS)) {
+    test(`${blockId} is contained in the first page and paints on no other`, async () => {
+      await paginateSynthetic(wideBlockSection(blockId), GEOMETRY);
+      const firm = await page.evaluate(() => window.harness.refine());
+      assert.ok(firm.pageCount >= 3, `need several pages, got ${firm.pageCount}`);
+
+      // Every painted fragment of the block sits inside the first column. Fragment
+      // rects, not the element box: a column-fragmented element's bounding box spans
+      // every column it reaches, which is not overflow.
+      const fragments = await contentFrame().evaluate((id) => {
+        const chunk = document.querySelector('.wolfy-reader-chunk').getBoundingClientRect();
+        const el = document.getElementById(id);
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const rects = [...el.getClientRects(), ...range.getClientRects()];
+        return { left: chunk.left, rects: rects.map((r) => ({ left: r.left, right: r.right })) };
+      }, blockId);
+      assert.ok(fragments.rects.length > 0, `${blockId} painted nothing`);
+      const columnRight = fragments.left + COLUMN_WIDTH;
+      for (const rect of fragments.rects) {
+        assert.ok(
+          rect.right <= columnRight + 1,
+          `${blockId} paints out to ${rect.right}, past the column's right edge (${columnRight})`,
+        );
+      }
+
+      // And the paint agrees: elementFromPoint honours the root clip, so a block that
+      // reaches another page's band shows up when that page is turned to.
+      const pages = [];
+      for (let p = 0; p < firm.pageCount; p += 1) {
+        await page.evaluate((n) => window.harness.goToPage(n), p);
+        if ((await idsOnPage()).includes(blockId)) pages.push(p);
+      }
+      assert.deepEqual(pages, [0], `${blockId} painted on pages ${pages.join(', ')} — it bled past its own`);
+    });
+  }
 });
 
 describe('scrolled-mode parity', { ...skipAll }, () => {

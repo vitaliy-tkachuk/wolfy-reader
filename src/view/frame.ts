@@ -35,6 +35,18 @@ const RESET_CSS = [
   // monolithic boxes do not fragment across columns. relayout publishes the page
   // height as --wr-page-height; the viewport is the fallback before first layout.
   'img,svg{max-width:100%;max-height:var(--wr-page-height,100vh);height:auto}',
+  // Nothing clips a block that is wider than its column: the chunk box is
+  // deliberately overflow:visible so a page turn can reveal its later columns, so
+  // an over-wide table or <pre> paints straight over the neighbouring page's band.
+  // Containment is therefore a per-element concern, and it is page geometry rather
+  // than a formatting preference — hence important, because books do ship
+  // `pre{white-space:pre}` and `table{max-width:none}`, which would otherwise win.
+  // `overflow-wrap` is left inheritable and overridable: it is the default a book
+  // may reasonably opt one element out of, and it shrinks a cell's min-content so a
+  // capped table can actually reach its cap.
+  `#${CONTENT_ROOT_ID}{overflow-wrap:anywhere}`,
+  'pre{white-space:pre-wrap!important}',
+  'table{max-width:100%!important}',
   // A draw-only decoration overlay: pointer-transparent and given a visible default
   // so a bare `decorate` shows without host CSS. It carries the caller's class too, so
   // an appearance stylesheet can restyle it; a host that wants a different look targets
