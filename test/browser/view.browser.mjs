@@ -522,3 +522,44 @@ describe('corpus normalization', { ...skipAll }, () => {
     assert.equal(state.pageAnchorsPresent, pageAnchors.length);
   });
 });
+
+describe('SVG name case', { ...skipAll }, () => {
+  // Regression: the scrubber lowercased every SVG element and attribute name before
+  // the allowlist lookup, but the allowlist spells them as the platform does
+  // (viewBox, preserveAspectRatio, linearGradient, foreignObject). Every camelCase
+  // attribute was stripped (a Gutenberg cover lost its viewBox and rendered cropped),
+  // camelCase elements were unwrapped instead of kept, and foreignObject was unwrapped
+  // instead of discarded.
+  test('camelCase SVG attributes and elements survive; foreignObject is discarded whole', async () => {
+    const source =
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body>' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" preserveAspectRatio="xMidYMid meet" width="100" height="50">' +
+      '<linearGradient id="grad" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#000"/></linearGradient>' +
+      '<rect width="100" height="50" fill="url(#grad)"/>' +
+      '<foreignObject width="100" height="50"><p xmlns="http://www.w3.org/1999/xhtml">FOREIGN_SENTINEL</p></foreignObject>' +
+      '</svg></body></html>';
+    const { report, frame } = await renderSynthetic(source);
+    const state = await frame.evaluate(() => {
+      const svg = document.querySelector('svg');
+      return {
+        viewBox: svg?.getAttribute('viewBox') ?? null,
+        preserveAspectRatio: svg?.getAttribute('preserveAspectRatio') ?? null,
+        gradient: document.querySelector('linearGradient') !== null,
+        gradientUnits: document.querySelector('linearGradient')?.getAttribute('gradientUnits') ?? null,
+        foreignObject: document.querySelector('foreignObject') !== null,
+        text: document.body.textContent,
+      };
+    });
+    assert.equal(state.viewBox, '0 0 100 50', 'viewBox was stripped');
+    assert.equal(state.preserveAspectRatio, 'xMidYMid meet', 'preserveAspectRatio was stripped');
+    assert.ok(state.gradient, 'linearGradient was unwrapped');
+    assert.equal(state.gradientUnits, 'userSpaceOnUse');
+    assert.equal(state.foreignObject, false, 'foreignObject survived');
+    assert.ok(!state.text.includes('FOREIGN_SENTINEL'), 'foreignObject content survived as text');
+    assert.deepEqual(
+      report.sanitization.attributesRemoved.filter((entry) => /viewbox|preserveaspectratio|gradientunits/.test(entry.name)),
+      [],
+    );
+    assert.ok(report.sanitization.elementsRemoved.some((entry) => entry.name === 'foreignObject'));
+  });
+});

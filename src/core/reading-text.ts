@@ -81,6 +81,15 @@ export const DISCARDED_SVG_ELEMENTS = set(
   'video',
 );
 
+/**
+ * The same set with lowercased names, for consumers that see tag names
+ * case-folded: the search extractor lowercases every raw tag, and the sanitizer
+ * discards case-insensitively so the two agree on what carries no reading text.
+ */
+export const DISCARDED_SVG_ELEMENTS_LOWER: ReadonlySet<string> = new Set(
+  [...DISCARDED_SVG_ELEMENTS].map((name) => name.toLowerCase()),
+);
+
 export type ReferenceKind = 'empty' | 'fragment' | 'relative' | 'scheme';
 
 export interface ClassifiedReference {

@@ -35,7 +35,7 @@
  */
 import {
   DISCARDED_HTML_ELEMENTS,
-  DISCARDED_SVG_ELEMENTS,
+  DISCARDED_SVG_ELEMENTS_LOWER,
   imageReadingText,
   type ReadingResolver,
 } from '../core/reading-text.ts';
@@ -232,7 +232,7 @@ export function extractText(markup: string, resolve?: ReadingResolver): string {
     // Discarded-whole elements contribute nothing, exactly like the sanitizer;
     // raw-text containers jump to their first matching end tag, everything else
     // to the end tag balancing same-name nesting.
-    const discarded = inSvg ? DISCARDED_SVG_ELEMENTS : DISCARDED_HTML_ELEMENTS;
+    const discarded = inSvg ? DISCARDED_SVG_ELEMENTS_LOWER : DISCARDED_HTML_ELEMENTS;
     if (discarded.has(name) || name === 'style') {
       if (selfClosing || (!inSvg && VOID.has(name))) continue;
       index = RAW_TEXT.has(name) ? findEndTag(markup, name, index) : skipBalanced(markup, name, index);

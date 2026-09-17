@@ -67,7 +67,9 @@ definition** and both sides speak it:
 
 - The shared policy lives in `src/core/reading-text.ts` (core-internal, not public
   surface — the `graphemes.ts` pattern): the discarded-element tables (re-exported
-  by `src/view/allowlist.ts` as `HTML_DISCARDED`/`SVG_DISCARDED`), reference
+  by `src/view/allowlist.ts` as `HTML_DISCARDED`/`SVG_DISCARDED`; the extractor
+  lowercases tag names, so it matches SVG discards against
+  `DISCARDED_SVG_ELEMENTS_LOWER` and the sanitizer discards case-insensitively too), reference
   classification/normalization (re-exported by `src/view/reference.ts`), the
   servable-media-type predicate, and `imageReadingText` — the headless mirror of
   `applyResources`' img branch. Search imports it from `src/core`, so the headless

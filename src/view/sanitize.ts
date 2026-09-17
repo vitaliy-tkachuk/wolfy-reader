@@ -4,7 +4,7 @@ import {
   HTML_GLOBAL_ATTRIBUTES,
   HTML_NAMESPACE,
   isAllowedReference,
-  SVG_DISCARDED,
+  SVG_DISCARDED_LOWER,
   SVG_ELEMENTS,
   SVG_GLOBAL_ATTRIBUTES,
   SVG_NAMESPACE,
@@ -139,8 +139,13 @@ function scrubAttributes(element: Element, name: string, allowed: ReadonlySet<st
       element.removeAttributeNode(attribute);
       continue;
     }
-    const key = (svg ? attribute.localName : attribute.name).toLowerCase();
-    if (key.startsWith('on')) {
+    // SVG attribute names are case-sensitive and the allowlist spells them as the
+    // platform does (viewBox, preserveAspectRatio, gradientUnits): both parsers
+    // deliver them in that case — XML verbatim, the HTML parser through its SVG
+    // attribute adjustment table — so the lookup is exact. Lowercasing here
+    // stripped every camelCase attribute a book's SVG relied on.
+    const key = svg ? attribute.localName : attribute.name.toLowerCase();
+    if (key.toLowerCase().startsWith('on')) {
       element.removeAttributeNode(attribute);
       tallies.attributes.add(attribute.name.toLowerCase());
       continue;
@@ -161,7 +166,9 @@ function scrubAttributes(element: Element, name: string, allowed: ReadonlySet<st
 function scrub(element: Element, tallies: Tallies): void {
   const namespace = element.namespaceURI;
   const svg = namespace === SVG_NAMESPACE;
-  const name = element.localName.toLowerCase();
+  // Same case rule for element names: the SVG allowlist is matched exactly
+  // (clipPath, linearGradient, radialGradient), HTML case-insensitively.
+  const name = svg ? element.localName : element.localName.toLowerCase();
 
   // Foreign vocabularies (MathML and anything else a book invents) keep their
   // text and lose their elements: nothing in them is known to be safe, and
@@ -173,8 +180,11 @@ function scrub(element: Element, tallies: Tallies): void {
     return;
   }
 
-  const discarded = svg ? SVG_DISCARDED : HTML_DISCARDED;
-  if (discarded.has(name)) {
+  // Discarding is case-insensitive in both vocabularies: an SVG element the parser
+  // did not case-adjust (`<FOREIGNOBJECT>` in XML) is inert, but the search
+  // extractor mirrors this rule over raw markup and cannot tell, so both discard.
+  const discarded = svg ? SVG_DISCARDED_LOWER : HTML_DISCARDED;
+  if (discarded.has(name.toLowerCase())) {
     tallies.removed.add(name);
     element.remove();
     return;

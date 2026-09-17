@@ -236,7 +236,10 @@ export const SVG_ELEMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
  * Shared from `src/core/reading-text.ts` for the same reason as HTML_DISCARDED:
  * the search extractor mirrors what discarding removes from the frame's text.
  */
-export { DISCARDED_SVG_ELEMENTS as SVG_DISCARDED } from '../core/reading-text.ts';
+export {
+  DISCARDED_SVG_ELEMENTS as SVG_DISCARDED,
+  DISCARDED_SVG_ELEMENTS_LOWER as SVG_DISCARDED_LOWER,
+} from '../core/reading-text.ts';
 
 /** Attributes carrying a reference, by element local name. */
 export const URL_ATTRIBUTES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
