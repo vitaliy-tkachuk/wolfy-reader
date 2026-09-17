@@ -111,7 +111,7 @@ Two things the prototype changed about the bet as `PLAN.md` §4 stated it:
   (`firm === true`). Callers surface `firm` so the churn is visible rather than
   presented as precise. See "Estimated-page-count churn" below.
 - **2026-08-25 — Protocol versioning: hand-maintained, now at `PROTOCOL_VERSION =
-  10`.** The layout message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/
+  12`.** The layout message set (`paginate`/`relayout`/`goToPage`/`offsetOfPage`/
   `pageOfOffset`/`scrollToOffset`/`sectionText`/`diagnostics` and their replies) is
   typed and validated on both sides; the wire is shared with the reader facade,
   which grew the version well past the layout-only `2` (link/input/selection/
