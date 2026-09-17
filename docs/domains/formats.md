@@ -60,7 +60,9 @@ Code:
   seam probe. `description/title-info` → metadata; each top-level `<section>` of the
   main `<body>` → one Book section (`s0`, `s1`, …); each named `<body name="notes">`
   → one section (`nb0`, …); inline base64 `<binary>` → resources resolved by
-  `Section.resolve`; cover from `title-info/coverpage`. Zero core/layout/view diff.
+  `Section.resolve`; cover from `title-info/coverpage`; `document-info/id` →
+  `BookMetadata.identifier` when non-empty, the document's own identity claim and the
+  only stable key a host has for the positions it persists. Zero core/layout/view diff.
 - **Body-level content before the first `<section>` is prepended to `s0`, not given a
   section of its own.** A main `<body>` may open with a `<title>`, `<epigraph>`s and an
   `<image>` — the book's own title page. Dropping it would break the transparency rule,

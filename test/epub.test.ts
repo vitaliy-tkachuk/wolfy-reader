@@ -55,6 +55,33 @@ test('EPUB2 fixture decodes with metadata, spine order, and meta-name cover', as
   assert.equal(book.section('nope'), undefined);
 });
 
+test('a linear="no" itemref marks only its own section, which stays addressable', async () => {
+  const book = await openFixture('epub2.epub');
+  const cover = book.section('cover-page');
+  assert.ok(cover);
+  assert.equal(cover.linear, false, 'the cover page sits outside the primary reading flow');
+  for (const id of ['chapter-1', 'chapter-2']) {
+    const section = book.section(id);
+    assert.ok(section);
+    assert.equal('linear' in section, false, `${id} omits the flag rather than setting undefined`);
+  }
+  assert.deepEqual(
+    book.sections.map((s) => s.id),
+    ['cover-page', 'chapter-1', 'chapter-2'],
+    'a non-linear section keeps its place in the reading order',
+  );
+});
+
+test('metadata.identifier is the dc:identifier the package names unique', async () => {
+  const one = await openFixture('epub2.epub');
+  assert.equal(one.metadata.identifier, 'urn:uuid:6f1d4b6e-2a51-4c3e-9a77-0f2b8c1de901');
+  // Two identifiers with unique-identifier naming the second: the decoy ISBN must
+  // lose, and the XML whitespace the obfuscation key needs verbatim must not reach
+  // a host that keys persisted positions on this string.
+  const two = await openFixture('obfuscated-font.epub');
+  assert.equal(two.metadata.identifier, 'urn:wolfy:obfus\t2026 09');
+});
+
 test('EPUB2 fixture exposes non-spine manifest items as resources', async () => {
   const book = await openFixture('epub2.epub');
   assert.deepEqual([...book.resources.keys()].sort(), ['cover-image', 'ncx', 'style']);

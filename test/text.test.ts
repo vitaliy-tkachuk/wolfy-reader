@@ -60,6 +60,10 @@ test('metadata is read from the Gutenberg Title/Author header', async () => {
   const book = await openText(bytesOf(SAMPLE));
   assert.equal(book.metadata.title, 'A Small Book');
   assert.equal(book.metadata.author, 'A. Writer');
+  // Plain text declares no identifier and has no non-linear notion; both fields
+  // are absent rather than set to undefined.
+  assert.equal('identifier' in book.metadata, false);
+  for (const section of book.sections) assert.equal('linear' in section, false);
 });
 
 test('a headingless file still reads as one synthetic section', async () => {

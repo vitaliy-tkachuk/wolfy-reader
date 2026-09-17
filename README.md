@@ -27,7 +27,7 @@ Browsers with `DecompressionStream`: **Chrome 80+, Safari 16.4+, Firefox 113+**.
 import { open, render } from 'wolfy-reader';
 import { epub } from 'wolfy-reader/epub';
 
-// Bytes in: ArrayBuffer | Blob (a File is one) | { size, read(offset, length) }.
+// Bytes in: ArrayBuffer | Uint8Array | Blob (a File is one) | { size, read(offset, length) }.
 const book = await open(file, { formats: [epub] });
 
 const reader = render(book, document.getElementById('reader')!, {

@@ -389,6 +389,7 @@
         <dl>
           <dt>Author</dt><dd id="book-author"></dd>
           <dt>Language</dt><dd id="book-language"></dd>
+          <dt>Identifier</dt><dd id="book-identifier"></dd>
           <dt>Sections</dt><dd id="book-sections"></dd>
         </dl>
         <div id="badges"></div>
@@ -554,6 +555,7 @@
   const titleEl = document.querySelector('#book-title');
   const authorEl = document.querySelector('#book-author');
   const languageEl = document.querySelector('#book-language');
+  const identifierEl = document.querySelector('#book-identifier');
   const sectionsEl = document.querySelector('#book-sections');
   const badgesEl = document.querySelector('#badges');
   const tocEl = document.querySelector('#toc');
@@ -930,6 +932,12 @@
       note.className = 'section-note';
       note.textContent = ` ${section.mediaType}${section.scripted === true ? ' · scripted' : ''}`;
       button.append(note);
+      if (section.linear === false) {
+        const flag = document.createElement('span');
+        flag.className = 'badge';
+        flag.textContent = 'non-linear';
+        button.append(' ', flag);
+      }
       button.addEventListener('click', () => {
         void reader.goTo({ sectionId: section.id, label: section.id, fragment: undefined, children: [] });
       });
@@ -952,6 +960,7 @@
     titleEl.textContent = book.metadata.title ?? '(no title)';
     authorEl.textContent = book.metadata.author ?? '—';
     languageEl.textContent = book.metadata.language ?? '—';
+    identifierEl.textContent = book.metadata.identifier ?? '—';
     sectionsEl.textContent = String(book.sections.length);
     if (book.direction !== undefined) addBadge(`direction: ${book.direction}`, false);
     if (book.fixedLayout === true) addBadge('fixed layout detected — not rendered', true);

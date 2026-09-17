@@ -16,6 +16,13 @@ export interface ManifestItem {
   readonly fallback?: string;
 }
 
+export interface SpineItem {
+  /** Manifest id the itemref names. */
+  readonly idref: string;
+  /** False for linear="no"; omitted otherwise. */
+  readonly linear?: boolean;
+}
+
 export interface OpfPackage {
   /** Zip entry name of the OPF; hrefs resolve relative to its directory. */
   readonly path: string;
@@ -25,8 +32,8 @@ export interface OpfPackage {
   readonly coverItem?: ManifestItem;
   readonly manifest: readonly ManifestItem[];
   readonly itemById: ReadonlyMap<string, ManifestItem>;
-  /** Spine itemref idrefs in reading order. */
-  readonly spine: readonly string[];
+  /** Spine itemrefs in reading order. */
+  readonly spine: readonly SpineItem[];
   /** Manifest id of the NCX named by the spine's toc attribute. */
   readonly ncxId?: string;
   readonly direction?: 'ltr' | 'rtl';
@@ -76,10 +83,11 @@ export function parseOpf(xml: string, path: string): OpfPackage {
   }
   const itemById = new Map(manifest.map((item) => [item.id, item]));
 
-  const spine: string[] = [];
+  const spine: SpineItem[] = [];
   for (const itemref of childrenNamed(spineElement, 'itemref')) {
     const idref = attribute(itemref, 'idref');
-    if (idref !== undefined) spine.push(idref);
+    if (idref === undefined) continue;
+    spine.push({ idref, ...(attribute(itemref, 'linear') === 'no' ? { linear: false } : {}) });
   }
   const ncxId = attribute(spineElement, 'toc');
   const progression = attribute(spineElement, 'page-progression-direction');

@@ -7,7 +7,7 @@ export interface RangeReader {
   readonly read: RangeRead;
 }
 
-export type BookInput = ArrayBuffer | Blob | RangeReader;
+export type BookInput = ArrayBuffer | Uint8Array | Blob | RangeReader;
 
 /** Normalized byte access that every sniffer and decoder consumes. */
 export interface ByteSource {
@@ -18,10 +18,18 @@ export interface ByteSource {
 }
 
 export function toByteSource(input: BookInput): ByteSource {
+  if (input instanceof Uint8Array) return fromBytes(plainBacked(input));
   if (input instanceof ArrayBuffer) return fromBytes(new Uint8Array(input));
   if (input instanceof Blob) return fromBlob(input);
   if (isRangeReader(input)) return fromRangeReader(input);
-  throw new TypeError('input must be an ArrayBuffer, Blob, File, or RangeReader');
+  throw new TypeError('input must be an ArrayBuffer, Uint8Array, Blob, File, or RangeReader');
+}
+
+// slice() re-backs the view with a plain ArrayBuffer — `BufferSource` excludes
+// SharedArrayBuffer-backed views, so one handed straight on would be refused by
+// the platform primitives the decoders feed (the zip reader's DecompressionStream).
+function plainBacked(bytes: Uint8Array): Uint8Array {
+  return bytes.buffer instanceof ArrayBuffer ? bytes : bytes.slice();
 }
 
 function isRangeReader(value: unknown): value is RangeReader {

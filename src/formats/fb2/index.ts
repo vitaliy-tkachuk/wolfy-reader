@@ -193,8 +193,10 @@ function elementsWithId(root: XmlElement): XmlElement[] {
 
 function readMetadata(root: XmlElement, binaries: ReadonlyMap<string, Binary>): BookMetadata {
   const description = firstChildNamed(root, 'description');
+  const documentInfo = description === undefined ? undefined : firstChildNamed(description, 'document-info');
+  const identifier = documentInfo === undefined ? undefined : textOf(firstChildNamed(documentInfo, 'id'));
   const titleInfo = description === undefined ? undefined : firstChildNamed(description, 'title-info');
-  if (titleInfo === undefined) return {};
+  if (titleInfo === undefined) return identifier === undefined ? {} : { identifier };
 
   const title = textOf(firstChildNamed(titleInfo, 'book-title'));
   const language = textOf(firstChildNamed(titleInfo, 'lang'));
@@ -205,6 +207,7 @@ function readMetadata(root: XmlElement, binaries: ReadonlyMap<string, Binary>): 
     ...(title === undefined ? {} : { title }),
     ...(author === undefined ? {} : { author }),
     ...(language === undefined ? {} : { language }),
+    ...(identifier === undefined ? {} : { identifier }),
     ...(cover === undefined ? {} : { cover }),
   };
 }

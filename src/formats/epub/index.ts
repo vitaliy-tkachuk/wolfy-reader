@@ -134,8 +134,8 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage, encryption: Encryptio
   const sections: Section[] = [];
   const sectionByPath = new Map<string, string>();
   const spineIds = new Set<string>();
-  for (const idref of pkg.spine) {
-    const item = pkg.itemById.get(idref);
+  for (const entry of pkg.spine) {
+    const item = pkg.itemById.get(entry.idref);
     if (item === undefined || spineIds.has(item.id)) continue;
     spineIds.add(item.id);
     const content = resolveFallback(item, pkg.itemById);
@@ -149,6 +149,7 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage, encryption: Encryptio
       id: item.id,
       mediaType: content.mediaType,
       ...(scripted ? { scripted } : {}),
+      ...(entry.linear === false ? { linear: false } : {}),
       load: loaderFor(path),
       resolve: (reference) => resolveFrom(contentDir, reference),
       // Resolve a section-relative href to the section it names, reusing the same
@@ -183,10 +184,15 @@ async function buildBook(zip: ZipArchive, pkg: OpfPackage, encryption: Encryptio
       ? undefined
       : { mediaType: coverItem.mediaType, load: loaderFor(coverPath) };
 
+  // Trimmed, unlike OpfPackage.uniqueIdentifier: the obfuscation key strips XML
+  // whitespace itself and needs the identifier verbatim, while a host keying
+  // persisted positions wants the same string every time it opens the book.
+  const identifier = pkg.uniqueIdentifier?.trim();
   const metadata: BookMetadata = {
     ...(pkg.title === undefined ? {} : { title: pkg.title }),
     ...(pkg.author === undefined ? {} : { author: pkg.author }),
     ...(pkg.language === undefined ? {} : { language: pkg.language }),
+    ...(identifier === undefined || identifier === '' ? {} : { identifier }),
     ...(cover === undefined ? {} : { cover }),
   };
 

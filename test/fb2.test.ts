@@ -130,6 +130,16 @@ test('the TOC nests as deep as the sections do', async () => {
   assert.equal(third.fragment, 'one-a-i');
 });
 
+test('metadata.identifier comes from document-info/id when the book declares one', async () => {
+  const declared = await openFb2('structure.fb2');
+  assert.equal(declared.metadata.identifier, 'wolfy-fb2-structure-0001');
+  const silent = await openFb2('basic.fb2');
+  assert.equal('identifier' in silent.metadata, false, 'no document-info means the field is omitted');
+  for (const section of declared.sections) {
+    assert.equal('linear' in section, false, 'FB2 has no non-linear notion, so the flag is omitted');
+  }
+});
+
 test('a minimal FB2 with a bare unnamed section still reads', async () => {
   const book = await openFb2('minimal.fb2');
   assert.equal(book.metadata.title, 'Minimal');

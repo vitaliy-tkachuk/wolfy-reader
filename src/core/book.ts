@@ -11,6 +11,8 @@ export interface BookMetadata {
   /** BCP 47 language tag. */
   readonly language?: string;
   readonly cover?: Resource;
+  /** The identifier the book declares for itself; a stable key for persisted positions. */
+  readonly identifier?: string;
 }
 
 /** A table-of-contents entry; targets a section by id, never by file path. */
@@ -29,6 +31,8 @@ export interface Section {
   readonly mediaType: string;
   /** True when the content declares executable script; omitted when unknown. */
   readonly scripted?: boolean;
+  /** False when the book places this section outside its primary reading flow; omitted otherwise. */
+  readonly linear?: boolean;
   load(): Promise<Uint8Array>;
   /**
    * Resolves a reference appearing inside this section's content — in whatever

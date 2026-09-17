@@ -6,6 +6,7 @@ import {
   EncryptedContentError,
   UnrecognizedFormatError,
   open,
+  toByteSource,
 } from '../src/core/index.ts';
 import type {
   Book,
@@ -109,6 +110,7 @@ const stubBytes = new TextEncoder().encode(MAGIC + JSON.stringify(payload));
 
 const inputShapes: Record<string, () => BookInput> = {
   ArrayBuffer: () => stubBytes.buffer,
+  Uint8Array: () => stubBytes,
   Blob: () => new Blob([stubBytes]),
   File: () => new File([stubBytes], 'stub.bin'),
   RangeReader: () => ({
@@ -316,6 +318,26 @@ test('open passes the host StorageAdapter through to the decoder context', async
   assert.deepEqual(calls, ['get k', 'set k']);
 });
 
-test('open rejects a value that is none of the four input shapes', async () => {
+test('open rejects a value that is none of the input shapes', async () => {
   await assert.rejects(open(42 as never, { formats: [stubFormat] }), TypeError);
+});
+
+test('a Uint8Array view reads its own window, not the whole buffer', async () => {
+  const padded = new Uint8Array(stubBytes.byteLength + 8);
+  padded.set(stubBytes, 4);
+  const book = await open(padded.subarray(4, 4 + stubBytes.byteLength), { formats: [stubFormat] });
+  assert.equal(book.metadata.title, 'The Stub Book');
+});
+
+test('a SharedArrayBuffer-backed view is re-backed rather than refused', async (t) => {
+  if (typeof SharedArrayBuffer === 'undefined') {
+    t.skip('this runtime has no SharedArrayBuffer');
+    return;
+  }
+  const shared = new Uint8Array(new SharedArrayBuffer(stubBytes.byteLength));
+  shared.set(stubBytes);
+  const chunk = await toByteSource(shared).read(0, 4);
+  assert.ok(chunk.buffer instanceof ArrayBuffer, 'BufferSource excludes SAB-backed views');
+  const book = await open(shared, { formats: [stubFormat] });
+  assert.equal(book.metadata.title, 'The Stub Book');
 });
