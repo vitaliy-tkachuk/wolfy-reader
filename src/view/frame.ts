@@ -212,10 +212,28 @@ function realize(el){ el.style.contentVisibility = 'visible'; }
 // contributes ceil(contentWidth / pageStride) pages; boundaries are forced page
 // breaks so per-chunk page counts simply sum. In scrolled mode chunks stack
 // vertically in normal flow with no paging.
+// The page geometry below assumes html, body and the content root are plain
+// zero-inset boxes: a publisher stylesheet that gives the body a margin, padding,
+// border or width (Gutenberg: body{margin-left:10%;margin-right:10%}) shifts and
+// narrows the box the chunks are positioned in, so every page paints offset and
+// clipped on one edge. The reset stylesheet cannot hold against it (a later or
+// more specific publisher rule wins), so the box model is pinned inline and
+// important — the one thing no stylesheet outranks. Edge margins are the
+// paginator's own (columnGap), applied to the chunks; nothing is lost.
+function pinBoxModel(el, sizing){
+  var props = [['margin','0'],['padding','0'],['border','0'],['min-width','0'],['max-width','none']];
+  // The root's width/height are the page viewport and are set below; only the
+  // viewport boxes above it get their width pinned.
+  if (sizing) props.push(['width','auto'],['height','auto']);
+  for (var i = 0; i < props.length; i++) el.style.setProperty(props[i][0], props[i][1], 'important');
+}
 function relayout(){
   var els = chunkContainers();
   layout.chunks = [];
   var root = document.getElementById(ROOT_ID) || document.body;
+  pinBoxModel(document.documentElement, true);
+  pinBoxModel(document.body, true);
+  if (root !== document.body) pinBoxModel(root, false);
   if (layout.mode === 'scrolled'){
     // The document scrolls vertically to read, so restore that; but clip the
     // horizontal axis so an over-wide element (a broad table, a long pre) cannot add

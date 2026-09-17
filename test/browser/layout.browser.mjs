@@ -419,3 +419,40 @@ describe('corpus timing budgets (nice-to-have)', { ...skipAll, ...skipCorpus }, 
     assert.ok(relayoutUnits < RELAYOUT_UNITS, `re-layout exceeded ${RELAYOUT_UNITS} machine units — ${report}`);
   });
 });
+
+describe('publisher box model on html/body', { ...skipAll }, () => {
+  // Regression: Gutenberg's stylesheet sets body{margin-left:10%;margin-right:10%}
+  // (under @media screen), which outranks the frame's body{margin:0} reset. The
+  // chunks are positioned inside the body box, so every page painted shifted right
+  // by the margin and clipped by the same amount on the right edge. The paginator
+  // owns page geometry, so the frame pins html/body/root to a zero-inset box.
+  test('a body margin from the book does not shift or clip the page', async () => {
+    const spec = longSection(10, 'body-margin');
+    spec.source = spec.source.replace(
+      '<body>',
+      '<head><style>@media screen{body{margin-left:10%;margin-right:10%;padding:2em;border:5px solid red;max-width:20em}}</style></head><body>',
+    );
+    const pageWidth = 700;
+    const columnGap = 40;
+    for (const mode of ['paginated', 'scrolled']) {
+      await paginateSynthetic(spec, { mode, pageWidth, pageHeight: 560, columnGap });
+      const frame = contentFrame();
+      const boxes = await frame.evaluate(() => {
+        const body = document.body.getBoundingClientRect();
+        const root = document.getElementById('wolfy-reader-content').getBoundingClientRect();
+        const chunk = document.querySelector('.wolfy-reader-chunk').getBoundingClientRect();
+        return { body: { left: body.left, width: body.width }, root: { left: root.left, width: root.width }, chunk: { left: chunk.left, width: chunk.width } };
+      });
+      assert.equal(boxes.body.left, 0, `${mode}: the body was shifted by the book's margin`);
+      assert.equal(boxes.root.left, 0, `${mode}: the root was shifted`);
+      assert.equal(boxes.root.width, pageWidth, `${mode}: the root was narrowed`);
+      if (mode === 'paginated') {
+        assert.equal(boxes.chunk.left, columnGap, 'the first column does not start at the edge margin');
+        assert.equal(boxes.chunk.width, pageWidth - 2 * columnGap, 'the column does not fit inside both edge margins');
+      } else {
+        assert.equal(boxes.chunk.left, 0);
+        assert.equal(boxes.chunk.width, pageWidth);
+      }
+    }
+  });
+});
